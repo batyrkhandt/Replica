@@ -13,6 +13,7 @@ import { requestPublish } from "../request-publish/index.mjs"
 import { writeState } from "../write-state/index.mjs"
 import { createPrivateStore } from "../private-store/index.mjs"
 import { createHubOriginStore } from "../hub-origin-store/index.mjs"
+import { rankForRecall, renderRecall } from "../../../../packages/learning/src/recall.mjs"
 import {
   metadataUpdateAcknowledgement,
   projectLiveState,
@@ -33,6 +34,7 @@ async function register(
   prompts,
   checkServer = async () => ({ available: true }),
   canvasOptions = {},
+  onJoin = () => {},
 ) {
   let canvas
   await registerPrototypeCanvas(
@@ -45,6 +47,7 @@ async function register(
           undefined,
           "Panels must outlive foreground session hooks.",
         )
+        onJoin({ canvases, hooks })
         canvas = canvases[0]
         return {
           workspacePath: context.sessionWorkspacePath,
@@ -69,6 +72,93 @@ async function register(
 }
 
 describe("registerPrototypeCanvas()", () => {
+  it("registers learning recall alongside Controls actions without ending panels with the session", async () => {
+    await withContext(async (context) => {
+      execFileSync("git", ["remote", "add", "origin", "https://github.com/github/replica.git"], {
+        cwd: context.repositoryPath,
+      })
+      const content = "Show a visible label above every form field."
+      const memory = {
+        id: "mem_0123456789abcdef",
+        kind: "rule",
+        content,
+        contentDigest: `sha256:${createHash("sha256").update(content).digest("hex")}`,
+        support: { distinctEpisodes: 2, distinctPrototypes: 2, distinctReviewers: 2 },
+        accepted: { by: { id: "github:mona" }, at: "2026-10-01T12:00:00.000Z" },
+      }
+      const { text } = renderRecall(rankForRecall([memory]))
+      const requests = []
+      const hub = createServer(async (request, response) => {
+        let body = ""
+        for await (const chunk of request) body += chunk
+        requests.push({ method: request.method, route: request.url, body })
+        response.writeHead(200, {
+          "Content-Type": "application/json",
+          "X-Replica-Canvas-Version": "1",
+        })
+        response.end(
+          JSON.stringify({
+            text,
+            memories: [{ id: memory.id, digest: memory.contentDigest }],
+          }),
+        )
+      })
+      await new Promise((resolve) => hub.listen(0, "127.0.0.1", resolve))
+      try {
+        const origin = `http://127.0.0.1:${hub.address().port}`
+        const directory = path.join(context.sessionWorkspacePath, "hub-credentials")
+        const key = createHash("sha256").update(`${origin}\ngithub/replica`).digest("hex")
+        await createPrivateStore(directory).write(`${key}.json`, {
+          origin,
+          repository: "github/replica",
+          token: "test-credential",
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        })
+        let registered
+        const canvas = await register(
+          context,
+          [],
+          undefined,
+          { hubOptions: { origin, directory } },
+          (configuration) => {
+            registered = configuration
+          },
+        )
+        assert.equal(registered.canvases[0], canvas)
+        assert.equal(registered.hooks.onSessionEnd, undefined)
+        for (const name of [
+          "get_action_diagnostics",
+          "get_controls_status",
+          "validate_controls",
+          "reload_preview",
+        ])
+          assert.equal(
+            typeof canvas.actions.find((action) => action.name === name)?.handler,
+            "function",
+          )
+
+        const hook = registered.hooks.onUserPromptSubmitted
+        assert.equal(typeof hook, "function")
+        const input = {
+          workingDirectory: context.repositoryPath,
+          sessionId: "learning-registration",
+          prompt: "Private prompt that must not reach Hub.",
+        }
+        assert.deepEqual(await hook(input), {
+          additionalContext: `This list replaces all earlier approved team learnings in this session.\n${text}`,
+        })
+        assert.equal(await hook(input), undefined)
+        assert.deepEqual(requests, [
+          { method: "POST", route: "/api/canvas/learnings/recall", body: "" },
+          { method: "POST", route: "/api/canvas/learnings/recall", body: "" },
+        ])
+      } finally {
+        hub.closeAllConnections()
+        await new Promise((resolve) => hub.close(resolve))
+      }
+    })
+  })
+
   it("retrieves comments without a preview using current Hub selection and checkout", async () => {
     await withContext(async (context) => {
       execFileSync("git", ["remote", "add", "origin", "https://github.com/github/replica.git"], {

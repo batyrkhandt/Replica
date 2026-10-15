@@ -68,6 +68,12 @@ Plugin/Hub compatibility uses the supported Canvas interface, not matching relea
 
 Contributors can load uncommitted changes from a local Replica checkout with `copilot --plugin-dir` instead of editing an installed copy. See the [contributor workflow](../../../hub/docs/prototype-canvas.md#contributor-workflow) for local setup and asset build commands.
 
+## Learnings
+
+When this repository has a Hub connection and a Hub administrator connected Copilot, each prompt you submit gets the [learnings](../../../hub/docs/learnings.md) your repository's administrators accepted in Hub. The extension never sends your prompt to Hub. Copilot treats the learnings as guidance from your team, not as commands. Its first successful answer replaces earlier learning context, including after a restart or session resume; an empty answer explicitly clears it. Later unchanged answers add nothing. When learnings change, or Learnings is turned off, the next successful answer replaces the earlier guidance. It adds nothing when Hub's answer is not in the form that `replica-learning` writes. It never delays a prompt by more than three seconds and never fails it. Without a Hub connection it adds nothing and never asks you to connect. If you connected before the approval page mentioned learnings, disconnect and connect again to get them.
+
+Copilot CLI runs extensions only while its extensions feature is on. In Copilot CLI 1.0.96 that is an experimental feature: start Copilot CLI with `--experimental`, or run `/experimental on`. In prompt mode (`copilot -p`), it loads a repository's project copy only when `GITHUB_COPILOT_PROMPT_MODE_EXTENSIONS=true`.
+
 ## Agent access to Hub comments
 
 Agents can use actions on the existing `replica-prototype` canvas to retrieve conversations for the current prototype or every reviewable prototype in the checkout's repository, across all Builds. Both use the approved repository connection. Repository retrieval requires a Hub deployment with the repository comments API; it needs no migration, MCP server or separate comment store. Open the canvas, but no running or connected local preview is required for comment actions. They reuse the saved Hub selection and approved credentials; missing authorization still requires connecting to Hub. Preview interactions and publishing still require a connected local preview.

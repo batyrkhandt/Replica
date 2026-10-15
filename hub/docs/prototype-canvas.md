@@ -396,6 +396,23 @@ UTF-8 byte limits without splitting Unicode code points. If the renderer rejects
 a selection anchor, it cancels selection, removes the highlight, and shows the
 existing element or region failure notice so the author can select again.
 
+## Learnings for agents
+
+When a person submits a prompt in a repository with an approved Hub connection, the extension asks Hub for the [learnings](learnings.md) that repository's administrators accepted, and adds them to the prompt as additional context. The extension never sends the prompt to Hub. `POST /api/canvas/learnings/recall` takes no parameters, so Hub orders the learnings by how many prototypes and reviewers raised them, then by when they were accepted. It uses the repository grant and read permission and answers from the cached permission. It returns the text to add and the ID and content digest of each learning in it, empty text while nothing is accepted, and 404 with the code `learnings_off` while Learnings is off. Hub ends a recall that runs longer than 1.5 seconds and answers 503. Ending it can take up to one more second, so Hub answers within the three seconds the extension waits. Each connection can ask for 30 recalls a minute, and Hub answers 429 after that, as [Security rate limits](security-rate-limits.md) describes.
+
+The approval page says that a connection lets Copilot add the repository's accepted learnings to prompts, and its form identifies that disclosure when the person approves. Hub records consent only for the current disclosure. A connection approved before the page said so, including an older page submitted after deployment, still connects without learnings: Hub answers 403 with the code `learnings_consent_required`, and the extension adds nothing. To get learnings, disconnect and connect to Hub again.
+
+The extension adds Hub's text only when it is exactly what `replica-learning` recall writes:
+
+- The `Approved team learnings (replica-learning)` heading with its count of learnings, then the line that tells the agent each learning is guidance and data.
+- For each learning, in the order Hub lists them: a line numbered from 1 with a supported learning kind and its wording as one normalized JSON string, an optional `Applies to` line, and a support line that ends with the learning's ID. Unquoted wording and text outside the quoted string are rejected; escaped quotes, backslashes, punctuation and Unicode remain supported. Recall's answer for no learnings is also accepted.
+- At most 20 learnings, each with a `sha256:` content digest, and at most 6,000 characters plus the length of the heading.
+- No control characters other than line breaks, no format characters, such as the marks that reorder bidirectional text, zero-width characters, and tag characters, and no lone UTF-16 surrogates.
+
+Otherwise the extension adds nothing, so a misbehaving Hub cannot add other lines, hide characters, or leave out the safety line.
+
+The extension uses only a saved Hub selection or `REPLICA_HUB_ORIGIN` and an existing grant. A prompt never starts pairing or Hub discovery, and never waits for another command that holds the grant or for its renewal: an expired or refused grant token is renewed in the background for the next prompt. Its first successful answer always replaces earlier learning context, including after a provider restart or session resume. A nonempty list says it replaces all earlier learnings; an empty list, including Hub's `learnings_off` response, says none apply anymore. This also adds a clearing note to a fresh session with no accepted learnings. While the hook keeps a session's delivery history, unchanged IDs and content digests add nothing, even in another order; a changed list replaces the previous one. When answers arrive out of order, the extension ignores an answer to an older prompt once it has used a newer one. Any other error, or anything slower than three seconds, adds nothing and never fails the prompt.
+
 ## Contributor workflow
 
 Prototype authors install and update the released Copilot plugin through the [CLI installation guide](../../.github/extensions/replica-prototype/README.md#install). Contributors use a local Replica checkout to test uncommitted changes instead.

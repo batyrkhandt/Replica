@@ -99,7 +99,7 @@ Hub keeps a separate, non-exported [security audit](security-audit.md) for shari
 
 Hub encrypts stored App credentials and filters secrets from logs and browser responses. It verifies each GitHub notification before reading it and ignores duplicate deliveries.
 
-[Shared request limits](security-rate-limits.md) bound sign-in, review mutations, analytics settings, workflow installation, administrator changes, and verified webhook processing. Production uses the shared Rails cache. HTTP 429 explains when to retry. Durable metadata-only App redelivery recovers supported failed webhooks within GitHub's three-day window; longer gaps and exhausted recovery remain explicit.
+[Shared request limits](security-rate-limits.md) bound sign-in, review mutations, analytics settings, workflow installation, administrator changes, learning recalls for agents, and verified webhook processing. Production uses the shared Rails cache. HTTP 429 explains when to retry. Durable metadata-only App redelivery recovers supported failed webhooks within GitHub's three-day window; longer gaps and exhausted recovery remain explicit.
 
 Routine App maintenance requires current Hub-admin permission, same-browser five-minute GitHub authorization, and confirmation at `/github_app`. The sole emergency host command repairs credentials for the same existing App without working OAuth; it does not reset data or provision roles. Candidate-key validation is not OAuth client-secret validation. Normal browser reset separately signs everyone out and revokes connections while retaining collaboration data and the remote App. See [App maintenance and recovery](github-app-setup.md#routine-app-administration).
 

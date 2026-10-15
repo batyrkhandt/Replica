@@ -3,18 +3,19 @@
 # Table name: canvas_grants
 # Database name: primary
 #
-#  id                   :integer          not null, primary key
-#  expires_at           :datetime         not null
-#  fresh_authorized_at  :datetime
-#  inactive_at          :datetime
-#  last_active_at       :datetime
-#  refresh_token_digest :string
-#  revoked_at           :datetime
-#  token_digest         :string           not null
-#  created_at           :datetime         not null
-#  updated_at           :datetime         not null
-#  repository_id        :integer          not null
-#  user_id              :integer          not null
+#  id                     :integer          not null, primary key
+#  expires_at             :datetime         not null
+#  fresh_authorized_at    :datetime
+#  inactive_at            :datetime
+#  last_active_at         :datetime
+#  learnings_consented_at :datetime
+#  refresh_token_digest   :string
+#  revoked_at             :datetime
+#  token_digest           :string           not null
+#  created_at             :datetime         not null
+#  updated_at             :datetime         not null
+#  repository_id          :integer          not null
+#  user_id                :integer          not null
 #
 # Indexes
 #

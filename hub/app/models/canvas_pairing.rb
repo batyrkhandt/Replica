@@ -3,17 +3,18 @@
 # Table name: canvas_pairings
 # Database name: primary
 #
-#  id                   :integer          not null, primary key
-#  approved_at          :datetime
-#  consumed_at          :datetime
-#  device_code_digest   :string           not null
-#  expires_at           :datetime         not null
-#  refresh_token_digest :string
-#  user_code            :string           not null
-#  created_at           :datetime         not null
-#  updated_at           :datetime         not null
-#  repository_id        :integer          not null
-#  user_id              :integer
+#  id                     :integer          not null, primary key
+#  approved_at            :datetime
+#  consumed_at            :datetime
+#  device_code_digest     :string           not null
+#  expires_at             :datetime         not null
+#  learnings_consented_at :datetime
+#  refresh_token_digest   :string
+#  user_code              :string           not null
+#  created_at             :datetime         not null
+#  updated_at             :datetime         not null
+#  repository_id          :integer          not null
+#  user_id                :integer
 #
 # Indexes
 #
@@ -31,12 +32,14 @@
 #
 # Check Constraints
 #
-#  canvas_pairings_approval     ((approved_at IS NULL AND user_id IS NULL) OR (approved_at IS NOT NULL AND user_id IS NOT NULL))
-#  canvas_pairings_consumption  (consumed_at IS NULL OR approved_at IS NOT NULL)
+#  canvas_pairings_approval           ((approved_at IS NULL AND user_id IS NULL) OR (approved_at IS NOT NULL AND user_id IS NOT NULL))
+#  canvas_pairings_consumption        (consumed_at IS NULL OR approved_at IS NOT NULL)
+#  canvas_pairings_learnings_consent  (learnings_consented_at IS NULL OR approved_at IS NOT NULL)
 #
 # Holds a short-lived browser approval until the initiating extension consumes it.
 class CanvasPairing < ApplicationRecord
   LIFETIME = 10.minutes
+  LEARNINGS_CONSENT_VERSION = "1".freeze
 
   belongs_to :repository
   belongs_to :user, optional: true
@@ -59,13 +62,18 @@ class CanvasPairing < ApplicationRecord
     [ pairing, device_code, refresh_token ]
   end
 
-  # Records an approval only while the request is pending.
-  def approve!(user, browser_session:)
+  # Records an approval only while the request is pending. Only a form with the current learnings
+  # disclosure can record consent; an older form still connects without learnings.
+  def approve!(user, browser_session:, learnings_consent_version: nil)
     with_lock do
       raise ActiveRecord::RecordNotFound if !Session.where(id: browser_session&.id, user_id: user.id).exists?
       raise ActiveRecord::RecordNotFound if expires_at <= Time.current || approved_at || consumed_at
 
-      update!(user:, approved_at: Time.current)
+      now = Time.current
+      update! \
+        user:,
+        approved_at: now,
+        learnings_consented_at: learnings_consent_version == LEARNINGS_CONSENT_VERSION ? now : nil
       SecurityAuditEvent.record! \
         action: "canvas_pairing.approve", outcome: "succeeded", repository:, actor: user,
         context: (Current.security_audit_context || {}).merge(canvas_pairing_id: id)
@@ -114,6 +122,7 @@ class CanvasPairing < ApplicationRecord
         token_digest: Digest::SHA256.hexdigest(secret),
         expires_at: CanvasGrant::TOKEN_LIFETIME.from_now,
         refresh_token_digest: pairing.refresh_token_digest,
+        learnings_consented_at: pairing.learnings_consented_at,
         last_active_at: pairing.refresh_token_digest && pairing.approved_at,
         inactive_at: pairing.refresh_token_digest && pairing.approved_at + CanvasGrant::INACTIVITY_LIFETIME
       )

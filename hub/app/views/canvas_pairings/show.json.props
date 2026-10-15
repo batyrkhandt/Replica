@@ -9,6 +9,7 @@ json.code @pairing.user_code
 json.repositoryLabel t("canvas_pairings.show.repository_label")
 json.repository @pairing.repository.name_with_owner
 json.permissions t("canvas_pairings.show.permissions")
+json.learningsConsentVersion CanvasPairing::LEARNINGS_CONSENT_VERSION
 json.expiration t(@pairing.refresh_token_digest ? "canvas_pairings.show.renewable_expiration" : "canvas_pairings.show.expiration")
 json.connectionsLabel t("canvas_pairings.show.connections")
 json.connectionsPath canvas_connections_path

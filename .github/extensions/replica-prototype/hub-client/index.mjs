@@ -117,7 +117,7 @@ export function createHubClient(context, options = {}) {
 
   async function hubRequest(
     route,
-    { method = "GET", body, token, interactive = false, beforeDispatch } = {},
+    { method = "GET", body, token, interactive = false, beforeDispatch, timeoutMs = 10_000 } = {},
   ) {
     const url = new URL(route, origin)
     if (url.origin !== origin.origin || !url.pathname.startsWith("/api/canvas/")) {
@@ -135,7 +135,7 @@ export function createHubClient(context, options = {}) {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       ...(body ? { body: JSON.stringify(body) } : {}),
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(timeoutMs),
     })
     const result = response.status === 204 ? {} : await response.json().catch(() => null)
     const version = response.headers.get("X-Replica-Canvas-Version")
@@ -244,6 +244,12 @@ export function createHubClient(context, options = {}) {
         throw error
       }
     })
+  }
+
+  // Renews a credential off the caller's time, so a later request finds it fresh. credentialFor
+  // records a failed renewal on the credential, so nothing here needs to handle it.
+  function renewInBackground(repository, rejectedToken) {
+    credentialFor(repository, rejectedToken).catch(() => {})
   }
 
   async function authorizedRequest(repository, credential, route, options = {}) {
@@ -569,6 +575,48 @@ export function createHubClient(context, options = {}) {
         }
         await removeCredentials(target.repository)
       })
+    },
+    /**
+     * The learnings this repository's administrators accepted, through the connection this
+     * repository already has, with the ID and content digest of each. It sends Hub nothing about
+     * the prompt. Returns null without a usable connection, and no learnings while Learnings is
+     * off. It never starts pairing, and never waits for another command's hold on the connection
+     * or for a renewal: an expired or refused token is renewed in the background, for the next
+     * prompt.
+     */
+    async recallLearnings({ timeoutMs = 3_000 } = {}) {
+      const target = await checkout()
+      if (!target.repository) return null
+      const credential = await readCredential(target.repository)
+      if (!credential || credential.invalid) return null
+      if (Date.parse(credential.expiresAt) <= Date.now()) {
+        renewInBackground(target.repository)
+        return null
+      }
+      let result
+      try {
+        result = await hubRequest("/api/canvas/learnings/recall", {
+          method: "POST",
+          token: credential.token,
+          timeoutMs,
+        })
+      } catch (error) {
+        if (error.statusCode === 401) renewInBackground(target.repository, credential.token)
+        // Hub answers 404 with this code while Learnings is off, when no learnings apply. Any other
+        // 404, such as from a Hub without this route, is an error.
+        if (error.statusCode === 404 && error.code === "learnings_off")
+          return { text: "", memories: [] }
+        throw error
+      }
+      const memories = Array.isArray(result.memories) ? result.memories : null
+      if (
+        typeof result.text !== "string" ||
+        !memories?.every(
+          (memory) => typeof memory?.id === "string" && typeof memory.digest === "string",
+        )
+      )
+        throw new Error("Hub returned invalid learnings.")
+      return { text: result.text, memories: memories.map(({ id, digest }) => ({ id, digest })) }
     },
     async activity() {
       const { target, credential } = await connected()

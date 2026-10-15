@@ -15,6 +15,7 @@ export type CanvasPairingsPageData =
       repository: string
       repositoryLabel: string
       permissions: string
+      learningsConsentVersion: string
       expiration: string
       connectionsLabel: string
       connectionsPath: string

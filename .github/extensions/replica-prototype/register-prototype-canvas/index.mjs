@@ -18,6 +18,7 @@ import { createCommentStore } from "../comment-store/index.mjs"
 import { reviewAction } from "../review-action/index.mjs"
 import { projectValidation, validateControls } from "../validate-controls/index.mjs"
 import { projectControlsStatus } from "../controls-status/index.mjs"
+import { createLearningsHook } from "../recall-learnings/index.mjs"
 
 const HUB_STATES = new Set([
   "connected",
@@ -445,6 +446,7 @@ export async function registerPrototypeCanvas(
   const devServers = createDevServerManager({ discover })
 
   const session = await joinSession({
+    hooks: { onUserPromptSubmitted: createLearningsHook(canvasOptions.hubOptions) },
     canvases: [
       createCanvas({
         id: canvasOptions.id ?? "replica-prototype",
