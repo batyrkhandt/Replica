@@ -37,7 +37,7 @@ Replica has four parts:
 
 **Setting up Replica for your organization?** Follow [environment setup](docs/prototype-environment.md) to create your team's prototyping repository, add your design system and guidance, and deploy Hub. Your organization deploys and runs Hub on its own infrastructure. GitHub doesn't host it.
 
-**How did setup go?** [Share your setup feedback](https://survey.alchemer.com/s3/9055055/Replica-setup-feedback). It helps us make Replica easier to start.
+**How did setup go?** [Share your setup feedback](https://survey.alchemer.com/s3/9055055/Replica-feedback). It helps us make Replica easier to start.
 
 ### Copilot requirements
 
@@ -58,7 +58,7 @@ See [Hub analytics](hub/docs/analytics.md), [security](hub/docs/security.md), an
 
 Replica is under active development and maintained by GitHub staff. See [Support](SUPPORT.md) for help and questions, or [report a bug](https://github.com/github/replica/issues). Support is limited to the resources described in the support policy.
 
-Tried Replica? [Tell us how it went](https://survey.alchemer.com/s3/9055055/Replica-setup-feedback).
+Tried Replica? [Tell us how it went](https://survey.alchemer.com/s3/9055055/Replica-feedback).
 
 Contributions are welcome. Read [Contributing](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md) before participating.
 
