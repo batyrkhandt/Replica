@@ -80,7 +80,11 @@ esac
         auth: request.headers.authorization,
         body: body ? JSON.parse(body) : null,
       })
-      const { status, body: result, delay } = reply(request.url, request.headers.authorization)
+      const {
+        status,
+        body: result,
+        delay,
+      } = await reply(request.url, request.headers.authorization)
       if (delay) await new Promise((resolve) => setTimeout(resolve, delay))
       response.writeHead(status, { "Content-Type": "application/json" })
       response.end(JSON.stringify(result ?? {}))
@@ -498,5 +502,26 @@ esac
 
     assert.deepEqual(await prompt(hook), { additionalContext: NONE })
     assert.equal(await prompt(hook), undefined, "the repeated empty answer is deduplicated")
+  })
+
+  it("ignores a pending answer after its session was evicted and a new answer cleared guidance", async () => {
+    await connect()
+    const hook = createLearningsHook({ origin, directory, timeoutMs: 30_000 })
+    const pending = Promise.withResolvers()
+    reply = () => pending.promise
+    const first = prompt(hook)
+    await eventually(() => requests.length === 1)
+
+    reply = () => ({ status: 200, body: recalled() })
+    try {
+      for (let index = 0; index < 100; index++)
+        await prompt(hook, "Another session", `other-${index}`)
+      assert.deepEqual(await prompt(hook), { additionalContext: NONE })
+    } finally {
+      pending.resolve({ status: 200, body: recalled(LABELS) })
+    }
+
+    assert.equal(await first, undefined, "the evicted answer cannot restore earlier guidance")
+    assert.equal(await prompt(hook), undefined, "the authoritative empty answer stays unchanged")
   })
 })

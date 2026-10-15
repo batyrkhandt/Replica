@@ -151,7 +151,7 @@ export function createLearningsHook(options = {}) {
     try {
       const learnings = await Promise.race([recall(input).catch(() => null), deadline])
       if (!learnings || !wellFormed(learnings)) return
-      if (number < session.used) return
+      if (sessions.get(sessionId) !== session || number < session.used) return
       session.used = number
       const has = learnings.memories
         .map(({ id, digest }) => `${id} ${digest}`)
