@@ -1,6 +1,4 @@
 json.partial! partial: "hub_admins/navigation"
-json.hubAdminsLabel t("github_app.admins")
-json.hubAdminsPath hub_admins_path
 json.verification t("github_app.verification")
 json.configurationId @configuration&.id
 json.version @configuration&.lock_version
