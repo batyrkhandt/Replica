@@ -17,7 +17,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tanstack/history": "1.162.0",
+    "@tanstack/history": "1.162.4",
     "@tanstack/react-router": "1.170.8",
     "react": "19.3.0",
     "react-dom": "19.3.0"
