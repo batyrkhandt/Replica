@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { ThemeProvider } from "@primer/react-brand"
 import { createRef } from "react"
 import { describe, expect, it, vi } from "vitest"
@@ -202,7 +202,7 @@ describe("Toolbar()", () => {
 
   it.each([false, true])(
     "explains Published on hover and focus without dispatching (resolved: %s)",
-    (resolved) => {
+    async (resolved) => {
       const onPublish = vi.fn()
       const publishButtonRef = createRef<HTMLButtonElement>()
       render(
@@ -230,7 +230,7 @@ describe("Toolbar()", () => {
       expect(button).toHaveAccessibleDescription("Latest changes already published")
       const tooltip = document.getElementById(button.getAttribute("aria-describedby")!)!
       fireEvent.mouseEnter(button)
-      expect(tooltip.matches(":popover-open")).toBe(true)
+      await waitFor(() => expect(tooltip.matches(":popover-open")).toBe(true))
       tooltip.hidePopover()
       fireEvent.focus(button)
       expect(tooltip.matches(":popover-open")).toBe(true)

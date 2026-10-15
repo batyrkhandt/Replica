@@ -216,7 +216,7 @@ describe("ShareLinksPage()", () => {
     expect(build.querySelector("strong")).toHaveTextContent("Build 2")
     expect(build).toHaveAccessibleDescription(/Commit: bbbbbbb\s+Author: @octocat\s+Published:/)
     fireEvent.mouseEnter(build)
-    expect(tooltip.matches(":popover-open")).toBe(true)
+    await waitFor(() => expect(tooltip.matches(":popover-open")).toBe(true))
     fireEvent.mouseLeave(build)
     await waitFor(() => expect(tooltip.matches(":popover-open")).toBe(false))
     fireEvent.focus(build)
