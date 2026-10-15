@@ -2,7 +2,7 @@ import { constants } from "node:fs"
 import { randomBytes } from "node:crypto"
 import { access, lstat, mkdir, open, readdir, rename, rm, stat } from "node:fs/promises"
 import path from "node:path"
-import { decodeUtf8, jsonLines, parseJson } from "../canonical-json.mjs"
+import { decodeUtf8, parseJson } from "../canonical-json.mjs"
 import { LearningError, ProviderConflictError } from "../errors.mjs"
 import {
   PROVIDER_CONTRACT,
@@ -293,31 +293,46 @@ export function createJsonLinesMemoryProvider({
   /**
    * One stream's records. Every caller but health() holds the lock after recovering, so the
    * file holds only committed writes; health() only asks whether a last line is unfinished.
+   * Read one line at a time and keep only matches, so a filtered audit read does not retain
+   * every earlier recall. Writers still count every complete byte for journal recovery.
    */
-  async function readStream(stream) {
+  async function readStream(stream, matches = () => true) {
     const file = fileFor(stream)
     const handle = (await storeDirectoryExists()) ? await openOwn(file, constants.O_RDONLY) : null
     if (!handle) return { records: [], partialTail: false, completeBytes: 0, exists: false }
-    let bytes
+    const records = []
+    let tail = Buffer.alloc(0)
+    let completeBytes = 0
+    let line = 0
     try {
-      bytes = await handle.readFile()
+      for await (const chunk of handle.createReadStream({ autoClose: false })) {
+        const bytes = Buffer.concat([tail, chunk])
+        let start = 0
+        let end
+        while ((end = bytes.indexOf(10, start)) !== -1) {
+          line++
+          const source = decodeUtf8(bytes.subarray(start, end), file)
+          completeBytes += end - start + 1
+          start = end + 1
+          if (/^[ \t\r]*$/.test(source)) continue
+          let record
+          try {
+            record = parseJson(source, `${path.basename(file)} line ${line}`)
+          } catch (error) {
+            throw new LearningError("storage_corrupt", error.message, { file, line })
+          }
+          if (matches(record)) records.push(record)
+        }
+        tail = bytes.subarray(start)
+      }
+      decodeUtf8(tail, file)
     } finally {
       await handle.close()
     }
-    const text = decodeUtf8(bytes, file)
-    const end = text.lastIndexOf("\n") + 1
-    const complete = text.slice(0, end)
-    const records = jsonLines(complete).map(({ line, text: source }) => {
-      try {
-        return parseJson(source, `${path.basename(file)} line ${line}`)
-      } catch (error) {
-        throw new LearningError("storage_corrupt", error.message, { file, line })
-      }
-    })
     return {
       records,
-      partialTail: end !== text.length,
-      completeBytes: Buffer.byteLength(complete),
+      partialTail: tail.length !== 0,
+      completeBytes,
       exists: true,
     }
   }
@@ -416,7 +431,8 @@ export function createJsonLinesMemoryProvider({
     return withLock(async () => {
       const planned = []
       for (const [stream, records] of writes) {
-        const current = await readStream(stream)
+        const ids = new Set(records.map((record) => record.id))
+        const current = await readStream(stream, (record) => ids.has(record.id))
         planned.push({ stream, current, ...newRecords(stream, current.records, records) })
       }
       await appendAll(
@@ -433,7 +449,8 @@ export function createJsonLinesMemoryProvider({
   /** The audit entries a write adds, as a write for appendAll, or none when it has none. */
   async function receipts(audit) {
     if (!audit.length) return []
-    const current = await readStream("audit")
+    const ids = new Set(audit.map((record) => record.id))
+    const current = await readStream("audit", (record) => ids.has(record.id))
     return [
       { stream: "audit", records: newRecords("audit", current.records, audit).fresh, current },
     ]
@@ -523,8 +540,9 @@ export function createJsonLinesMemoryProvider({
     async readRecords(stream, query) {
       assertStream(stream)
       assertQuery(query)
-      return readLocked(async () =>
-        (await readStream(stream)).records.filter((record) => matchesQuery(stream, record, query)),
+      return readLocked(
+        async () =>
+          (await readStream(stream, (record) => matchesQuery(stream, record, query))).records,
       )
     },
 
@@ -554,10 +572,10 @@ export function createJsonLinesMemoryProvider({
 
     async readMemoryVersions(query) {
       assertQuery(query)
-      return readLocked(async () =>
-        (await readStream("memories")).records.filter((record) =>
-          matchesQuery("memories", record, query),
-        ),
+      return readLocked(
+        async () =>
+          (await readStream("memories", (record) => matchesQuery("memories", record, query)))
+            .records,
       )
     },
 

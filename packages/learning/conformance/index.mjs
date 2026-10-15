@@ -303,6 +303,47 @@ export function memoryProviderConformance({ name, createProvider }) {
       })
     })
 
+    it("filters audit operations together with scope, IDs, and time", async () => {
+      const provider = await fresh()
+      const records = [
+        auditEntry("audit_operation01"),
+        sealRecord({ ...auditEntry("audit_operation02"), operation: "memory.recall" }),
+        sealRecord({ ...auditEntry("audit_operation03"), operation: "evidence.redact" }),
+        sealRecord({
+          ...auditEntry("audit_operation04"),
+          operation: "evidence.redact",
+          scope: OTHER,
+        }),
+      ]
+      await provider.appendRecords("audit", records)
+      assert.deepEqual(
+        await provider.readRecords("audit", {
+          scope: SCOPE,
+          operations: ["evidence.redact"],
+        }),
+        [records[2]],
+      )
+      assert.deepEqual(
+        await provider.readRecords("audit", {
+          scope: SCOPE,
+          operations: ["grant.add", "evidence.redact"],
+          ids: records.slice(1).map((record) => record.id),
+          since: records[2].at,
+        }),
+        [records[2]],
+      )
+      assert.deepEqual(
+        await provider.readRecords("audit", {
+          scope: SCOPE,
+          operations: ["evidence.redact"],
+          until: records[2].at,
+        }),
+        [],
+      )
+      assert.deepEqual(await provider.readRecords("audit", { scope: SCOPE, operations: [] }), [])
+      assert.deepEqual(await provider.readRecords("audit", { scope: SCOPE }), records.slice(0, 3))
+    })
+
     it("filters events by episode", async () => {
       const { store } = await open()
       const id = (await store.addGrant(designer(), grantInput())).id
@@ -373,15 +414,15 @@ export function memoryProviderConformance({ name, createProvider }) {
   })
 
   describe(`${name}: learning rules`, () => {
-    async function imported() {
-      const opened = await open()
+    async function imported(wrap) {
+      const opened = await open(wrap)
       const grantId = (await opened.store.addGrant(designer(), grantInput())).id
       await opened.store.importHubReviewComments(agent(), weekOneLog(), { grantIds: [grantId] })
       return { ...opened, grantId }
     }
 
-    async function proposed() {
-      const opened = await imported()
+    async function proposed(wrap) {
+      const opened = await imported(wrap)
       await opened.store.annotate(agent(), weekOneLabels().labels)
       const result = await opened.store.consolidate(agent(), {
         consolidator: createRecurrenceConsolidator(),
@@ -1168,6 +1209,63 @@ export function memoryProviderConformance({ name, createProvider }) {
         !again.events.some((event) => event.payload?.commentId === 101),
         "importing the same snapshot again does not bring the text back",
       )
+    })
+
+    it("redaction: comment removal and deleted imports read only redaction audit entries", async () => {
+      let checking = false
+      const reads = []
+      const { store, provider, proposal, grantId } = await proposed((inner) => ({
+        ...inner,
+        async readRecords(stream, query) {
+          if (checking && stream === "audit")
+            assert.deepEqual(query.operations, ["evidence.redact"])
+          const records = await inner.readRecords(stream, query)
+          if (checking && stream === "audit") {
+            assert.ok(records.every((entry) => entry.operation === "evidence.redact"))
+            reads.push(records.length)
+          }
+          return records
+        },
+      }))
+      if (!provider.manifest().capabilities.includes("observation.redact")) return
+      await store.acceptMemory(designer(), proposal.id, { expectedDigest: proposal.reviewDigest })
+      await store.recall(agent())
+      const [recall] = (await provider.readRecords("audit", { scope: SCOPE })).filter(
+        (entry) => entry.operation === "memory.recall",
+      )
+      const history = Array.from({ length: 250 }, (_, index) =>
+        sealRecord({
+          ...recall,
+          id: `audit_recallhistory${String(index).padStart(8, "0")}`,
+        }),
+      )
+      await provider.appendRecords("audit", history)
+
+      checking = true
+      const removed = await store.redactHubComment(designer(), 101)
+      assert.ok(removed.redacted.length > 0)
+      assert.deepEqual((await store.redactHubComment(designer(), 101)).redacted, [])
+      const options = { grantIds: [grantId], redactDeleted: true }
+      const imported = await store.importHubReviewComments(agent(), weekTwoLog(), options)
+      assert.ok(imported.redacted.length > 0)
+      assert.deepEqual(
+        (await store.importHubReviewComments(agent(), weekTwoLog(), options)).redacted,
+        [],
+      )
+      assert.ok(reads.length >= 4)
+      assert.ok(
+        reads.every((length) => length <= removed.redacted.length + imported.redacted.length),
+      )
+      checking = false
+
+      assert.equal(
+        (await provider.readRecords("audit", { scope: SCOPE })).filter(
+          (entry) => entry.operation === "memory.recall",
+        ).length,
+        history.length + 1,
+        "every recall audit entry is retained",
+      )
+      assert.equal((await store.verify(designer())).ok, true)
     })
 
     it("redaction: two people removing a comment at once remove and audit each event once", async () => {
