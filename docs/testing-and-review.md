@@ -12,6 +12,26 @@ Use existing commands and inspect their configuration. Do not invent commands or
 
 For rendered checks and interaction reviews, follow the [root browser workflow](../AGENTS.md#browser-validation-and-playwright-fallback). Existing automated suites, CI browser integration, and build-artifact capture retain their configured drivers.
 
+## Write meaningful tests
+
+Use the [test-writing skill](../.github/skills/write-tests/SKILL.md) when adding or changing automated tests. Apply these criteria when reviewing existing coverage too.
+
+Start with the intended behavior and the regression a test should catch. Inspect existing coverage before adding cases. Each case should protect a distinct outcome, boundary, or failure mode through the smallest useful public interface. An existing case that already catches the regression usually needs an update rather than another test.
+
+Choose assertions that survive an equivalent implementation. Check outcomes such as saved state, returned data, navigation, access decisions, and usable controls. Exact protocol values, serialization, accessible names, meaningful state mappings, and safety restrictions can be contracts worth asserting. Ordinary copy, icon counts, internal markup, and whole configuration snapshots usually are not. A text query that identifies a control is different from a test whose only purpose is freezing its wording. For agent instructions, distinguish discoverable metadata and required safety guidance from incidental phrasing; phrase presence alone does not prove agent behavior.
+
+Keep each behavior at its owning layer and use integration tests to prove important connections. Repeating all lower-level cases through every consumer adds cost without necessarily adding confidence. Keep separate cases for distinct failures; combine assertions when they describe one coherent scenario. Parameterization improves readability but still runs every input. Fewer case names or assertions do not establish a faster suite.
+
+For a bug fix, reproduce the failure before the fix when feasible. For new behavior, establish an expected-result failure before implementation when the interface allows it. A missing dependency, syntax error, or test setup failure is not evidence that the test catches the regression. If the implementation already exists, explain the plausible incorrect behavior the test would reject; report red-phase evidence as unavailable unless it was actually observed.
+
+### Independent test writing
+
+Use one separate test-writing agent for substantial behavior changes and nontrivial bug fixes. These include changes spanning multiple runtime layers, access or persistence rules, concurrent state changes, or a regression requiring non-obvious reproduction. Keep small, local changes in the implementation agent; a separate agent's context and execution cost should earn distinct coverage.
+
+Give the test writer the accepted requirements, relevant issue or bug reproduction, public interfaces, affected paths, existing coverage, and project instructions. Identify unresolved behavior instead of letting the writer infer requirements from current output. The writer should derive expected outcomes from that contract, then inspect implementation as needed to use the real interfaces. Separate context reduces shared assumptions; it does not guarantee independent reasoning.
+
+Assign test files to the writer and production files to the implementation agent. The writer may update test fixtures needed for its cases, but reports production defects and ambiguous requirements instead of changing production behavior or weakening expectations to pass. Finish with one integration review of the combined change. If a separate agent is unavailable, apply the same contract-first process directly and disclose that the independent pass did not happen.
+
 ## Keep local checks and CI aligned
 
 Project commands define the check. GitHub Actions should prepare the required environment and call the same command rather than recreate its behavior.
