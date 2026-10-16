@@ -16,6 +16,7 @@ end
 expected_gates = {
   ["hub-ci", "frontend_test_shard"] => ["Frontend tests shard ${{ matrix.shard }}/4", ["changes"]],
   ["hub-ci", "frontend_test"] => ["Frontend tests", %w[changes frontend_test_shard frontend_integration_test]],
+  ["hub-ci", "production_image"] => ["Production image", %w[changes production_image_platform]],
   ["actions-ci", "result"] => ["Replica action tests", %w[changes test]]
 }
 gates = {}
@@ -47,8 +48,13 @@ workflows.each do |workflow, jobs|
     env = guard.fetch("env")
     check(expression(env["SELECTION_RESULT"]) == "needs.changes.result", "#{label}: incorrect selection result")
     check(expression(env["SELECTED"]) == "needs.changes.outputs.#{suite}", "#{label}: incorrect selection output")
-    result_jobs = { "SHARD_RESULT" => "frontend_test_shard", "INTEGRATION_RESULT" => "frontend_integration_test", "TEST_RESULT" => "test" }
-    expected_results = id == "frontend_test" ? %w[SHARD_RESULT INTEGRATION_RESULT] : id == "result" ? ["TEST_RESULT"] : []
+    result_jobs = { "SHARD_RESULT" => "frontend_test_shard", "INTEGRATION_RESULT" => "frontend_integration_test", "TEST_RESULT" => "test", "IMAGE_RESULT" => "production_image_platform" }
+    expected_results = case id
+                       when "frontend_test" then %w[SHARD_RESULT INTEGRATION_RESULT]
+                       when "result" then ["TEST_RESULT"]
+                       when "production_image" then ["IMAGE_RESULT"]
+                       else []
+                       end
     check(env.keys.sort == (%w[SELECTION_RESULT SELECTED] + expected_results).sort, "#{label}: incorrect gate inputs")
     expected_results.each do |variable|
       check(expression(env[variable]) == "needs.#{result_jobs.fetch(variable)}.result", "#{label}: incorrect #{variable}")
@@ -61,7 +67,12 @@ workflows.each do |workflow, jobs|
     gates[key] = guard.fetch("run")
   end
 end
-check(gates.keys.sort == expected_gates.keys.sort, "Expected exactly the shard guard and both final result gates")
+check(gates.keys.sort == expected_gates.keys.sort, "Expected exactly the shard guard and all three final result gates")
+image_platform = workflows.fetch("hub-ci").fetch("production_image_platform")
+check(image_platform["name"] == "Production image (${{ matrix.architecture }})", "Production image platform name changed")
+check(Array(image_platform["needs"]) == ["changes"], "Production image platform must depend on changes")
+check(image_platform.dig("strategy", "matrix", "architecture") == %w[amd64 arm64], "Production image platform must cover amd64 and arm64")
+check(image_platform.dig("strategy", "fail-fast") == false, "Production image platform must not cancel other architectures on failure")
 check(workflows.fetch("actions-ci").fetch("test")["name"] == "Build action suite", "Build action suite name changed")
 
 states = %w[success failure cancelled skipped] + [""]
@@ -70,6 +81,7 @@ gates.each do |(workflow, id), script|
   variables = case id
               when "frontend_test" then %w[SHARD_RESULT INTEGRATION_RESULT]
               when "result" then ["TEST_RESULT"]
+              when "production_image" then ["IMAGE_RESULT"]
               else []
               end
   combinations = variables.reduce([{}]) { |rows, variable| rows.flat_map { |row| states.map { |state| row.merge(variable => state) } } }
@@ -83,6 +95,8 @@ gates.each do |(workflow, id), script|
                        results["INTEGRATION_RESULT"] == (selected == "true" ? "success" : "skipped")
                    when "result"
                      results["TEST_RESULT"] == (selected == "true" ? "success" : "skipped")
+                   when "production_image"
+                     results["IMAGE_RESULT"] == (selected == "true" ? "success" : "skipped")
                    end
       env = results.merge("SELECTION_RESULT" => selection_result, "SELECTED" => selected)
       stdout, stderr, status = Open3.capture3(env.merge("BASH_ENV" => nil), "bash", "--noprofile", "--norc", "-e", "-c", script, chdir: root)
