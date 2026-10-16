@@ -38,6 +38,28 @@ Project commands define the check. GitHub Actions should prepare the required en
 
 When a command gains a dependency or build prerequisite, update its local setup and affected workflow in the same change. A green local suite does not prove that CI installed the same dependencies, so inspect both paths.
 
+### Select affected CI suites
+
+Hub and build-action workflows start on every pull request, but run their expensive jobs only when the change can affect that suite. Pushes to `main` run both complete suites. Local project commands still run their complete checks; selection changes when CI calls them, not what they do. Dependency-age checks remain unconditional, and Starter and Learning CI retain their own path filters.
+
+The [shared selection workflow](../.github/workflows/ci-changes.yml) calls [the selector](../scripts/select-ci-suites.mjs). For pull requests, it compares the merge base with the PR head using Git rather than the size-limited changed-files API. Deletions and both sides of renames count as changes.
+
+| Changed area | Selected suites |
+| --- | --- |
+| Hub code and configuration | Hub |
+| Shared Controls runtime, schema, fixtures, and capture adapter under `hub/app/javascript/utils/prototype-controls/` | Hub and build action |
+| `actions/build/` | Hub and build action; Hub uses the action for local packaging and browser checks |
+| Copilot extension and plugin catalog | Hub |
+| `packages/learning/` | Hub; its image, lint, and learning integration consume the package |
+| Starter Controls skill | Hub; the runtime suite checks its shared reference |
+| Other starter files and the existing installer scripts | Neither; Starter CI covers them |
+| Root contributor documents, shared and Hub guides, skills, and documentation assets | Neither |
+| Workflow changes, selector changes, and unclassified paths | Both |
+
+The workflows preserve the existing required check names; skipping an entire workflow with a path filter could leave those checks pending. Static jobs use job-level conditions. The four required Vitest shard jobs always expand their matrix and validate selection, but skip checkout, setup, and tests when Hub is unaffected. The required `Frontend tests` and `Replica action tests` result jobs accept omitted work only after successful selection explicitly excluded it. Selection failures, invalid outputs, and failures in selected suites fail those result checks. Keep required-check configuration unchanged.
+
+When adding a shared dependency or a new project, update the selector and its behavioral tests together. Unclassified paths deliberately run both suites until their dependencies are known. Run `node --test scripts/select-ci-suites.test.mjs` and `ruby scripts/check-ci-workflows.rb` from the repository root. The latter reads the actual workflow gates and checks their success, failure, cancellation, and missing-output behavior; both commands run before CI selects suites. Check changed workflows with `actionlint` when available. Actual job skipping and check reporting still need verification on GitHub after publishing.
+
 ## Update dependencies
 
 Hub and the shared build action wait seven days before resolving newly published dependencies. npm enforces the delay through each project's committed `.npmrc`. Hub's RubyGems source in `Gemfile` applies the delay to Bundler. Dependabot applies the same cooldown to npm, Bundler, and GitHub Actions updates across the repository. The starter manages its dependency resolution independently.

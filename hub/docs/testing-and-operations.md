@@ -64,7 +64,7 @@ A Rails test job that renders Vite pages must:
 
 When a Hub command gains a new dependency or build prerequisite, update `config/ci.rb` and the [Hub CI workflow](../../.github/workflows/hub-ci.yml) in the same change.
 
-GitHub CI splits `npm test` across four Vitest shards and runs controls and extension integration tests in a separate parallel job. The `Frontend tests` check succeeds only when every shard and the integration job pass. Local `bin/ci` still runs the complete suites without sharding.
+When Hub is affected, GitHub CI splits `npm test` across four Vitest shards and runs controls and extension integration tests in a separate parallel job. The `Frontend tests` check requires every selected shard and integration job to pass. Unrelated pull requests omit that work through the [shared suite-selection policy](../../docs/testing-and-review.md#select-affected-ci-suites). Local `bin/ci` still runs the complete suites without sharding or selection.
 
 Vitest runs explicitly listed browser-independent tests in its `node` project without DOM setup. Other tests stay in the `browser` project with jsdom and shared browser cleanup. Both projects retain mock and global resets and test isolation. Add a test to the Node list in `vitest.config.ts` only after checking its imports and runtime dependencies; a `.ts` extension does not establish browser independence. `npm test` and path selectors cover both projects, while `npm test -- --project=node` selects the Node tests.
 
