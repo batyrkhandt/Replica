@@ -52,7 +52,7 @@ The production [Dockerfile](../Dockerfile) pins the official Ruby and Node image
 
 The existing [Dependabot configuration](../../.github/dependabot.yml) updates Bundler, npm, and GitHub Actions dependencies, but not Docker images. Rebuilding with a pinned digest does not pick up upstream base-image security fixes. Maintainers must refresh those pins to receive them. Adding Docker updates to Dependabot requires approval; do not introduce another updater. Before shipping refreshed pins, build both release architectures with the learning build context, run the production-image CI checks, and verify that the app starts.
 
-Hub CI runs the same production-image checks in parallel for AMD64 and ARM64. The ARM64 job uses QEMU emulation on the standard runner. Each job builds and loads its image without publishing, checks secret cleanup and deployment configuration, and requires the production app's `/up` health endpoint to succeed. It removes the test container and generated configuration afterward. The required `Production image` result passes only when both architectures succeed, or when suite selection explicitly excludes Hub and the image jobs are skipped.
+Hub CI runs the same production-image checks in parallel on native AMD64 and ARM64 runners. Each job builds and loads its image without publishing, checks secret cleanup and deployment configuration, and requires the production app's `/up` health endpoint to succeed. It removes the test container and generated configuration afterward. The required `Production image` result passes only when both architectures succeed, or when suite selection explicitly excludes Hub and the image jobs are skipped.
 
 `BUNDLE_DEPLOYMENT=1` makes Bundler installs frozen unless explicitly overridden by `BUNDLE_FROZEN=false`. The production build inherits deployment mode and copies `Gemfile.lock` before installing gems, so missing or inconsistent lockfiles fail rather than being rewritten. Scanner rules checking for frozen installs should recognize deployment mode, not require a redundant `BUNDLE_FROZEN` setting.
 
@@ -140,6 +140,8 @@ It also recovers failed GitHub webhook deliveries every minute and cleans bounde
 ## Publish a release
 
 Create a GitHub release from a Hub semantic version tag in the form `hub-v<major>.<minor>.<patch>`. Publishing the release builds AMD64 and ARM64 images, pushes the applicable tags to `ghcr.io/github/replica-hub`, and uploads the deployment bundle and its checksum.
+
+The workflow builds each architecture in parallel on its native runner, using the same source revision, version, and image labels. Build jobs push immutable image digests without updating release tags. Only after both builds succeed does the publication job combine their digests into one multiarchitecture image and apply the release tags. If either build fails, no release tags or deployment bundle are published.
 
 A stable release updates the exact, minor, major, and `latest` image tags. A prerelease updates only its exact version tag.
 

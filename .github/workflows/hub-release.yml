@@ -9,10 +9,16 @@ permissions:
   packages: write
 
 jobs:
-  publish:
-    name: Publish container and deployment bundle
+  prepare:
+    name: Prepare release metadata
     if: startsWith(github.event.release.tag_name, 'hub-v')
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      stable: ${{ steps.release.outputs.stable }}
+      revision: ${{ steps.release.outputs.revision }}
+      tags: ${{ steps.metadata.outputs.tags }}
+      labels: ${{ steps.metadata.outputs.labels }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,16 +55,6 @@ jobs:
             echo "revision=$(git rev-parse HEAD)"
           } >> "$GITHUB_OUTPUT"
 
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
-
-      - uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
-
       - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: metadata
         with:
@@ -70,18 +66,102 @@ jobs:
             type=semver,pattern={{major}},value=${{ steps.release.outputs.version }},enable=${{ steps.release.outputs.stable == 'true' }}
             type=raw,value=latest,enable=${{ steps.release.outputs.stable == 'true' }}
 
+  build:
+    name: Build release image (${{ matrix.architecture }})
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-latest
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.revision }}
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        id: build
         with:
           context: hub
           build-contexts: learning=packages/learning
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.metadata.outputs.tags }}
-          labels: ${{ steps.metadata.outputs.labels }}
+          platforms: linux/${{ matrix.architecture }}
+          outputs: type=image,name=ghcr.io/github/replica-hub,push-by-digest=true,name-canonical=true,push=true
+          labels: ${{ needs.prepare.outputs.labels }}
           build-args: |
-            REPLICA_IMAGE_REVISION=${{ steps.release.outputs.revision }}
-            REPLICA_IMAGE_VERSION=${{ steps.release.outputs.version }}
+            REPLICA_IMAGE_REVISION=${{ needs.prepare.outputs.revision }}
+            REPLICA_IMAGE_VERSION=${{ needs.prepare.outputs.version }}
+      - name: Export image digest
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          if [[ ! "$IMAGE_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "Build did not return a SHA-256 image digest" >&2
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${IMAGE_DIGEST#sha256:}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: image-digest-${{ matrix.architecture }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
 
+  publish:
+    name: Publish container and deployment bundle
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.revision }}
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: image-digest-*
+      - name: Publish multiarchitecture image
+        env:
+          IMAGE_TAGS: ${{ needs.prepare.outputs.tags }}
+        run: |
+          tag_args=()
+          while IFS= read -r tag; do
+            if [[ -z "$tag" ]]; then
+              echo "Release metadata contains an empty image tag" >&2
+              exit 1
+            fi
+            tag_args+=(--tag "$tag")
+          done <<< "$IMAGE_TAGS"
+
+          refs=()
+          for architecture in amd64 arm64; do
+            files=("$RUNNER_TEMP/digests/image-digest-$architecture/"*)
+            if [[ "${#files[@]}" != 1 || ! -f "${files[0]}" ]]; then
+              echo "Expected exactly one image digest for $architecture" >&2
+              exit 1
+            fi
+            digest=$(basename "${files[0]}")
+            if [[ ! "$digest" =~ ^[a-f0-9]{64}$ ]]; then
+              echo "Invalid image digest for $architecture" >&2
+              exit 1
+            fi
+            refs+=("ghcr.io/github/replica-hub@sha256:$digest")
+          done
+          docker buildx imagetools create "${tag_args[@]}" "${refs[@]}"
       - name: Package deployment bundle
         run: |
           mkdir -p hub/tmp/release

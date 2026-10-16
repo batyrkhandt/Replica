@@ -1,5 +1,7 @@
 require "yaml"
 require "open3"
+require "tmpdir"
+require "fileutils"
 
 def check(condition, message)
   abort(message) unless condition
@@ -73,7 +75,13 @@ check(!image_platform.fetch("env", {}).key?("DOCKER_DEFAULT_PLATFORM"), "Product
 check(image_platform.dig("env", "IMAGE_PLATFORM") == "linux/${{ matrix.architecture }}", "Production image target must follow the architecture matrix")
 check(image_platform["name"] == "Production image (${{ matrix.architecture }})", "Production image platform name changed")
 check(Array(image_platform["needs"]) == ["changes"], "Production image platform must depend on changes")
-check(image_platform.dig("strategy", "matrix", "architecture") == %w[amd64 arm64], "Production image platform must cover amd64 and arm64")
+native_matrix = [
+  { "architecture" => "amd64", "runner" => "ubuntu-latest" },
+  { "architecture" => "arm64", "runner" => "ubuntu-24.04-arm" }
+]
+check(image_platform.dig("strategy", "matrix") == { "include" => native_matrix }, "Production image platform must map amd64 and arm64 to native runners")
+check(expression(image_platform["runs-on"]) == "matrix.runner", "Production image platform must use its native matrix runner")
+check(image_platform.fetch("steps").none? { |step| step["uses"].to_s.start_with?("docker/setup-qemu-action@") }, "Production image checks must not use QEMU")
 check(image_platform.dig("strategy", "fail-fast") == false, "Production image platform must not cancel other architectures on failure")
 check(workflows.fetch("actions-ci").fetch("test")["name"] == "Build action suite", "Build action suite name changed")
 
@@ -108,3 +116,164 @@ gates.each do |(workflow, id), script|
   end
 end
 puts "CI workflow guards and wiring passed (#{checks} shell cases)."
+
+release = YAML.safe_load(File.read(File.join(root, ".github/workflows/hub-release.yml"))).fetch("jobs")
+prepare = release.fetch("prepare")
+build = release.fetch("build")
+publish = release.fetch("publish")
+check(expression(prepare["if"]) == "startsWith(github.event.release.tag_name, 'hub-v')", "Release preparation must require a Hub release tag")
+check(Array(build["needs"]) == ["prepare"], "Release image builds must wait for preparation")
+check(Array(publish["needs"]).sort == %w[build prepare], "Release publication must wait for preparation and both image builds")
+[build, publish].each do |job|
+  check(!job.key?("if") || expression(job["if"]) == "success()", "Release builds and publication must require successful dependencies")
+end
+check(build.dig("strategy", "matrix") == { "include" => native_matrix }, "Release images must use both native architecture runners")
+check(build.dig("strategy", "fail-fast") == false, "Release image builds must not cancel the other architecture")
+check(expression(build["runs-on"]) == "matrix.runner", "Release images must use their native matrix runner")
+check(release.values.flat_map { |job| job.fetch("steps") }.none? { |step| step["uses"].to_s.start_with?("docker/setup-qemu-action@") }, "Release images must not use QEMU")
+
+def action_step(job, action)
+  steps = job.fetch("steps").select { |step| step["uses"].to_s.start_with?("#{action}@") }
+  check(steps.length == 1, "Expected exactly one #{action} step")
+  steps.first
+end
+
+check(expression(action_step(prepare, "actions/checkout").dig("with", "ref")) == "github.event.release.tag_name", "Preparation must check out the release tag")
+check(expression(action_step(build, "actions/checkout").dig("with", "ref")) == "needs.prepare.outputs.revision", "Image builds must check out the immutable prepared revision")
+check(expression(action_step(publish, "actions/checkout").dig("with", "ref")) == "needs.prepare.outputs.revision", "Deployment packaging must check out the immutable prepared revision")
+version_step = prepare.fetch("steps").find { |step| step["name"] == "Read release version" }
+check(version_step && version_step["id"], "Preparation must retain the release version script")
+metadata = action_step(prepare, "docker/metadata-action")
+%w[version stable revision tags labels].each do |output|
+  source = %w[tags labels].include?(output) ? metadata.fetch("id") : version_step.fetch("id")
+  check(expression(prepare.fetch("outputs").fetch(output)) == "steps.#{source}.outputs.#{output}", "Preparation must expose #{output} from its producing step")
+end
+check(expression(version_step.dig("env", "RELEASE_TAG")) == "github.event.release.tag_name", "Version validation must read the release tag")
+check(expression(version_step.dig("env", "RELEASE_PRERELEASE")) == "github.event.release.prerelease", "Version validation must read the release prerelease flag")
+action_step(build, "docker/login-action")
+action_step(build, "docker/setup-buildx-action")
+action_step(publish, "docker/login-action")
+action_step(publish, "docker/setup-buildx-action")
+image = action_step(build, "docker/build-push-action")
+check(image["id"] == "build", "Release image build must expose its digest")
+options = image.fetch("with")
+check(options["context"] == "hub" && options["build-contexts"] == "learning=packages/learning", "Release images must build Hub with the learning context")
+check(options["platforms"] == "linux/${{ matrix.architecture }}", "Each release build must target only its native architecture")
+check(expression(options["labels"]) == "needs.prepare.outputs.labels", "Release images must use prepared labels")
+check(!options.key?("tags"), "Architecture builds must not publish release tags")
+check(options.fetch("outputs").split(",").map(&:strip).sort == %w[type=image name=ghcr.io/github/replica-hub push-by-digest=true name-canonical=true push=true].sort, "Architecture images must publish only canonical digest references")
+%w[REVISION VERSION].each do |key|
+  check(options.fetch("build-args").lines.map(&:strip).include?("REPLICA_IMAGE_#{key}=${{ needs.prepare.outputs.#{key.downcase} }}"), "Release image must use prepared #{key.downcase}")
+end
+upload = action_step(build, "actions/upload-artifact").fetch("with")
+check(upload["name"] == "image-digest-${{ matrix.architecture }}", "Each architecture must upload its own digest artifact")
+check(upload["path"].to_s.include?("runner.temp") && upload["path"].end_with?("/digests/*"), "Digest artifacts must contain the exported digest filenames")
+export_steps = build.fetch("steps").select { |step| step.fetch("env", {}).values.any? { |value| expression(value) == "steps.build.outputs.digest" } }
+check(export_steps.length == 1, "Release builds must export the actual build digest")
+export_step = export_steps.first
+digest_variable = export_step.fetch("env").find { |_key, value| expression(value) == "steps.build.outputs.digest" }.first
+download = action_step(publish, "actions/download-artifact").fetch("with")
+check(download["pattern"] == "image-digest-*", "Publication must download all architecture digests")
+check(download["path"].to_s.include?("runner.temp") && download["path"].end_with?("/digests"), "Publication must download digests into the runner's digest directory")
+check(download["merge-multiple"] != true, "Publication must retain separate architecture artifact directories")
+publish_step = publish.fetch("steps").find { |step| step["name"] == "Publish multiarchitecture image" }
+check(publish_step && expression(publish_step.dig("env", "IMAGE_TAGS")) == "needs.prepare.outputs.tags", "Manifest publication must use all prepared tags")
+%w[Package Upload].each do |verb|
+  matches = release.flat_map { |id, job| job.fetch("steps").select { |step| step["name"] == "#{verb} deployment bundle" }.map { |step| [id, step] } }
+  check(matches.length == 1 && matches.first.first == "publish", "The deployment bundle must be #{verb.downcase}d exactly once, in the final job")
+  check(publish.fetch("steps").index(matches.first.last) > publish.fetch("steps").index(publish_step), "Deployment bundle #{verb.downcase} must follow manifest publication")
+end
+
+release_checks = 0
+Dir.mktmpdir("check-ci-workflows-", root) do |directory|
+  bin = File.join(directory, "bin")
+  FileUtils.mkdir_p(bin)
+  revision = "0123456789abcdef0123456789abcdef01234567"
+  File.write(File.join(bin, "git"), "#!/bin/bash\n[[ \"$*\" == 'rev-parse HEAD' ]] || exit 99\nprintf '%s\\n' '#{revision}'\n")
+  File.write(File.join(bin, "docker"), "#!/bin/bash\nprintf '%s\\0' \"$@\" '__END__' >> \"$DOCKER_ARGS\"\n")
+  %w[git docker].each { |name| File.chmod(0o755, File.join(bin, name)) }
+  shell_env = { "BASH_ENV" => nil, "PATH" => "#{bin}:/usr/bin:/bin" }
+  [
+    ["hub-v1.2.3", "false", true],
+    ["hub-v0.0.0", "false", true],
+    ["hub-v2.0.0-rc.1", "true", true],
+    ["hub-v2.0.0-0.alpha-1", "true", true],
+    ["hub-v1.2.3", "true", false],
+    ["hub-v2.0.0-rc.1", "false", false],
+    ["hub-v01.2.3", "false", false],
+    ["hub-v1.2.3-rc.01", "true", false],
+    ["hub-v1.2.3+build", "false", false],
+    ["v1.2.3", "false", false],
+    ["hub-v1.2", "false", false],
+    ["hub-v1.2.3-", "true", false],
+    ["hub-v1.2.3", "invalid", false]
+  ].each do |tag, prerelease, expected|
+    output = File.join(directory, "version-output")
+    File.write(output, "")
+    stdout, stderr, status = Open3.capture3(shell_env.merge("RELEASE_TAG" => tag, "RELEASE_PRERELEASE" => prerelease, "GITHUB_OUTPUT" => output), "bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", version_step.fetch("run"), chdir: root)
+    check(status.success? == expected, "Release version #{tag}/#{prerelease}: expected #{expected}, exit #{status.exitstatus}\n#{stdout}#{stderr}")
+    values = File.read(output).lines.map { |line| line.strip.split("=", 2) }.to_h
+    check(values == (expected ? { "stable" => (prerelease == "false").to_s, "version" => tag.delete_prefix("hub-v"), "revision" => revision } : {}), "Release version #{tag}/#{prerelease}: incorrect outputs #{values.inspect}")
+    release_checks += 1
+  end
+
+  digests = { "amd64" => "a" * 64, "arm64" => "b" * 64 }
+  ["sha256:#{digests.fetch("amd64")}", "", "sha256:short", "sha512:#{'a' * 64}", "sha256:#{'g' * 64}"].each do |digest|
+    runner = File.join(directory, "export-runner")
+    FileUtils.rm_rf(runner)
+    stdout, stderr, status = Open3.capture3(shell_env.merge("RUNNER_TEMP" => runner, digest_variable => digest), "bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", export_step.fetch("run"), chdir: root)
+    expected = digest == "sha256:#{digests.fetch("amd64")}"
+    check(status.success? == expected, "Digest export #{digest.inspect}: expected #{expected}, exit #{status.exitstatus}\n#{stdout}#{stderr}")
+    files = Dir.glob(File.join(runner, "digests", "*"))
+    check(files.map { |file| File.basename(file) } == (expected ? [digests.fetch("amd64")] : []), "Digest export must create exactly one SHA-256 filename and reject malformed digests")
+    check(files.all? { |file| File.file?(file) && File.zero?(file) }, "Digest artifacts must be empty regular files")
+    release_checks += 1
+  end
+  tags = %w[ghcr.io/github/replica-hub:1.2.3 ghcr.io/github/replica-hub:1.2 ghcr.io/github/replica-hub:1 ghcr.io/github/replica-hub:latest]
+  [
+    ["stable release", {}, tags.join("\n"), true],
+    ["prerelease", {}, "ghcr.io/github/replica-hub:2.0.0-rc.1", true],
+    ["missing arm64", { "arm64" => [] }, tags.join("\n"), false],
+    ["missing amd64", { "amd64" => [] }, tags.join("\n"), false],
+    ["multiple digests", { "arm64" => ["b" * 64, "c" * 64] }, tags.join("\n"), false],
+    ["invalid digest", { "arm64" => ["not-a-digest"] }, tags.join("\n"), false],
+    ["short digest", { "amd64" => ["a" * 63] }, tags.join("\n"), false],
+    ["missing tags", {}, nil, false],
+    ["empty tags", {}, "", false],
+    ["leading blank tag", {}, "\n#{tags.join("\n")}", false],
+    ["interior blank tag", {}, tags.join("\n\n"), false],
+    ["trailing blank tag", {}, "#{tags.join("\n")}\n", false]
+  ].each do |name, overrides, image_tags, expected|
+    runner = File.join(directory, "runner")
+    FileUtils.rm_rf(runner)
+    digests.each do |architecture, digest|
+      files = overrides.fetch(architecture, [digest])
+      next if files.empty?
+
+      path = File.join(runner, "digests", "image-digest-#{architecture}")
+      FileUtils.mkdir_p(path)
+      files.each { |filename| File.write(File.join(path, filename), "") }
+    end
+    args_file = File.join(directory, "docker-args")
+    FileUtils.rm_f(args_file)
+    stdout, stderr, status = Open3.capture3(shell_env.merge("RUNNER_TEMP" => runner, "IMAGE_TAGS" => image_tags, "DOCKER_ARGS" => args_file), "bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", publish_step.fetch("run"), chdir: root)
+    check(status.success? == expected, "Manifest publication with #{name}: expected #{expected}, exit #{status.exitstatus}\n#{stdout}#{stderr}")
+    args = File.exist?(args_file) ? File.binread(args_file).split("\0") : []
+    if expected
+      check(args.count("__END__") == 1 && args.first(3) == %w[buildx imagetools create], "Publication must create exactly one multiarchitecture manifest")
+      remaining = args.drop(3).reject { |argument| argument == "__END__" }
+      actual_tags = []
+      refs = []
+      until remaining.empty?
+        argument = remaining.shift
+        argument == "--tag" ? actual_tags << remaining.shift : refs << argument
+      end
+      check(actual_tags.sort == image_tags.split("\n").sort, "Manifest publication must apply exactly the prepared release tags")
+      check(refs.sort == digests.values.map { |digest| "ghcr.io/github/replica-hub@sha256:#{digest}" }.sort, "Manifest publication must combine exactly both immutable architecture digests")
+    else
+      check(args.empty?, "Invalid tags or architecture artifacts must fail before invoking Docker")
+    end
+    release_checks += 1
+  end
+end
+puts "Release workflow wiring and scripts passed (#{release_checks} shell cases)."
