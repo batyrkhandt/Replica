@@ -284,7 +284,7 @@ jobs:
       matrix:
         architecture: [amd64, arm64]
     env:
-      DOCKER_DEFAULT_PLATFORM: linux/${{ matrix.architecture }}
+      IMAGE_PLATFORM: linux/${{ matrix.architecture }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
@@ -292,13 +292,13 @@ jobs:
         with:
           platforms: arm64
       - uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
-      - run: docker buildx build --platform "$DOCKER_DEFAULT_PLATFORM" --build-context learning=../packages/learning --tag replica-hub:ci --load .
+      - run: docker buildx build --platform "$IMAGE_PLATFORM" --build-context learning=../packages/learning --tag replica-hub:ci --load .
       - name: Check build-time secret cleanup
-        run: docker run --rm --entrypoint /bin/sh replica-hub:ci -c 'test ! -e /rails/tmp/local_secret.txt'
+        run: docker run --platform "$IMAGE_PLATFORM" --rm --entrypoint /bin/sh replica-hub:ci -c 'test ! -e /rails/tmp/local_secret.txt'
       - name: Check deployment configuration
         run: |
           umask 077
-          docker run --rm replica-hub:ci \
+          docker run --platform "$IMAGE_PLATFORM" --rm replica-hub:ci \
             bin/replica-deployment-config generate \
             --host hub.example.com \
             --format dotenv > deploy/.env
@@ -306,7 +306,7 @@ jobs:
       - name: Check production startup
         timeout-minutes: 3
         run: |
-          docker run --detach --name replica-hub-ci --network none --env-file deploy/.env replica-hub:ci
+          docker run --platform "$IMAGE_PLATFORM" --detach --name replica-hub-ci --network none --env-file deploy/.env replica-hub:ci
           docker exec replica-hub-ci curl \
             --fail --silent --show-error \
             --retry 60 --retry-connrefused --retry-delay 2 --retry-max-time 120 --max-time 5 \

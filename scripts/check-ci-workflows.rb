@@ -69,6 +69,8 @@ workflows.each do |workflow, jobs|
 end
 check(gates.keys.sort == expected_gates.keys.sort, "Expected exactly the shard guard and all three final result gates")
 image_platform = workflows.fetch("hub-ci").fetch("production_image_platform")
+check(!image_platform.fetch("env", {}).key?("DOCKER_DEFAULT_PLATFORM"), "Production image target must not change the platform of QEMU or Buildx setup")
+check(image_platform.dig("env", "IMAGE_PLATFORM") == "linux/${{ matrix.architecture }}", "Production image target must follow the architecture matrix")
 check(image_platform["name"] == "Production image (${{ matrix.architecture }})", "Production image platform name changed")
 check(Array(image_platform["needs"]) == ["changes"], "Production image platform must depend on changes")
 check(image_platform.dig("strategy", "matrix", "architecture") == %w[amd64 arm64], "Production image platform must cover amd64 and arm64")
