@@ -1,5 +1,7 @@
 # Testing and review
 
+This temporary branch verifies documentation-only CI selection and must not be merged.
+
 Run the checks for the behavior you changed. For example, a shared Controls change needs checks for Hub previews and the Copilot plugin. Include screenshot capture when its adapter changes. A documentation-only change needs a prose and link review rather than application tests.
 
 Use [Contributing](../CONTRIBUTING.md#set-up-the-development-environment) to find each project's environment and commands. Hub Ruby and Node commands run inside its devcontainer; that is not a requirement for every project in the monorepo.
