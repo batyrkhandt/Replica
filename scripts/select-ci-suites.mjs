@@ -45,10 +45,10 @@ export function selectCiSuites(paths) {
       path.startsWith(".github/extensions/replica-prototype/") ||
       path.startsWith(".github/plugin/") ||
       path.startsWith("packages/learning/") ||
-      path.startsWith("starter/.agents/skills/prototype-controls/")
+      path.startsWith("starter/")
     ) {
       suites.hub = true
-    } else if (path.startsWith("starter/") || starterScripts.has(path)) {
+    } else if (starterScripts.has(path)) {
       continue
     } else {
       suites.hub = true

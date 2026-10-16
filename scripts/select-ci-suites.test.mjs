@@ -32,6 +32,7 @@ function createRepo(name) {
   git(repo, "init", "--quiet")
   git(repo, "config", "user.name", "CI suite test")
   git(repo, "config", "user.email", "ci-suite-test@example.invalid")
+  git(repo, "config", "commit.gpgsign", "false")
   writeFileSync(join(repo, "README.md"), "fixture\n")
   git(repo, "add", "--all")
   git(repo, "commit", "--quiet", "-m", "initial")
@@ -86,7 +87,7 @@ function selectChangedFiles(repo, ...args) {
   return JSON.parse(result.stdout)
 }
 
-test("path selection keeps documentation and independent starter work out of these suites", () => {
+test("path selection keeps documentation and installer scripts out while covering Hub consumers", () => {
   const excluded = [
     "README.md",
     "docs/guide.md",
@@ -95,8 +96,6 @@ test("path selection keeps documentation and independent starter work out of the
     ".github/skills/write-tests/SKILL.md",
     ".github/assets/logo.svg",
     ".github/ISSUE_TEMPLATE/bug.yml",
-    "starter/src/App.jsx",
-    "starter/.agents/skills/unrelated/SKILL.md",
     "scripts/create-prototype-repo.sh",
     "scripts/create-prototype-repo.test.mjs",
     "scripts/install-starter.sh",
@@ -112,6 +111,11 @@ test("path selection keeps documentation and independent starter work out of the
     ".github/plugin/README.md",
     "packages/learning/src/index.mjs",
     "starter/.agents/skills/prototype-controls/SKILL.md",
+    "starter/src/app/router.tsx",
+    "starter/package-lock.json",
+    "starter/.prototype",
+    "starter/.agents/skills/setup-skills/SKILL.md",
+    "starter/src/App.jsx",
   ]) {
     assert.deepEqual(selectCiSuites([path]), { hub: true, build_action: false }, path)
   }
