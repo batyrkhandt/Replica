@@ -274,20 +274,68 @@ jobs:
           RAILS_ENV: production
           SECRET_KEY_BASE_DUMMY: "1"
 
-  production_image:
-    name: Production image
+  production_image_platform:
+    name: Production image (${{ matrix.architecture }})
     needs: changes
     if: ${{ needs.changes.outputs.hub == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-latest
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      IMAGE_PLATFORM: linux/${{ matrix.architecture }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: docker build --build-context learning=../packages/learning --tag replica-hub:ci .
+      - uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
+      - run: docker buildx build --platform "$IMAGE_PLATFORM" --build-context learning=../packages/learning --tag replica-hub:ci --load .
       - name: Check build-time secret cleanup
-        run: docker run --rm --entrypoint /bin/sh replica-hub:ci -c 'test ! -e /rails/tmp/local_secret.txt'
+        run: docker run --platform "$IMAGE_PLATFORM" --rm --entrypoint /bin/sh replica-hub:ci -c 'test ! -e /rails/tmp/local_secret.txt'
       - name: Check deployment configuration
         run: |
-          docker run --rm replica-hub:ci \
+          umask 077
+          docker run --platform "$IMAGE_PLATFORM" --rm replica-hub:ci \
             bin/replica-deployment-config generate \
             --host hub.example.com \
             --format dotenv > deploy/.env
           docker compose --file deploy/compose.yml --project-directory deploy config --quiet
+      - name: Check production startup
+        timeout-minutes: 3
+        run: |
+          docker run --platform "$IMAGE_PLATFORM" --detach --name replica-hub-ci --network none --env-file deploy/.env replica-hub:ci
+          docker exec replica-hub-ci curl \
+            --fail --silent --show-error \
+            --retry 60 --retry-connrefused --retry-delay 2 --retry-max-time 120 --max-time 5 \
+            http://localhost/up
+      - name: Clean up production startup check
+        if: ${{ always() }}
+        run: |
+          if docker container inspect replica-hub-ci >/dev/null 2>&1; then
+            docker logs replica-hub-ci
+            docker rm --force replica-hub-ci
+          fi
+          rm -f deploy/.env
+
+  production_image:
+    name: Production image
+    needs: [changes, production_image_platform]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require both production images to pass
+        working-directory: .
+        env:
+          SELECTION_RESULT: ${{ needs.changes.result }}
+          SELECTED: ${{ needs.changes.outputs.hub }}
+          IMAGE_RESULT: ${{ needs.production_image_platform.result }}
+        run: |
+          test "$SELECTION_RESULT" = success
+          case "$SELECTED" in
+            true) test "$IMAGE_RESULT" = success ;;
+            false) test "$IMAGE_RESULT" = skipped ;;
+            *) echo "Invalid Hub suite selection" >&2; exit 1 ;;
+          esac
