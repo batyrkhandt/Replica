@@ -17,7 +17,7 @@ workflows = %w[hub-ci actions-ci].to_h do |name|
   [name, YAML.safe_load(File.read(File.join(root, ".github/workflows/#{name}.yml"))).fetch("jobs")]
 end
 expected_gates = {
-  ["hub-ci", "frontend_test_shard"] => ["Frontend tests shard ${{ matrix.shard }}/4", ["changes"]],
+  ["hub-ci", "frontend_test_shard"] => ["Frontend tests shard ${{ matrix.shard }}/4${{ matrix.node == 26 && ' (Node 26)' || '' }}", ["changes"]],
   ["hub-ci", "frontend_test"] => ["Frontend tests", %w[changes frontend_test_shard frontend_integration_test]],
   ["hub-ci", "production_image"] => ["Production image", %w[changes production_image_platform]],
   ["actions-ci", "result"] => ["Replica action tests", %w[changes test]]
@@ -84,7 +84,7 @@ check(image_platform.dig("strategy", "matrix") == { "include" => native_matrix }
 check(expression(image_platform["runs-on"]) == "matrix.runner", "Production image platform must use its native matrix runner")
 check(image_platform.fetch("steps").none? { |step| step["uses"].to_s.start_with?("docker/setup-qemu-action@") }, "Production image checks must not use QEMU")
 check(image_platform.dig("strategy", "fail-fast") == false, "Production image platform must not cancel other architectures on failure")
-check(workflows.fetch("actions-ci").fetch("test")["name"] == "Build action suite", "Build action suite name changed")
+check(workflows.fetch("actions-ci").fetch("test")["name"] == "Build action suite${{ matrix.node == 26 && ' (Node 26)' || '' }}", "Build action suite name changed")
 
 states = %w[success failure cancelled skipped] + [""]
 checks = 0
@@ -125,37 +125,30 @@ projects.each do |project|
   check(manifest.dig("engines", "node") == "^24.15.0 || ^26.0.0", "#{project}: supported Node versions changed")
   check(lock.dig("packages", "", "engines") == manifest.fetch("engines"), "#{project}: locked Node engines differ from the manifest")
 end
-workflows.fetch("hub-ci").each do |id, job|
-  job.fetch("steps", []).each do |step|
-    next unless step["uses"].to_s.start_with?("actions/setup-node@")
-
-    check(step.dig("with", "node-version") == 24, "hub-ci/#{id}: default checks must keep the pinned Node major")
-    check(!step.fetch("with").key?("node-version-file"), "hub-ci/#{id}: supported ranges must not select the default CI runtime")
+{
+  "hub-ci" => %w[rails_test typecheck frontend_lint frontend_test_shard frontend_integration_test frontend_build storybook_build],
+  "actions-ci" => ["test"],
+  "starter-ci" => ["test"],
+  "learning-ci" => ["test"]
+}.each do |workflow, job_ids|
+  jobs = YAML.safe_load(File.read(File.join(root, ".github/workflows/#{workflow}.yml"))).fetch("jobs")
+  job_ids.each do |id|
+    job = jobs.fetch(id)
+    label = "#{workflow}/#{id}"
+    check(job.dig("strategy", "matrix", "node") == [24, 26], "#{label}: existing checks must cover Node 24 and 26")
+    check(job.dig("strategy", "fail-fast") == false, "#{label}: failures must not cancel other versions")
+    check(job.fetch("name").end_with?("${{ matrix.node == 26 && ' (Node 26)' || '' }}"), "#{label}: preserve Node 24 check names and distinguish Node 26")
+    setup_node = job.fetch("steps").find { |step| step["uses"].to_s.start_with?("actions/setup-node@") }
+    check(setup_node && expression(setup_node.dig("with", "node-version")) == "matrix.node", "#{label}: execute the selected Node version")
+    installs = job.fetch("steps").select { |step| step["run"].to_s.start_with?("npm ci") }
+    check(!installs.empty? && installs.all? { |step| step.fetch("run").split.include?("--engine-strict") }, "#{label}: enforce dependency engines")
   end
 end
-compatibility = YAML.safe_load(File.read(File.join(root, ".github/workflows/node-compatibility.yml")))
-check(compatibility.fetch("permissions") == { "contents" => "read" }, "Node compatibility must use read-only repository access")
-node_checks = compatibility.fetch("jobs").fetch("check")
-check(node_checks.dig("strategy", "matrix", "node") == ["24.15.0", "26.0.0", "26"], "Node compatibility must cover supported lower bounds and current Node 26")
-check(node_checks.dig("strategy", "matrix", "project") == projects, "Node compatibility must cover every Node project")
-check(node_checks.dig("strategy", "fail-fast") == false, "Node compatibility must report each project and version independently")
-check(expression(node_checks.dig("defaults", "run", "working-directory")) == "matrix.project", "Node compatibility must run inside the selected project")
-setup_node = node_checks.fetch("steps").find { |step| step["uses"].to_s.start_with?("actions/setup-node@") }
-check(setup_node && expression(setup_node.dig("with", "node-version")) == "matrix.node", "Node compatibility must execute the selected version")
-check(setup_node.dig("with", "check-latest") == true, "Node compatibility must resolve the current supported release")
-check(node_checks.fetch("steps").any? { |step| step["run"] == "npm ci --ignore-scripts --engine-strict" && !step.key?("if") }, "Node compatibility must reject unsupported dependency engines in every project")
-{
-  "hub" => ["npm test", "npm run controls:test", "npm run extension:test", "npm run build", "npm run storybook:build", "npm run lint", "npm run controls:assets:check", "npm run extension:assets:check"],
-  "starter" => ["npm run format:check", "npm run typecheck", "npm test", "npm run build"],
-  "actions/build" => ["npm run lint", "npm test"],
-  "packages/learning" => ["npm run schema:check", "npm test", "npm run demo", "npm run demo:agent-memory-repo"]
-}.each do |project, commands|
-  step = node_checks.fetch("steps").find { |candidate| expression(candidate["if"]) == "matrix.project == '#{project}'" && candidate.key?("run") && candidate["name"].to_s.start_with?("Check ") }
-  check(step, "Node compatibility must check #{project}")
-  lines = step.fetch("run").lines.map(&:strip)
-  commands.each { |command| check(lines.include?(command), "Node compatibility must run #{command} for #{project}") }
-end
-puts "Node support ranges, lockfiles and compatibility workflow wiring passed."
+action_steps = workflows.fetch("actions-ci").fetch("test").fetch("steps")
+fixture = action_steps.find { |step| step["name"] == "Prepare composite action fixture" }
+composite = action_steps.find { |step| step["uses"] == "./actions/build" }
+check(fixture && composite && [fixture, composite].all? { |step| expression(step["if"]) == "matrix.node == 24" }, "The Node 24 composite smoke test must run only once to avoid duplicate artifact uploads")
+puts "Node support ranges, lockfiles and existing CI matrices passed."
 
 release = YAML.safe_load(File.read(File.join(root, ".github/workflows/hub-release.yml"))).fetch("jobs")
 prepare = release.fetch("prepare")

@@ -25,7 +25,7 @@ For improvements, explain the problem you want to solve and who would benefit. D
 
 ## Set up the development environment
 
-Each Node.js project's `engines.node` declares its supported versions. The [Node compatibility workflow](.github/workflows/node-compatibility.yml) checks the lower bounds and current releases across Hub, Starter, the build action, and Learning. The devcontainer, production image, and composite build action retain their pinned runtime defaults; choosing another supported major locally does not change them.
+Each Node.js project's `engines.node` declares its supported versions. The existing Hub, Starter, build-action, and Learning CI checks run on both supported Node majors. The devcontainer, production image, and composite build action retain their pinned runtime defaults; choosing another supported major locally does not change them.
 
 ### Replica Hub
 

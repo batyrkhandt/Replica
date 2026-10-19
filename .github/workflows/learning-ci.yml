@@ -16,8 +16,12 @@ permissions:
 
 jobs:
   test:
-    name: Learning checks
+    name: Learning checks${{ matrix.node == 26 && ' (Node 26)' || '' }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [24, 26]
     defaults:
       run:
         working-directory: packages/learning
@@ -25,10 +29,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: packages/learning/package-lock.json
-      - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts --engine-strict
       - run: npm run schema:check
       - run: npm test
       - run: npm run demo
