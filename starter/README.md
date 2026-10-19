@@ -205,7 +205,7 @@ The preview's browser origin differs from the original address. Original-origin 
 After you review and accept the Copilot app's repository configuration,
 session setup checks the Replica plugin before installing app dependencies.
 An enabled installation needs one local CLI check and no network requests.
-If `copilot` is missing, setup runs `npm install -g @github/copilot`, then uses npm's global installation path without requiring a shell restart or changing `PATH`. It does not reinstall an existing CLI, use sudo, install Node.js, or change shell configuration. The npm global installation directory must be writable.
+If `copilot` is missing from `PATH`, setup checks npm's global installation path and reuses an existing CLI there. Only if neither location has the CLI does setup run `npm install -g @github/copilot`. This works without a shell restart or changing `PATH`, including on later startups. Setup does not reinstall an existing CLI, use sudo, install Node.js, or change shell configuration. The npm global installation directory must be writable when installation is needed.
 Setup enables a disabled marketplace installation or installs a missing one
 from `github/replica`. It preserves an existing marketplace's branch or release
 pin and stops plugin setup on conflicting sources or CLI errors. For an organization-required

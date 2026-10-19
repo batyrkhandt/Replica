@@ -29,7 +29,7 @@ const enable = ["plugin", "enable", "replica-prototype@replica"]
 function run(
   t,
   steps,
-  { missingCli = false, missingNpm = false, cliMode = 0o755, startup = false } = {},
+  { missingCli = false, missingNpm = false, cliMode = 0o755, startup = false, repeat = 1 } = {},
 ) {
   const directory = mkdtempSync(join(root, ".replica-plugin-test-"))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
@@ -76,13 +76,17 @@ console.log(step.raw ?? (step.command === "npm" && step.args[0] === "prefix"
     command = "/bin/sh"
     args = ["-c", config.match(/^\s+command: (.+)$/m)[1]]
   }
-  const result = spawnSync(command, args, {
-    cwd: directory,
-    encoding: "utf8",
-    timeout: 10_000,
-    env: { PATH: directory, REPLICA_TEST_STATE: state, REPLICA_TEST_PREFIX: prefix },
-  })
-  assert.ifError(result.error)
+  let result
+  for (let attempt = 0; attempt < repeat; attempt++) {
+    result = spawnSync(command, args, {
+      cwd: directory,
+      encoding: "utf8",
+      timeout: 10_000,
+      env: { PATH: directory, REPLICA_TEST_STATE: state, REPLICA_TEST_PREFIX: prefix },
+    })
+    assert.ifError(result.error)
+    if (attempt < repeat - 1) assert.equal(result.status, 0, result.stderr)
+  }
   assert.deepEqual(JSON.parse(readFileSync(state, "utf8")), [], result.stderr)
   return result
 }
@@ -160,8 +164,8 @@ test("startup installs a missing CLI outside PATH, the plugin and app dependenci
   const result = run(
     t,
     [
-      { command: "npm", args: ["install", "-g", "@github/copilot"], installCli: true },
       { command: "npm", args: ["prefix", "--global"] },
+      { command: "npm", args: ["install", "-g", "@github/copilot"], installCli: true },
       { args: pluginList, result: [] },
       { args: marketplaceList, result: [] },
       { args: ["plugin", "marketplace", "add", "github/replica"] },
@@ -185,10 +189,30 @@ test("a missing CLI and missing npm report how to install the prerequisite", (t)
   assert.doesNotMatch(result.stdout + result.stderr, /Customization, select Installed|future sessions/)
 })
 
+test("repeated startups reuse the installed global CLI outside PATH without reinstalling", (t) => {
+  const result = run(
+    t,
+    [
+      { command: "npm", args: ["prefix", "--global"] },
+      { command: "npm", args: ["install", "-g", "@github/copilot"], installCli: true },
+      { args: pluginList, result: [installed] },
+      { command: "npm", args: ["ci"] },
+      { command: "npm", args: ["prefix", "--global"] },
+      { args: pluginList, result: [installed] },
+      { command: "npm", args: ["ci"] },
+    ],
+    { missingCli: true, startup: true, repeat: 2 },
+  )
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.stderr, "")
+  assert.doesNotMatch(result.stdout, /Installing it globally/)
+})
+
 test("a failed npm install preserves its cause and stops setup", (t) => {
   const result = run(
     t,
     [
+      { command: "npm", args: ["prefix", "--global"] },
       {
         command: "npm",
         args: ["install", "-g", "@github/copilot"],
@@ -215,8 +239,10 @@ test("npm success without a valid prefix or runnable CLI still fails setup", (t)
     const result = run(
       t,
       [
-        { command: "npm", args: ["install", "-g", "@github/copilot"] },
         { command: "npm", args: ["prefix", "--global"], ...prefixResult },
+        ...(Object.keys(prefixResult).length === 0
+          ? [{ command: "npm", args: ["install", "-g", "@github/copilot"] }]
+          : []),
       ],
       { missingCli: true },
     )
@@ -316,6 +342,7 @@ test("startup installs dependencies even when CLI installation fails", (t) => {
   const result = run(
     t,
     [
+      { command: "npm", args: ["prefix", "--global"] },
       {
         command: "npm",
         args: ["install", "-g", "@github/copilot"],

@@ -16,13 +16,7 @@ function cli(args, timeout = 10_000) {
 }
 
 function installCli() {
-  console.log("Copilot CLI was not found. Installing it globally with npm.")
   try {
-    execFileSync("npm", ["install", "-g", "@github/copilot"], {
-      encoding: "utf8",
-      timeout: 180_000,
-      stdio: ["ignore", "pipe", "pipe"],
-    })
     const prefix = execFileSync("npm", ["prefix", "--global"], {
       encoding: "utf8",
       timeout: 10_000,
@@ -32,6 +26,18 @@ function installCli() {
       throw new Error("npm did not return an absolute global installation path.")
     }
     cliExecutable = join(prefix, "bin", "copilot")
+    try {
+      return installedPlugin()
+    } catch (error) {
+      if (error.code !== "ENOENT" || error.path !== cliExecutable) throw error
+    }
+    console.log("Copilot CLI was not found. Installing it globally with npm.")
+    execFileSync("npm", ["install", "-g", "@github/copilot"], {
+      encoding: "utf8",
+      timeout: 180_000,
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+    return installedPlugin()
   } catch (error) {
     throw new Error(
       `Copilot CLI installation failed: ${error.message}. Check that npm is available and its global installation directory is writable, or install Copilot CLI manually, then rerun setup.`,
@@ -68,8 +74,7 @@ function setup() {
     installed = installedPlugin()
   } catch (error) {
     if (error.code !== "ENOENT" || error.path !== "copilot") throw error
-    installCli()
-    installed = installedPlugin()
+    installed = installCli()
   }
   if (installed?.enabled) return
 
