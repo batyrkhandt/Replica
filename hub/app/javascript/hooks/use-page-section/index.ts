@@ -1,7 +1,11 @@
 import { useCallback, useContext, useEffect, useState } from "react"
 import { NavigationContext, useSuperglue } from "@thoughtbot/superglue"
 
-/** Loads one authorized page section without holding up navigation. */
+/**
+ * Loads an authorized section through Superglue's partial page updates without blocking navigation.
+ * Use it for slow sections that can load independently while the rest of the page stays usable.
+ * Superglue updates the page props for rendering; this hook only returns loading, failure, and retry state.
+ */
 export function usePageSection(path: string, loadId: string) {
   const { remote } = useContext(NavigationContext)
   const { currentPageKey } = useSuperglue()

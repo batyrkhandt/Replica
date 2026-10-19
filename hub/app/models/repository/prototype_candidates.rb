@@ -150,7 +150,7 @@ class Repository::PrototypeCandidates < ActiveRecord::AssociatedObject
     ) { compare_authors(base, head) }
   end
 
-  # Fetches only missing comparisons concurrently, then writes caches on this thread.
+  # Retains successful comparisons on this thread before surfacing any batch failure.
   def warm_authors(candidates, heads, configuration:)
     base = heads[record.default_branch]
     raise GithubClient::InvalidResponse, "GitHub omitted the default branch" if base.nil?
@@ -160,13 +160,20 @@ class Repository::PrototypeCandidates < ActiveRecord::AssociatedObject
     missing = live_heads.reject { cached.key?(author_cache_key(base, _1)) }
     if missing.any?
       token = configuration.tokens.installation
+      failures = Queue.new
       comparisons = GithubClient::Batch.map(missing) do |head|
+        next if !failures.empty?
+
         [ head, compare_authors(base, head, configuration:, token:) ]
+      rescue GithubClient::Error => error
+        failures << error
+        nil
       end
-      comparisons.each do |head, authors|
+      comparisons.compact.each do |head, authors|
         cached[author_cache_key(base, head)] = authors
         Rails.cache.write(author_cache_key(base, head), authors, expires_in: AUTHOR_CACHE_TTL)
       end
+      raise failures.pop if !failures.empty?
     end
     live_heads.to_h { |head| [ head, cached.fetch(author_cache_key(base, head)) ] }
   end
