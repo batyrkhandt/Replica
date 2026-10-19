@@ -90,7 +90,9 @@ describe("RepositoryNavigation()", () => {
       expect(feedback).toHaveAttribute("target", "_blank")
       expect(feedback).toHaveAttribute("rel", "noopener noreferrer")
       expect(feedback).not.toHaveAttribute("data-sg-visit")
-      for (const link of container.querySelectorAll("aside a[data-sg-visit]")) {
+      for (const link of container.querySelectorAll("aside a")) {
+        if (link === feedback) continue
+
         expect(link).toHaveAttribute("data-sg-visit", "true")
       }
       expect(screen.getByRole("link", { name: "Prototypes" })).toHaveAttribute(
