@@ -3,8 +3,10 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import { App } from "."
 import { publicationExamples } from "@utils/resolve-prototype-publication/fixtures"
+import { repliedReviewThread } from "@/storybook/fixtures/review/comments"
 import type { ShareLink } from "@hooks/use-canvas-share-links/types"
 import type { HubStatus, PrototypeState, PublishPreparation } from "@utils/prototype-canvas/types"
+import type { ReviewComment } from "@utils/review-comment/types"
 
 import "./stories.css"
 
@@ -12,10 +14,12 @@ function PublicationDemo({
   scenario,
   prototypeUrl,
   withShareLinks = false,
+  withComments = false,
 }: {
   scenario: string
   prototypeUrl: string
   withShareLinks?: boolean
+  withComments?: boolean
 }) {
   const [ready, setReady] = useState(false)
   useEffect(() => {
@@ -26,6 +30,50 @@ function PublicationDemo({
     let remember = false
     if (withShareLinks && hub?.prototype)
       hub.prototype = { ...hub.prototype, canManageShareLinks: true }
+    if (withComments && hub?.prototype?.build)
+      hub.prototype = {
+        ...hub.prototype,
+        build: {
+          ...hub.prototype.build,
+          number: 2,
+          url: "https://hub.example.com/repositories/2001/prototypes/1?build=2",
+        },
+      }
+    const comments: ReviewComment[] = withComments
+      ? [
+          repliedReviewThread.root,
+          ...repliedReviewThread.replies,
+          {
+            ...repliedReviewThread.root,
+            id: 3,
+            buildNumber: 2,
+            buildPath: "/repositories/2001/prototypes/1?build=2",
+            body: "The updated button spacing looks good.",
+            author: repliedReviewThread.replies[0]!.author,
+            viewerLastSeenActivityVersion: 2,
+          },
+          {
+            ...repliedReviewThread.root,
+            id: 4,
+            buildNumber: 2,
+            buildPath: "/repositories/2001/prototypes/1?build=2",
+            body: "Can we keep the heading aligned on narrow screens?",
+          },
+          {
+            ...repliedReviewThread.replies[0]!,
+            id: 5,
+            rootId: 4,
+            body: "I checked the narrow layout.",
+          },
+          {
+            ...repliedReviewThread.replies[0]!,
+            id: 6,
+            rootId: 4,
+            body: "Thanks, the heading now stays aligned.",
+            author: repliedReviewThread.root.author,
+          },
+        ]
+      : []
     let links: ShareLink[] = ["Usability review", "Design review"].map((label, index) => ({
       id: index + 1,
       label,
@@ -131,7 +179,11 @@ function PublicationDemo({
         hub = { ...hub, prototype: { ...hub.prototype, registered: true, published: true } }
         data = hub.prototype
       } else if (path === "/api/hub/comments")
-        data = { comments: [], hasMore: false, nextCursor: null }
+        data = {
+          comments,
+          hasMore: false,
+          nextCursor: null,
+        }
       else if (path === "/api/hub/events") {
         return new Response(
           new ReadableStream({
@@ -156,7 +208,7 @@ function PublicationDemo({
       window.clearTimeout(timer)
       window.fetch = originalFetch
     }
-  }, [scenario, withShareLinks])
+  }, [scenario, withShareLinks, withComments])
   return (
     <div className="publication-demo">
       <div className="publication-demo-canvas">
@@ -189,7 +241,12 @@ const meta = {
         : "http://127.0.0.1:38763/",
   },
   argTypes: { scenario: { control: "select", options: Object.keys(publicationExamples) } },
-  render: (args) => <PublicationDemo key={`${args.scenario}/${args.withShareLinks}`} {...args} />,
+  render: (args) => (
+    <PublicationDemo
+      key={`${args.scenario}/${args.withShareLinks}/${args.withComments}`}
+      {...args}
+    />
+  ),
 } satisfies Meta<typeof PublicationDemo>
 
 export default meta
@@ -230,6 +287,48 @@ export const UnknownRegistrationReason: Story = {
 }
 export const Failed: Story = { args: { scenario: "Build failed" } }
 export const Ready: Story = { args: { scenario: "Published" } }
+export const CommentsSidebar: Story = {
+  args: {
+    scenario: "Published",
+    withComments: true,
+  },
+  render: (args) => (
+    <PublicationDemo
+      {...args}
+      prototypeUrl={new URL("/prototype-preview/index.html", window.location.href).href}
+    />
+  ),
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(
+      await canvas.findByRole("button", { name: /^Comments, 3/ }, { timeout: 5_000 }),
+    )
+    await canvas.findByRole("complementary", { name: "Comments" })
+    await canvas.findByRole("link", { name: "build 1" })
+    await canvas.findByText("1 reply")
+    await canvas.findByText("2 replies")
+    const link = await canvas.findByRole("link", { name: "build 1" })
+    const row = link.closest("article")
+    const unread = row?.querySelector(".review-comment-row__unread")
+    if (!row || !unread) throw new Error("The unread comment fixture is missing.")
+    const bounds = row.getBoundingClientRect()
+    const surface = getComputedStyle(row, "::before")
+    const surfaceLeft = bounds.left + parseFloat(surface.left)
+    const surfaceRight = bounds.right - parseFloat(surface.right)
+    if (
+      !Number.isFinite(surfaceLeft) ||
+      Math.abs(unread.getBoundingClientRect().left - surfaceLeft - 4) > 0.5
+    )
+      throw new Error("The unread dot must sit 4px inside the comment's hover surface.")
+    const scroller = row.closest(".review-comments-sidebar__body")?.getBoundingClientRect()
+    if (
+      !scroller ||
+      !Number.isFinite(surfaceRight) ||
+      surfaceLeft < scroller.left - 0.5 ||
+      surfaceRight > scroller.right + 0.5
+    )
+      throw new Error("The wider hover surface must remain inside the comment scroll area.")
+  },
+}
 export const ShareManagement: Story = {
   args: {
     scenario: "Published",
