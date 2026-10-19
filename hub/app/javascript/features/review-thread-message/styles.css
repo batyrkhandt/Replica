@@ -83,15 +83,20 @@
   color: var(--hub-fg-danger);
 }
 
-.review-thread-message__menu-trigger {
+.review-thread-message .review-thread-message__menu-trigger:is(button) {
   width: var(--brand-control-small-size);
   min-width: var(--brand-control-small-size);
   height: var(--brand-control-small-size);
   min-height: var(--brand-control-small-size);
   padding: 0;
   gap: 0;
-  border-color: transparent;
+  border: 0;
   background: transparent;
+  box-shadow: none;
+}
+
+.review-thread-message .review-thread-message__menu-trigger:not(:disabled):hover {
+  background: var(--brand-color-border-muted);
 }
 
 .review-thread-message [role="menu"] li {
@@ -110,6 +115,12 @@
 
 .review-thread-message__delete-item {
   color: var(--hub-fg-danger);
+}
+
+.review-thread-message__menu-divider {
+  border-top: 1px solid var(--hub-border-muted);
+  margin-block: var(--hub-space-4);
+  list-style: none;
 }
 
 .review-thread-message__delete-item span {

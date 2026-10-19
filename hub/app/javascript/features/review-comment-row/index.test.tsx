@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import type { ReviewThread } from "@utils/review-comment/types"
@@ -64,7 +64,6 @@ const THREAD: ReviewThread = {
 const COPY = {
   buildLabel: "build %{number}",
   changedAnchorLabel: "Context changed",
-  checkingAnchorLabel: "Checking",
   deletedCommentLabel: "Comment deleted",
   missingAnchorLabel: "Not found",
   movedAnchorLabel: "Moved",
@@ -77,6 +76,25 @@ const COPY = {
 }
 
 describe("ReviewCommentRow()", () => {
+  it("shows no target status until the preview returns a result", () => {
+    const props = {
+      thread: THREAD,
+      currentBuildNumber: 2,
+      selected: false,
+      selectionBlocked: false,
+      copy: COPY,
+      onSelect: vi.fn(),
+    }
+    const { rerender } = render(<ReviewCommentRow {...props} />)
+
+    expect(screen.queryByText("Checking")).not.toBeInTheDocument()
+    expect(screen.queryByText("Not found")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Please align this control/ })).toBeEnabled()
+
+    rerender(<ReviewCommentRow {...props} resolution={{ commentId: 1, status: "missing" }} />)
+    expect(screen.getByText("Not found")).toBeInTheDocument()
+  })
+
   it("uses a circular Brand avatar for both known and missing images", () => {
     const props = {
       currentBuildNumber: 2,
@@ -103,7 +121,7 @@ describe("ReviewCommentRow()", () => {
 
     const avatar = screen.getByTestId("Avatar")
     expect(avatar.className).toContain("Avatar--shape-circle")
-    expect(avatar).toHaveClass("hub-user-avatar--28")
+    expect(avatar).toHaveClass("hub-user-avatar--20")
     expect(avatar).toHaveClass("review-comment-row__avatar")
     expect(screen.getByTestId("Avatar__image")).toHaveAttribute("alt", "")
 
@@ -165,22 +183,58 @@ describe("ReviewCommentRow()", () => {
     expect(screen.queryByText("Marker unavailable")).not.toBeInTheDocument()
   })
 
-  it("shows an accessible unread indicator", () => {
-    render(
-      <ReviewCommentRow
-        thread={{ ...THREAD, unread: true }}
-        currentBuildNumber={2}
-        selected={false}
-        selectionBlocked={false}
-        copy={COPY}
-        onSelect={vi.fn()}
-      />,
+  it("announces unread state when focusing the row button", () => {
+    const props = {
+      currentBuildNumber: 2,
+      selected: false,
+      selectionBlocked: false,
+      copy: COPY,
+      onSelect: vi.fn(),
+    }
+    const { rerender } = render(
+      <ReviewCommentRow {...props} thread={{ ...THREAD, unread: true }} />,
     )
 
     expect(screen.getByRole("img", { name: "Unread" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /The Octocat.*Please align.*Unread/ })).toBeEnabled()
+
+    rerender(<ReviewCommentRow {...props} thread={THREAD} />)
+    expect(screen.getByRole("button", { name: /The Octocat.*Please align/ })).toBeEnabled()
+    expect(screen.queryByRole("button", { name: /Unread/ })).not.toBeInTheDocument()
   })
 
+  it.each([
+    { selected: false, selectionBlocked: false, selectable: true },
+    { selected: false, selectionBlocked: true, selectable: false },
+    { selected: true, selectionBlocked: true, selectable: true },
+  ])(
+    "preserves selection from the timestamp and unread dot with selected=$selected and blocked=$selectionBlocked",
+    ({ selected, selectionBlocked, selectable }) => {
+      const onSelect = vi.fn()
+      const thread = { ...THREAD, unread: true }
+      render(
+        <ReviewCommentRow
+          thread={thread}
+          currentBuildNumber={2}
+          selected={selected}
+          selectionBlocked={selectionBlocked}
+          copy={COPY}
+          onSelect={onSelect}
+        />,
+      )
+
+      const time = screen.getByTitle("Mon, 14 Sep 2026 13:00:00 GMT")
+      const unread = screen.getByRole("img", { name: "Unread" })
+      expect(unread).toHaveAttribute("title", "Unread")
+      for (const target of [time, unread, screen.getByRole("button")]) fireEvent.click(target)
+
+      expect(onSelect).toHaveBeenCalledTimes(selectable ? 3 : 0)
+      if (selectable) expect(onSelect).toHaveBeenLastCalledWith(thread)
+    },
+  )
+
   it("opens an overridden Build link without replacing the canvas", () => {
+    const onSelect = vi.fn()
     render(
       <ReviewCommentRow
         thread={THREAD}
@@ -189,7 +243,7 @@ describe("ReviewCommentRow()", () => {
         selected={false}
         selectionBlocked={false}
         copy={COPY}
-        onSelect={vi.fn()}
+        onSelect={onSelect}
       />,
     )
 
@@ -198,5 +252,17 @@ describe("ReviewCommentRow()", () => {
       "rel",
       "noopener noreferrer",
     )
+    const buildLink = screen.getByRole("link", { name: "build 2" })
+    expect(buildLink).toHaveAttribute(
+      "href",
+      "https://hub.example.com/repositories/2001/prototypes/1?build=2",
+    )
+    expect(buildLink.parentElement).toHaveTextContent("(build 2)")
+    expect(screen.getByText("The Octocat").parentElement).toContainElement(buildLink)
+    expect(buildLink.closest("button")).toBeNull()
+    fireEvent.click(buildLink)
+    expect(onSelect).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: /Please align this control/ }))
+    expect(onSelect).toHaveBeenCalledWith(THREAD)
   })
 })

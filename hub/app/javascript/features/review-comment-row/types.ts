@@ -12,7 +12,6 @@ export interface ReviewCommentRowProps {
     ReviewCommentsCopy,
     | "buildLabel"
     | "changedAnchorLabel"
-    | "checkingAnchorLabel"
     | "deletedCommentLabel"
     | "missingAnchorLabel"
     | "movedAnchorLabel"

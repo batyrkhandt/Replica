@@ -44,6 +44,8 @@
   min-height: 0;
   flex: 1;
   overflow: auto;
+  margin-inline: calc(-1 * var(--hub-space-8)) calc(-1 * var(--hub-space-4));
+  padding-inline: var(--hub-space-8) var(--hub-space-4);
 }
 
 .review-comments-sidebar__state {

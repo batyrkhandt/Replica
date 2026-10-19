@@ -59,6 +59,62 @@ afterEach(() => {
 })
 
 describe("useReviewComments()", () => {
+  it("marks a thread unread through its read endpoint and keeps the returned viewer state", async () => {
+    const unread = { ...COMMENT_1, viewerLastSeenActivityVersion: null }
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({ comments: [COMMENT_2, COMMENT_1], nextCursor: null, hasMore: false }),
+      )
+      .mockResolvedValueOnce(Response.json({ comments: [unread] }))
+    vi.stubGlobal("fetch", fetchMock)
+    const { result } = renderHook(() => useReviewComments(REVIEW_COMMENTS_PATH, "csrf-token"))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    await act(async () => {
+      expect(await result.current.markThreadUnread(1)).toEqual(unread)
+    })
+
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(`${REVIEW_COMMENTS_PATH}/1/read`)
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+      method: "DELETE",
+      headers: { "X-CSRF-Token": "csrf-token" },
+    })
+    expect(fetchMock.mock.calls[1]?.[1]?.body).toBeUndefined()
+    expect(result.current.comments).toEqual([COMMENT_2, unread])
+  })
+
+  it("keeps saved read state after an unread failure and lets the viewer retry", async () => {
+    const unread = { ...COMMENT_1, viewerLastSeenActivityVersion: null }
+    const message = "Too many requests. Wait before trying again."
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({ comments: [COMMENT_1], nextCursor: null, hasMore: false }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ code: "rate_limited", errors: [message], retryAfter: 60 }, { status: 429 }),
+      )
+      .mockResolvedValueOnce(Response.json({ comments: [unread] }))
+    vi.stubGlobal("fetch", fetchMock)
+    const { result } = renderHook(() => useReviewComments(REVIEW_COMMENTS_PATH, "csrf-token"))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    await act(async () => {
+      expect(await result.current.markThreadUnread(1)).toBeNull()
+    })
+    expect(result.current.comments).toEqual([COMMENT_1])
+    expect(result.current.mutationError).toBe(message)
+    expect(result.current.mutation).toBeNull()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      expect(await result.current.markThreadUnread(1)).toEqual(unread)
+    })
+    expect(result.current.comments).toEqual([unread])
+    expect(result.current.mutationError).toBeNull()
+  })
+
   it("does not replace a confirmed reaction with an older read acknowledgement", async () => {
     const readResponse = deferredResponse()
     const reacted = {

@@ -83,7 +83,7 @@ function createReviewCommentsClient({
   ) {
     if (disposed) return null
 
-    const markingRead = requestPath.endsWith("/read")
+    const markingRead = method === "POST" && requestPath.endsWith("/read")
     if (!markingRead) writeRevision += 1
     const requestedWriteRevision = writeRevision
     activeChanges += 1
