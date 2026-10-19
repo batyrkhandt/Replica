@@ -30,10 +30,9 @@ alone does not prove application bootstrap or route readiness.
 
 ## Canvas host and identifiers
 
-Find the intended Copilot host, handle reuse and page-identifier contracts.
-Record where runtime identifiers come from, not universal fixed IDs. Runtime
-discovery is authoritative for current schemas and actions. Configuration is
-not availability. Missing canvas support does not authorize silent substitution.
+Find the intended Copilot host, handle reuse and page-identifier contracts. Record where runtime identifiers come from, not universal fixed IDs. Runtime discovery is authoritative for current schemas and actions. Inspect a schema before the first required operation, then reuse it only for the same provider and session. Rediscover after provider reload/reconnect, a schema mismatch or an explicit request to check changed capabilities; a timeout alone does not invalidate it.
+
+Configuration is not availability. Missing canvas support does not authorize silent substitution.
 
 Keep `canvasId` and `instanceId` distinct. Actions addressed by the panel handle
 need no separate page acquisition. Record separate page identifiers only when
@@ -105,13 +104,7 @@ Identify what the run may close without disturbing user-owned sessions.
 Link lifecycle policy in [REPOSITORY.md](./REPOSITORY.md). Do not install tools,
 repair daemons, create auth or start undeclared infrastructure during validation.
 
-Allow one bounded same-panel recovery attempt: check documented readiness,
-refocus the same owned instance, rediscover schemas, and retry inspection once
-only if required runtime identifiers are available. Do not loop or open duplicate
-panels. A timed-out interaction may already have succeeded; inspect its resulting
-state before considering another action. Do not restart a healthy server because
-its canvas timed out. A separate MCP browser starts with a fresh read of the
-authorized route, not a replay or an assumption of shared state.
+Allow one bounded same-panel recovery attempt: check documented readiness, refocus the same owned instance, and retry inspection once only if required runtime identifiers are available. Reuse the current schema unless its invalidation condition applies. Do not loop or open duplicate panels. A timed-out interaction may already have succeeded; inspect its resulting state before considering another action. Do not restart a healthy server because its canvas timed out. A separate MCP browser starts with a fresh read of the authorized route, not a replay or an assumption of shared state.
 
 If MCP is unavailable, report the actual blocker, repository trust/fresh-session
 setup and remaining checks as unverified. Do not silently install browser engines.
