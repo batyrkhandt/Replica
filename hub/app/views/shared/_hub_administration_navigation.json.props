@@ -3,6 +3,7 @@ hub_admin = Current.user &&
   User.where(id: Current.user.id, hub_admin: true).where.not(github_id: nil).exists? &&
   local_assigns.fetch(:administration_allowed, true)
 json.settingsNavigationLabel t("hub_administration_workspace.settings_navigation")
+json.feedbackLabel t("repository_workspace.feedback")
 context_repository = local_assigns.fetch(:context_repository, @repository)
 context = { repository_github_id: context_repository&.route_id }
 json.administrationLinks(hub_admin ? [
