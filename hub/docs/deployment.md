@@ -13,6 +13,57 @@ The recommended deployment needs:
 
 The default deployment runs one Replica Hub container and stores its SQLite databases and Build files in one persistent Docker volume.
 
+## Optional server-side tracing
+
+Hub can send server-side traces to an OpenTelemetry Protocol (OTLP) endpoint. Traces describe Rails requests, Active Job enqueueing and execution, instrumented Active Record operations, and outbound Net::HTTP calls. The published image includes OpenTelemetry instrumentation and its HTTP/protobuf exporter, not vendor-specific APM SDKs.
+
+Tracing is off by default. To enable it, add these settings to the private deployment `.env` or your container platform's environment:
+
+```dotenv
+OTEL_TRACES_EXPORTER=otlp
+OTEL_SERVICE_NAME=replica-hub
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=production
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://otel-collector:4318/v1/traces
+OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf
+```
+
+This example assumes a Collector named `otel-collector` is reachable from Hub on a trusted private container network. Hub does not install or start that service. Use HTTPS for endpoints outside a trusted private network.
+
+Restart every Hub web and job container after changing these settings. No image rebuild is needed. Docker Compose already passes the private `.env` to Hub; other container platforms must pass the variables to every process themselves.
+
+| Setting | Purpose |
+| --- | --- |
+| `OTEL_TRACES_EXPORTER` | `otlp` enables export; `none` disables tracing and is Hub's default. Other exporters are not included. |
+| `OTEL_SERVICE_NAME` | Service identity; defaults to `replica-hub`. |
+| `OTEL_RESOURCE_ATTRIBUTES` | Comma-separated deployment metadata, such as `deployment.environment.name=production,service.version=1.0.0`. Do not put secrets or personal data here. |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Complete HTTP(S) trace endpoint, including its required path. Credentials, query strings, and fragments are not accepted in the URL. |
+| `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | Authentication headers required by the recipient, in the exporter's comma-separated `key=value` format. Keep this value private. |
+| `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | Only `http/protobuf` is supported. A gRPC-only endpoint needs a Collector or gateway that accepts HTTP/protobuf. |
+| `OTEL_TRACES_SAMPLER` | Standard SDK sampling policy, for example `parentbased_traceidratio`. The SDK default is parent-based, with all new root traces sampled. |
+| `OTEL_TRACES_SAMPLER_ARG` | Sampling-policy argument; for `parentbased_traceidratio`, a fraction from `0` to `1`, such as `0.1`. |
+| `OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE` | Optional path inside the container to a trusted CA certificate for a private endpoint. Mount the certificate when needed; keep TLS verification enabled. |
+| `OTEL_SDK_DISABLED` | Set to `true` to disable tracing regardless of the exporter setting. |
+
+The exporter also accepts the common `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, and `OTEL_EXPORTER_OTLP_PROTOCOL` settings. Trace-specific values take precedence. The common endpoint is a base URL to which the exporter appends `/v1/traces`; the trace-specific endpoint is used as supplied. Enabling export requires an explicit endpoint. Hub rejects unsupported exporters, protocols, and malformed endpoint URLs at startup.
+
+### Choose a recipient
+
+Send directly to an APM provider that accepts OTLP over HTTP/protobuf, using its documented trace endpoint and authentication headers. Alternatively, send to a company-managed OpenTelemetry Collector. The Collector can filter, sample, translate, and forward traces to one or more APMs without changing Hub's image. Choose a Collector distribution that includes the exporters your providers need.
+
+Sentry documents a direct OTLP trace endpoint. Datadog provides a Collector exporter. These paths do not guarantee the same features as each provider's native SDK; check the provider's supported signals, release status, and deployment version.
+
+The deployment operator controls the destination and credentials. Restrict recipients and network access through your deployment's outbound-network policy. Hub's repository analytics destination settings do not configure or restrict tracing.
+
+### Data and delivery limits
+
+Hub exports an allowlist of operational span attributes. It removes raw URL paths and queries, request and response headers, bodies, SQL text and parameter values, job arguments, span events, span links, and error status descriptions before export. HTTP span names use methods and route templates instead of concrete URLs. Trace context can cross service boundaries, but Hub does not propagate incoming OpenTelemetry baggage. Operator-supplied resource attributes are exported as configured.
+
+Active Job execution continues the enqueueing trace when the job's serialized context is available. The SDK's bounded background queue exports batches outside the request path and resets its worker after process forks. Hub allows up to five seconds to flush at normal process exit. Collector or provider outages are logged and may drop traces; delivery is not durable and does not gate successful Hub requests. Forced termination can lose pending spans.
+
+Health checks at `/up` are excluded. Asset compilation with `SECRET_KEY_BASE_DUMMY` does not initialize tracing. This integration does not enable browser monitoring, metric or log export, exception stack-trace export, or vendor-native error reporting.
+
+For exporter settings and their formats, see the [Ruby OTLP exporter](https://github.com/open-telemetry/opentelemetry-ruby/tree/main/exporter/otlp) and the [Ruby SDK documentation](https://opentelemetry.io/docs/languages/ruby/). Provider setup examples are available for [Sentry OTLP](https://docs.sentry.io/concepts/otlp/direct/traces/) and the [Datadog Collector exporter](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/exporter/datadogexporter).
+
 ## Choose an isolated domain
 
 Hub displays prototypes inside its review pages. It requires each preview to use a separate HTTPS subdomain, such as `b123.preview.hub.example.com` under `hub.example.com`. This lets preview cookies work while the prototype is embedded. Hub keeps its own sign-in cookie separate.
