@@ -1,6 +1,6 @@
 ---
 name: replica-publish-prototype
-description: Publishes the current Replica prototype through its existing workflow and Hub Build. Use when the prototype canvas requests publication or the user asks to publish a prototype.
+description: Publishes a Replica prototype through its existing workflow and Hub Build. Use for prototype canvas publishing requests that include verified target JSON and a publishing mode.
 ---
 
 # Publish a Replica prototype

@@ -21,5 +21,5 @@ it("resolves the marketplace's relative source to the shipped plugin", async () 
     new URL(`${plugin.source}/skills/replica-publish-prototype/SKILL.md`, root),
     "utf8",
   )
-  assert.match(skill, /^---\nname: replica-publish-prototype\n/)
+  assert.match(skill.replaceAll("\r\n", "\n"), /^---\nname: replica-publish-prototype\n/)
 })

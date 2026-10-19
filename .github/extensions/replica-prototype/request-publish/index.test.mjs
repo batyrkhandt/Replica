@@ -10,12 +10,11 @@ import { readState } from "../read-state/index.mjs"
 import { refreshPrototypeStatus } from "../refresh-prototype-status/index.mjs"
 import { withContext } from "../test-support/with-context/index.mjs"
 import { writeState } from "../write-state/index.mjs"
-import { requestPublish } from "./index.mjs"
+import { readPublishInstructions, requestPublish } from "./index.mjs"
 
-const publishSkill = await readFile(
-  new URL("../skills/replica-publish-prototype/SKILL.md", import.meta.url),
-  "utf8",
-)
+const publishSkill = (
+  await readFile(new URL("../skills/replica-publish-prototype/SKILL.md", import.meta.url), "utf8")
+).replaceAll("\r\n", "\n")
 const publishInstructions = publishSkill.slice(publishSkill.indexOf("\n---\n", 4) + 5).trim()
 
 const publishTargetKeys = [
@@ -46,18 +45,59 @@ function requestDataFromPrompt(prompt) {
 }
 
 function targetFromPrompt(prompt) {
-  const { mode: _mode, ...target } = requestDataFromPrompt(prompt)
-  return target
+  const data = requestDataFromPrompt(prompt)
+  return Object.fromEntries(publishTargetKeys.map((key) => [key, data[key]]))
 }
 
 function assertSkillRequest(prompt, mode) {
   assert.match(prompt, /\/replica-publish-prototype\b/)
   assert.match(prompt, /If the skill is unavailable, follow the complete fallback procedure below/)
-  assert.ok(prompt.includes(publishInstructions), "The complete bundled publishing skill is present.")
+  assert.ok(
+    prompt.includes(publishInstructions),
+    "The complete bundled publishing skill is present.",
+  )
   assert.equal(requestDataFromPrompt(prompt).mode, mode)
 }
 
 describe("requestPublish()", () => {
+  it("keeps the required publishing safeguards in the bundled procedure", () => {
+    assert.match(
+      publishInstructions,
+      /Never switch repositories or branches, publish the default branch, force-push/,
+    )
+    assert.match(
+      publishInstructions,
+      /Do not create or amend commits, stage or unstage files, stash, discard/,
+    )
+    assert.match(
+      publishInstructions,
+      /Stop and report if there are no task-related changes or a commit fails/,
+    )
+    assert.match(publishInstructions, /never publish an older commit as a fallback/)
+    assert.match(
+      publishInstructions,
+      /Immediately before pushing, recheck the repository, branch, origin fingerprints, and HEAD/,
+    )
+    assert.match(
+      publishInstructions,
+      /a new Build whose `hubStatus\.prototype\.build\.commitSha` matches the pushed commit/,
+    )
+    assert.match(
+      publishInstructions,
+      /Actions success or an earlier Build, even one for the same commit, is not sufficient/,
+    )
+  })
+
+  it("reads the same complete procedure from LF and CRLF skill files", async () => {
+    await withContext(async (context) => {
+      const file = path.join(context.sessionWorkspacePath, "publish-skill.md")
+      for (const newline of ["\n", "\r\n"]) {
+        await writeFile(file, publishSkill.replaceAll("\n", newline))
+        assert.equal(await readPublishInstructions(file), publishInstructions)
+      }
+    })
+  })
+
   for (const mode of ["commit-changes", "committed-only"]) {
     it(`requests the publishing skill with the ${mode} mode and allowlisted target`, async () => {
       await withContext(async (context) => {
@@ -105,12 +145,16 @@ describe("requestPublish()", () => {
 
   it("does not absorb a new HEAD into a committed-only publication", async () => {
     await withContext(async (context) => {
-      await requestPublish(context, {
-        send({ prompt }) {
-          assertSkillRequest(prompt, "committed-only")
-          return "committed-request"
+      await requestPublish(
+        context,
+        {
+          send({ prompt }) {
+            assertSkillRequest(prompt, "committed-only")
+            return "committed-request"
+          },
         },
-      }, { instanceId: "demo-preview" })
+        { instanceId: "demo-preview" },
+      )
       execFileSync(
         "git",
         [
@@ -192,12 +236,16 @@ describe("requestPublish()", () => {
         const initialHead = git("rev-parse", "HEAD")
         const initialStatus = git("status", "--porcelain")
         assert.equal(Boolean(initialStatus), dirty)
-        await requestPublish(context, {
-          send({ prompt }) {
-            assertSkillRequest(prompt, "committed-only")
-            return "message-publish"
+        await requestPublish(
+          context,
+          {
+            send({ prompt }) {
+              assertSkillRequest(prompt, "committed-only")
+              return "message-publish"
+            },
           },
-        }, { instanceId: "demo-preview" })
+          { instanceId: "demo-preview" },
+        )
         assert.equal(git("rev-parse", "HEAD"), initialHead)
         assert.equal(git("status", "--porcelain"), initialStatus)
       })
@@ -460,12 +508,16 @@ describe("requestPublish()", () => {
       git(["remote", "set-url", "--push", "origin", push])
       git(["remote", "set-url", "--push", "--add", "origin", secondPush])
       let prompt
-      const result = await requestPublish(context, {
-        send(message) {
-          prompt = message.prompt
-          return "message"
+      const result = await requestPublish(
+        context,
+        {
+          send(message) {
+            prompt = message.prompt
+            return "message"
+          },
         },
-      }, { instanceId: "demo-preview" })
+        { instanceId: "demo-preview" },
+      )
       const expected = createHash("sha256")
         .update(git(["remote", "get-url", "--push", "--all", "origin"]))
         .digest("hex")
@@ -697,12 +749,16 @@ describe("requestPublish()", () => {
         encoding: "utf8",
       }).trim()
       let prompt
-      const result = await requestPublish(context, {
-        async send(message) {
-          prompt = message.prompt
-          return "message-1"
+      const result = await requestPublish(
+        context,
+        {
+          async send(message) {
+            prompt = message.prompt
+            return "message-1"
+          },
         },
-      }, { instanceId: "demo-preview" })
+        { instanceId: "demo-preview" },
+      )
       assertSkillRequest(prompt, "committed-only")
       assert.equal(targetFromPrompt(prompt).commitSha, head)
       assert.equal(result.publishRequest.commitSha, head)

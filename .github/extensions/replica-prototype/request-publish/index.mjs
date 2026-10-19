@@ -151,8 +151,8 @@ async function sendPublish(
   }
 }
 
-async function readPublishInstructions() {
-  const skill = await readFile(publishSkillUrl, "utf8")
+export async function readPublishInstructions(skillUrl = publishSkillUrl) {
+  const skill = (await readFile(skillUrl, "utf8")).replaceAll("\r\n", "\n")
   const frontmatterEnd = skill.indexOf("\n---\n", 4)
   if (!skill.startsWith("---\n") || frontmatterEnd === -1)
     throw new Error("The Replica publish skill has invalid frontmatter.")
