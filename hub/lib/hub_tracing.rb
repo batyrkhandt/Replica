@@ -10,6 +10,14 @@ module HubTracing
     end
     return if exporter == "none"
 
+    include_sensitive_data = boolean_setting("REPLICA_OTEL_INCLUDE_SENSITIVE_DATA")
+    trust_incoming_context = boolean_setting("REPLICA_OTEL_TRUST_INCOMING_CONTEXT")
+    untraced_hosts = ENV.fetch("REPLICA_OTEL_UNTRACED_HOSTS", "").split(",", -1).map(&:strip)
+    untraced_hosts = [] unless ENV.key?("REPLICA_OTEL_UNTRACED_HOSTS")
+    if untraced_hosts.any?(&:empty?)
+      raise ArgumentError, "REPLICA_OTEL_UNTRACED_HOSTS must contain nonempty comma-separated hostnames"
+    end
+
     protocol = ENV["OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"] ||
       ENV.fetch("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
     unless protocol == "http/protobuf"
@@ -32,19 +40,39 @@ module HubTracing
     require "opentelemetry/instrumentation/active_job"
     require "opentelemetry/instrumentation/net/http"
     require_relative "hub_tracing/exporter"
+    require_relative "hub_tracing/data_filter"
+    require_relative "hub_tracing/propagator"
 
-    processor = OpenTelemetry::SDK::Trace::Export::BatchSpanProcessor.new(
+    processor = OpenTelemetry::SDK::Trace::Export::BatchSpanProcessor.new \
       Exporter.new(OpenTelemetry::Exporter::OTLP::Exporter.new)
-    )
     OpenTelemetry::SDK.configure do |config|
       config.service_name = ENV.fetch("OTEL_SERVICE_NAME", "replica-hub")
-      config.propagators = [ OpenTelemetry::Trace::Propagation::TraceContext.text_map_propagator ]
+      config.propagators = [ Propagator.new(trust_incoming_context:) ]
       config.add_span_processor(processor)
       config.use "OpenTelemetry::Instrumentation::Rack", untraced_endpoints: [ "/up" ]
       config.use "OpenTelemetry::Instrumentation::ActionPack", span_naming: :class
       config.use "OpenTelemetry::Instrumentation::ActiveJob",
         propagation_style: :child, span_naming: :job_class
-      config.use "OpenTelemetry::Instrumentation::Net::HTTP"
+      config.use "OpenTelemetry::Instrumentation::Net::HTTP", untraced_hosts:
+    end
+
+    # Snapshot the original rules before Rails compiles them into combined regular expressions.
+    Rails.application.config.after_initialize do
+      data_filter = DataFilter.new(include_sensitive_data:)
+      ActiveSupport.on_load(:active_job) do
+        record_arguments = proc do |job|
+          span = OpenTelemetry::Trace.current_span
+          next unless span.recording?
+
+          begin
+            span.set_attribute("replica.job.arguments", data_filter.job_arguments(job.arguments))
+          rescue ActiveJob::SerializationError, JSON::GeneratorError
+            Rails.logger.warn("OpenTelemetry could not serialize job arguments; diagnostic arguments omitted")
+          end
+        end
+        before_enqueue(&record_arguments)
+        before_perform(&record_arguments)
+      end
     end
 
     # ORM instrumentation does not cover Hub's direct SQLite calls.
@@ -56,10 +84,24 @@ module HubTracing
         "database query",
         kind: :client,
         start_timestamp: started,
-        attributes: { "db.system.name" => "sqlite" }
+        attributes: { "db.system.name" => "sqlite", "db.query.text" => payload[:sql] }
       span.status = OpenTelemetry::Trace::Status.error if payload[:exception]
+      span.record_exception(payload[:exception_object]) if payload[:exception_object]
       span.finish(end_timestamp: finished)
     end
-    at_exit { OpenTelemetry.tracer_provider.shutdown(timeout: 5) }
+    at_exit do
+      Timeout.timeout(5) { OpenTelemetry.tracer_provider.shutdown(timeout: 5) }
+    rescue Timeout::Error
+      OpenTelemetry.handle_error(message: "OpenTelemetry shutdown exceeded its deadline; pending traces dropped")
+    end
+  end
+
+  def self.boolean_setting(name)
+    value = ENV.fetch(name, "false")
+    unless %w[true false].include?(value.downcase)
+      raise ArgumentError, "#{name} must be true or false"
+    end
+
+    value.casecmp?("true")
   end
 end
