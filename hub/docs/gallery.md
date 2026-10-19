@@ -60,6 +60,16 @@ Operators configure the video through the [deployment settings](deployment.md#we
 
 ## Browse prototypes
 
+Prototypes appear in pages of up to 24, newest registration first. **Previous**, **Next**, and **Newest results** keep the current search and author filter. Hub loads card and Build data only for the selected page. A new registration appears on the newest page without shifting the boundary used to continue browsing older results.
+
+Search matches prototype names, descriptions, branches, and registration authors across the full selected repository, not only the visible page. Search treats punctuation such as `%` and `_` literally. SQLite's built-in matching ignores ASCII letter case; non-ASCII letters retain SQLite's case behavior. The count shows all matches, with the number shown on the current page when fewer are displayed.
+
+The **Author** dropdown puts **Me** first, followed by **All authors** and searchable pages of the repository's registration authors. **Me** uses the signed-in person's saved identity. Cards and the list's **Author** column show the first person who added the prototype to Hub; later commits by another person do not change attribution or author-filter results. Prototypes without a saved author remain visible with no author filter and display **Author unavailable**. Local mode keeps its existing local-identity presentation and applies author filters to saved registration authors.
+
+Search and author filters combine. Applying either starts again at the newest matching page; **Clear filters** removes both. The URL preserves applied search, author, and page state across reloads and browser history. Switching repositories starts without those filters. Author choices load in bounded pages and are not restricted to authors on the visible prototype page. Clearing or changing author-option search starts its choices from the beginning.
+
+While Hub fetches results, it keeps the previous cards visible and announces the update. A failed request keeps those cards with an explicit error and **Retry**. No matches has its own empty state, separate from a repository with no prototypes. If a previously valid page has become empty, **Newest results** returns to the current matching collection.
+
 An empty Prototypes page shows a branch Octicon, a heading, and guidance. For GitHub repositories, **Build prototype** opens **Create**. Local repositories keep their branch-discovery guidance without offering the Copilot app flow.
 
 The **Create** sidebar link opens a centered brief composer for the selected repository, with **What should we create?** above it and the **Templates** catalog below. Choose a template inside the composer before **Add details**, or open a catalog card to preview it first. The picker starts with **Default**. Choosing another template includes its quoted route, query, and fragment in the prompt and instructs the agent to set it as the new prototype's landing page through `startPage` in `.prototype`. Choosing Default removes that extra context. Catalog search does not change the selected template, brief, or saved details. Unavailable or corrupt template metadata returns an explicit service failure rather than an incomplete collection.

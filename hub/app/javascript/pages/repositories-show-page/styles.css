@@ -9,6 +9,14 @@
   min-height: 2.25rem;
   align-items: center;
   gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.repository-detail__pagination {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--hub-space-16);
 }
 
 .repository-detail__count {
@@ -119,6 +127,15 @@
   }
 
   .repository-detail__toolbar {
+    position: relative;
     justify-content: flex-end;
+  }
+
+  .repository-detail__toolbar .prototype-author-filter {
+    position: static;
+  }
+
+  .repository-detail__toolbar .prototype-author-filter__popup {
+    width: min(22rem, 100%);
   }
 }

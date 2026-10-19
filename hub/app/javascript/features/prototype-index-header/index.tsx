@@ -13,8 +13,10 @@ export function PrototypeIndexHeader({
   heading,
   headingAs = "h1",
   onSearchChange,
+  onSearchSubmit,
   searchLabel,
   searchQuery,
+  searchMaxLength,
   searchShortcutEnabled = true,
   tools,
 }: {
@@ -23,8 +25,10 @@ export function PrototypeIndexHeader({
   heading: string
   headingAs?: "h1" | "h2"
   onSearchChange: (query: string) => void
+  onSearchSubmit?: () => void
   searchLabel: string
   searchQuery: string
+  searchMaxLength?: number
   searchShortcutEnabled?: boolean
   tools?: ReactNode
 }) {
@@ -67,6 +71,13 @@ export function PrototypeIndexHeader({
             placeholder={searchLabel}
             value={searchQuery}
             onChange={(event) => onSearchChange(event.target.value)}
+            maxLength={searchMaxLength}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                event.preventDefault()
+                onSearchSubmit?.()
+              }
+            }}
           />
           {searchQuery ? (
             <button

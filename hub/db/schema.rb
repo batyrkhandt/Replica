@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_15_060000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_19_000000) do
   create_table "analytics_deliveries", force: :cascade do |t|
     t.integer "attempts", default: 0, null: false
     t.datetime "created_at", null: false
@@ -411,8 +411,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_060000) do
     t.string "retired_head_sha"
     t.index ["author_id"], name: "index_prototypes_on_author_id"
     t.index ["current_build_id"], name: "index_prototypes_on_current_build_id"
+    t.index ["repository_id", "author_id", "registered_at", "id"], name: "index_prototypes_on_gallery_author", where: "branch_deleted_at IS NULL AND registered_at IS NOT NULL"
     t.index ["repository_id", "branch_name", "branch_deleted_at"], name: "idx_on_repository_id_branch_name_branch_deleted_at_37960952d6"
     t.index ["repository_id", "branch_name"], name: "index_prototypes_on_active_branch", unique: true, where: "branch_deleted_at IS NULL"
+    t.index ["repository_id", "registered_at", "id"], name: "index_prototypes_on_gallery_order", where: "branch_deleted_at IS NULL AND registered_at IS NOT NULL"
     t.index ["repository_id"], name: "index_prototypes_on_repository_id"
     t.check_constraint "description IS NULL OR length(trim(description)) BETWEEN 1 AND 500", name: "prototypes_description"
     t.check_constraint "length(trim(branch_name)) BETWEEN 1 AND 255", name: "prototypes_branch_name"

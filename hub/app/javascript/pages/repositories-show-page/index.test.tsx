@@ -1,10 +1,15 @@
 import { fireEvent, render, screen } from "@testing-library/react"
-import { describe, it } from "vitest"
+import type { ComponentProps } from "react"
+import { describe, it, vi } from "vitest"
 
-import { RepositoriesShowPage } from "./index"
+import { prototypeListing } from "@/storybook/fixtures/prototype-listing"
+import type { PrototypeListingControls } from "@utils/prototype-listing/types"
+
+import { RepositoriesShowPage as Page } from "./index"
 import type { RepositoriesShowPageData } from "./types"
 
 const PAGE_DATA: RepositoriesShowPageData = {
+  listing: prototypeListing,
   accountMenuLabel: "Account menu for @octocat",
   darkThemeLabel: "Dark",
   feedbackLabel: "Feedback",
@@ -22,7 +27,7 @@ const PAGE_DATA: RepositoriesShowPageData = {
   galleryViewLabel: "Gallery view",
   listViewLabel: "List view",
   prototypeColumnLabel: "Prototype",
-  ownerColumnLabel: "Owner",
+  ownerColumnLabel: "Author",
   buildColumnLabel: "Build",
   passingLabel: "passing",
   notPassingLabel: "not passing",
@@ -81,7 +86,84 @@ const PAGE_DATA: RepositoriesShowPageData = {
   },
 }
 
+function RepositoriesShowPage({
+  controls,
+  ...props
+}: Omit<ComponentProps<typeof Page>, "controls"> & { controls?: PrototypeListingControls }) {
+  return (
+    <Page {...props} controls={controls ?? listingControls({ query: props.data.listing.query })} />
+  )
+}
+
+function listingControls(
+  overrides: Partial<PrototypeListingControls> = {},
+): PrototypeListingControls {
+  return {
+    query: "",
+    pending: false,
+    error: false,
+    onQueryChange: vi.fn(),
+    onQuerySubmit: vi.fn(),
+    onAuthorChange: vi.fn(),
+    onClearFilters: vi.fn(),
+    onNavigate: vi.fn(),
+    onRetry: vi.fn(),
+    loadAuthors: vi.fn(() => Promise.resolve({ authors: [], nextCursor: null })),
+    ...overrides,
+  }
+}
+
 describe("RepositoriesShowPage()", () => {
+  it("navigates a page once while keeping ordinary links available for modified clicks", () => {
+    const controls = listingControls()
+    const delegatedClick = vi.fn()
+    render(
+      <div onClick={delegatedClick}>
+        <RepositoriesShowPage
+          controls={controls}
+          data={{
+            ...PAGE_DATA,
+            listing: {
+              ...prototypeListing,
+              matchingCount: 80,
+              nextPath: "/repositories/2001?author=me&cursor=next",
+            },
+            prototypesCountLabel: "80 prototypes",
+          }}
+        />
+      </div>,
+    )
+    const next = screen.getByRole("link", { name: "Next" })
+    expect(next).toHaveAttribute("href", "/repositories/2001?author=me&cursor=next")
+    expect(screen.getByText("80 prototypes (1 shown)")).toBeInTheDocument()
+    fireEvent.click(next)
+    expect(controls.onNavigate).toHaveBeenCalledExactlyOnceWith(
+      "/repositories/2001?author=me&cursor=next",
+    )
+    expect(delegatedClick).not.toHaveBeenCalled()
+    fireEvent.click(next, { ctrlKey: true })
+    expect(controls.onNavigate).toHaveBeenCalledTimes(1)
+    expect(delegatedClick).toHaveBeenCalledTimes(1)
+  })
+
+  it("retains known cards during loading and request failure and exposes retry", () => {
+    const controls = listingControls({ pending: true })
+    const { rerender } = render(<RepositoriesShowPage data={PAGE_DATA} controls={controls} />)
+    expect(screen.getByRole("region", { name: "Prototypes" })).toHaveAttribute("aria-busy", "true")
+    expect(screen.getByRole("status")).toHaveTextContent(prototypeListing.copy.updating)
+    expect(screen.getByRole("link", { name: "Welcome" })).toBeInTheDocument()
+    rerender(
+      <RepositoriesShowPage
+        data={PAGE_DATA}
+        controls={{ ...controls, pending: false, error: true }}
+      />,
+    )
+    expect(screen.getByText(prototypeListing.copy.resultsFailed)).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Welcome" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+    expect(controls.onRetry).toHaveBeenCalledOnce()
+  })
+
   it("invites people to build their first prototype with a decorative branch icon", () => {
     const { container } = render(
       <RepositoriesShowPage
@@ -232,7 +314,7 @@ describe("RepositoriesShowPage()", () => {
       "src",
       "/repositories/2001/prototypes/1/builds/1/screenshots/desktop",
     )
-    expect(screen.getByRole("columnheader", { name: "Owner" })).toBeInTheDocument()
+    expect(screen.getByRole("columnheader", { name: "Author" })).toBeInTheDocument()
     expect(screen.getByRole("columnheader", { name: "Build" })).toBeInTheDocument()
     expect(screen.getByRole("cell", { name: /@octocat/ })).toBeInTheDocument()
     const authorLinks = screen.getAllByRole("link", { name: /@octocat/ })
@@ -446,35 +528,55 @@ describe("RepositoriesShowPage()", () => {
     ).toBeInTheDocument()
   })
 
-  it("filters gallery and list by name, owner, description, and branch with a visible count", () => {
-    render(
+  it("delegates search and renders server-filtered results and counts in both views", () => {
+    const onQueryChange = vi.fn()
+    const controls: PrototypeListingControls = {
+      query: "",
+      pending: false,
+      error: false,
+      onQueryChange,
+      onQuerySubmit: vi.fn(),
+      onAuthorChange: vi.fn(),
+      onClearFilters: vi.fn(),
+      onNavigate: vi.fn(),
+      onRetry: vi.fn(),
+      loadAuthors: vi.fn(() => Promise.resolve({ authors: [], nextCursor: null })),
+    }
+    const navigation = {
+      ...PAGE_DATA.prototypes[0]!,
+      id: "2",
+      name: "Navigation",
+      path: "/repositories/2001/prototypes/2",
+    }
+    const { rerender } = render(
       <RepositoriesShowPage
+        controls={controls}
         data={{
           ...PAGE_DATA,
           workflowInstallation: undefined,
-          prototypes: [
-            { ...PAGE_DATA.prototypes[0]!, description: null },
-            {
-              ...PAGE_DATA.prototypes[0]!,
-              id: "2",
-              name: "Navigation",
-              branchName: "prototype/nav",
-              description: "Explore another layout.",
-              path: "/repositories/2001/prototypes/2",
-              author: {
-                ...PAGE_DATA.prototypes[0]!.author,
-                label: "by @mona",
-                ownerLabel: "@mona",
-              },
-            },
-          ],
+          prototypes: [PAGE_DATA.prototypes[0]!, navigation],
           prototypesCountLabel: "2 prototypes",
         }}
       />,
     )
 
     const search = screen.getByRole("searchbox", { name: "Search prototypes" })
-    fireEvent.change(search, { target: { value: " MONA " } })
+    fireEvent.change(search, { target: { value: "Navigation" } })
+    expect(onQueryChange).toHaveBeenCalledWith("Navigation")
+    fireEvent.keyDown(search, { key: "Enter" })
+    expect(controls.onQuerySubmit).toHaveBeenCalledOnce()
+    expect(screen.getByRole("link", { name: "Welcome" })).toBeInTheDocument()
+    rerender(
+      <RepositoriesShowPage
+        controls={{ ...controls, query: "Navigation" }}
+        data={{
+          ...PAGE_DATA,
+          listing: { ...prototypeListing, query: "Navigation" },
+          prototypes: [navigation],
+          prototypesCountLabel: "1 prototype",
+        }}
+      />,
+    )
     expect(screen.getByText("1 prototype")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Navigation" })).toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Welcome" })).not.toBeInTheDocument()
@@ -483,19 +585,24 @@ describe("RepositoriesShowPage()", () => {
     expect(screen.getAllByRole("row")).toHaveLength(2)
     expect(screen.getByRole("link", { name: "Navigation" })).toBeInTheDocument()
 
-    fireEvent.change(search, { target: { value: "prototype/welcome" } })
-    expect(screen.getByRole("link", { name: "Welcome" })).toBeInTheDocument()
-    fireEvent.change(search, { target: { value: "another layout" } })
-    expect(screen.getByRole("link", { name: "Navigation" })).toBeInTheDocument()
-    fireEvent.change(search, { target: { value: "null" } })
+    rerender(
+      <RepositoriesShowPage
+        controls={{ ...controls, query: "missing" }}
+        data={{
+          ...PAGE_DATA,
+          listing: { ...prototypeListing, query: "missing", matchingCount: 0 },
+          prototypes: [],
+          prototypesCountLabel: "0 prototypes",
+        }}
+      />,
+    )
     expect(screen.getByText("0 prototypes")).toBeInTheDocument()
     expect(screen.getByText("No prototypes found")).toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Welcome" })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getAllByRole("button", { name: "Clear search" })[0]!)
-    expect(search).toHaveValue("")
+    expect(onQueryChange).toHaveBeenLastCalledWith("")
     expect(search).toHaveFocus()
-    expect(screen.getByText("2 prototypes")).toBeInTheDocument()
   })
 
   it("focuses search with Command K and Control K", () => {
