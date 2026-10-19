@@ -66,7 +66,7 @@ Reserve an entire dedicated domain for the hub and its preview subdomains. A sub
 
 ### Download and initialize the container deployment
 
-On your Linux server, follow [Download the deployment bundle](../hub/docs/deployment.md#download-the-deployment-bundle) to select an explicit `hub-v*` release, download its bundle and checksum, verify the archive, and extract it into a new deployment directory. Do not use `releases/latest` or skip checksum verification. Check that guide's release-readiness and download-access notes before proceeding; a prerelease bundle is not evidence of production readiness.
+On your Linux server, follow [Download the deployment bundle](../hub/docs/deployment.md#download-the-deployment-bundle) to select an explicit stable `hub-v*` release, download its public bundle and checksum, verify the archive, and extract it into a new deployment directory. Do not use `releases/latest` or skip checksum verification. The public release assets do not require GitHub authentication.
 
 From the extracted deployment directory, run:
 
