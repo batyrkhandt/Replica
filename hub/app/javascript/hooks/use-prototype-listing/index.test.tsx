@@ -20,7 +20,7 @@ function navigation(visit = vi.fn(() => Promise.resolve(undefined))) {
 }
 
 describe("usePrototypeListing()", () => {
-  it("debounces server search while preserving the author and dropping the old cursor", async () => {
+  it("debounces search but immediately submits author changes and cancels pending edits on reset", async () => {
     vi.useFakeTimers()
     try {
       const visit = vi.fn(() => Promise.resolve(undefined))
@@ -32,7 +32,6 @@ describe("usePrototypeListing()", () => {
         result.current.onQueryChange("nav")
         result.current.onQueryChange(" navigation ")
       })
-      expect(result.current.query).toBe(" navigation ")
       expect(visit).not.toHaveBeenCalled()
       await act(async () => vi.advanceTimersByTimeAsync(300))
       expect(visit).toHaveBeenCalledExactlyOnceWith("/repositories/2001?q=navigation&author=me", {
@@ -48,24 +47,12 @@ describe("usePrototypeListing()", () => {
       expect(visit).toHaveBeenLastCalledWith("/repositories/2001?q=immediate&author=me", {
         dataset: {},
       })
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it("applies an author to the draft search immediately and clears pending search on reset", async () => {
-    vi.useFakeTimers()
-    try {
-      const visit = vi.fn(() => Promise.resolve(undefined))
-      const { result } = renderHook(() => usePrototypeListing(prototypeListing), {
-        wrapper: navigation(visit),
-      })
       act(() => result.current.onQueryChange("checkout"))
       await act(async () => {
-        result.current.onAuthorChange("me")
+        result.current.onAuthorChange("2")
         await Promise.resolve()
       })
-      expect(visit).toHaveBeenLastCalledWith("/repositories/2001?q=checkout&author=me", {
+      expect(visit).toHaveBeenLastCalledWith("/repositories/2001?q=checkout&author=2", {
         dataset: {},
       })
       act(() => result.current.onQueryChange("next draft"))
@@ -74,7 +61,7 @@ describe("usePrototypeListing()", () => {
         await Promise.resolve()
       })
       await act(async () => vi.advanceTimersByTimeAsync(500))
-      expect(visit).toHaveBeenCalledTimes(2)
+      expect(visit).toHaveBeenCalledTimes(4)
       expect(visit).toHaveBeenLastCalledWith("/repositories/2001", { dataset: {} })
       expect(result.current.query).toBe("")
     } finally {

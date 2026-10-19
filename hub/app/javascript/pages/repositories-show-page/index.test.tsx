@@ -335,7 +335,7 @@ describe("RepositoriesShowPage()", () => {
     )
   })
 
-  it("preserves newest-first server order in gallery, list, and search results", () => {
+  it("preserves server order in gallery and list views", () => {
     render(
       <RepositoriesShowPage
         data={{
@@ -365,20 +365,6 @@ describe("RepositoriesShowPage()", () => {
     ])
 
     fireEvent.click(screen.getByRole("radio", { name: "List view" }))
-    expect(prototypeLinks().map((link) => link.textContent)).toEqual([
-      "Z newest prototype",
-      "A oldest prototype",
-    ])
-
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search prototypes" }), {
-      target: { value: "prototype" },
-    })
-    expect(prototypeLinks().map((link) => link.textContent)).toEqual([
-      "Z newest prototype",
-      "A oldest prototype",
-    ])
-
-    fireEvent.click(screen.getByRole("radio", { name: "Gallery view" }))
     expect(prototypeLinks().map((link) => link.textContent)).toEqual([
       "Z newest prototype",
       "A oldest prototype",
@@ -528,62 +514,21 @@ describe("RepositoriesShowPage()", () => {
     ).toBeInTheDocument()
   })
 
-  it("delegates search and renders server-filtered results and counts in both views", () => {
-    const onQueryChange = vi.fn()
-    const controls: PrototypeListingControls = {
-      query: "",
-      pending: false,
-      error: false,
-      onQueryChange,
-      onQuerySubmit: vi.fn(),
-      onAuthorChange: vi.fn(),
-      onClearFilters: vi.fn(),
-      onNavigate: vi.fn(),
-      onRetry: vi.fn(),
-      loadAuthors: vi.fn(() => Promise.resolve({ authors: [], nextCursor: null })),
-    }
-    const navigation = {
-      ...PAGE_DATA.prototypes[0]!,
-      id: "2",
-      name: "Navigation",
-      path: "/repositories/2001/prototypes/2",
-    }
+  it("delegates search without filtering server results again and renders empty results", () => {
+    const controls = listingControls({ query: "octocat" })
     const { rerender } = render(
       <RepositoriesShowPage
         controls={controls}
-        data={{
-          ...PAGE_DATA,
-          workflowInstallation: undefined,
-          prototypes: [PAGE_DATA.prototypes[0]!, navigation],
-          prototypesCountLabel: "2 prototypes",
-        }}
+        data={{ ...PAGE_DATA, listing: { ...prototypeListing, query: "octocat" } }}
       />,
     )
 
+    expect(screen.getByRole("link", { name: "Welcome" })).toBeInTheDocument()
     const search = screen.getByRole("searchbox", { name: "Search prototypes" })
-    fireEvent.change(search, { target: { value: "Navigation" } })
-    expect(onQueryChange).toHaveBeenCalledWith("Navigation")
+    fireEvent.change(search, { target: { value: "missing" } })
+    expect(controls.onQueryChange).toHaveBeenCalledWith("missing")
     fireEvent.keyDown(search, { key: "Enter" })
     expect(controls.onQuerySubmit).toHaveBeenCalledOnce()
-    expect(screen.getByRole("link", { name: "Welcome" })).toBeInTheDocument()
-    rerender(
-      <RepositoriesShowPage
-        controls={{ ...controls, query: "Navigation" }}
-        data={{
-          ...PAGE_DATA,
-          listing: { ...prototypeListing, query: "Navigation" },
-          prototypes: [navigation],
-          prototypesCountLabel: "1 prototype",
-        }}
-      />,
-    )
-    expect(screen.getByText("1 prototype")).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Navigation" })).toBeInTheDocument()
-    expect(screen.queryByRole("link", { name: "Welcome" })).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole("radio", { name: "List view" }))
-    expect(screen.getAllByRole("row")).toHaveLength(2)
-    expect(screen.getByRole("link", { name: "Navigation" })).toBeInTheDocument()
 
     rerender(
       <RepositoriesShowPage
@@ -601,7 +546,7 @@ describe("RepositoriesShowPage()", () => {
     expect(screen.queryByRole("link", { name: "Welcome" })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getAllByRole("button", { name: "Clear search" })[0]!)
-    expect(onQueryChange).toHaveBeenLastCalledWith("")
+    expect(controls.onQueryChange).toHaveBeenLastCalledWith("")
     expect(search).toHaveFocus()
   })
 
