@@ -22,13 +22,18 @@ describe("PrototypeAuthorFilter()", () => {
     )
     const trigger = screen.getByRole("button", { name: "Author: All authors" })
     fireEvent.click(trigger)
-    const dialog = screen.getByRole("dialog", { name: "Author" })
-    expect(within(dialog).getAllByRole("button")[0]).toHaveTextContent("Me")
-    expect(within(dialog).getByRole("searchbox")).toHaveFocus()
-    expect(await within(dialog).findByRole("button", { name: "@mona (Mona)" })).toBeInTheDocument()
-    fireEvent.click(within(dialog).getByRole("button", { name: "Me" }))
+    const menu = screen.getByRole("menu", { name: "Author" })
+    expect(within(menu).getAllByRole("menuitemradio")[0]).toHaveTextContent("Me")
+    expect(within(menu).getByRole("searchbox")).toHaveFocus()
+    expect(
+      await within(menu).findByRole("menuitemradio", { name: "@mona (Mona)" }),
+    ).toBeInTheDocument()
+    expect(
+      within(menu).getByRole("menuitemradio", { name: "All authors", checked: true }),
+    ).toBeInTheDocument()
+    fireEvent.click(within(menu).getByRole("menuitemradio", { name: "Me" }))
     expect(onChange).toHaveBeenCalledExactlyOnceWith("me")
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument()
     expect(trigger).toHaveFocus()
     expect(screen.queryByText("My prototypes")).not.toBeInTheDocument()
   })
@@ -55,18 +60,18 @@ describe("PrototypeAuthorFilter()", () => {
       <PrototypeAuthorFilter listing={prototypeListing} onChange={vi.fn()} onSearch={onSearch} />,
     )
     fireEvent.click(screen.getByRole("button", { name: "Author: All authors" }))
-    expect(await screen.findByRole("button", { name: "@octocat" })).toBeInTheDocument()
+    expect(await screen.findByRole("menuitemradio", { name: "@octocat" })).toBeInTheDocument()
     const firstSignal = onSearch.mock.calls[0]?.[2]
     fireEvent.click(screen.getByRole("button", { name: "Next authors" }))
-    expect(await screen.findByRole("button", { name: "@mona" })).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "@octocat" })).not.toBeInTheDocument()
+    expect(await screen.findByRole("menuitemradio", { name: "@mona" })).toBeInTheDocument()
+    expect(screen.queryByRole("menuitemradio", { name: "@octocat" })).not.toBeInTheDocument()
     expect(firstSignal?.aborted).toBe(true)
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "mona" } })
     await waitFor(() =>
       expect(onSearch).toHaveBeenLastCalledWith("mona", null, expect.any(AbortSignal)),
     )
     fireEvent.keyDown(screen.getByRole("searchbox"), { key: "Escape" })
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument()
     expect(onSearch.mock.calls.at(-1)?.[2].aborted).toBe(true)
   })
 
@@ -79,9 +84,33 @@ describe("PrototypeAuthorFilter()", () => {
     )
     fireEvent.click(screen.getByRole("button", { name: "Author: All authors" }))
     expect(await screen.findByRole("alert")).toHaveTextContent(prototypeListing.copy.authorsFailed)
-    expect(screen.getByRole("button", { name: "Me" })).toBeInTheDocument()
+    expect(screen.getByRole("menuitemradio", { name: "Me" })).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Retry" }))
     expect(await screen.findByRole("status")).toHaveTextContent(prototypeListing.copy.loading)
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No matching authors"))
+  })
+
+  it.each([
+    ["Me", " ", "me"],
+    ["All authors", "Enter", ""],
+  ])("selects %s once with the keyboard and restores trigger focus", (name, key, value) => {
+    const onChange = vi.fn()
+    render(
+      <PrototypeAuthorFilter
+        listing={prototypeListing}
+        onChange={onChange}
+        onSearch={() => Promise.resolve({ authors: [], nextCursor: null })}
+      />,
+    )
+    const trigger = screen.getByRole("button", { name: "Author: All authors" })
+    fireEvent.click(trigger)
+    fireEvent.keyDown(screen.getByRole("searchbox"), { key: "ArrowDown" })
+    expect(screen.getByRole("menuitemradio", { name: "Me" })).toHaveFocus()
+    const option = screen.getByRole("menuitemradio", { name })
+    option.focus()
+    fireEvent.keyDown(option, { key })
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(value)
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
   })
 })

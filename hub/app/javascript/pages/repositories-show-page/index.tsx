@@ -1,7 +1,8 @@
 import { useState } from "react"
+import type { MouseEvent } from "react"
 
 import { GearIcon, GitBranchIcon, SearchIcon } from "@primer/octicons-react"
-import { Button, InlineLink, Text } from "@primer/react-brand"
+import { Button, Text } from "@primer/react-brand"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubEmptyState } from "@components/hub-empty-state"
@@ -264,11 +265,19 @@ export function RepositoriesShowPage({
                 ] as const
               ).map(([path, label]) =>
                 path ? (
-                  <InlineLink
+                  <Button
+                    as="a"
+                    variant="secondary"
+                    size="small"
+                    className={
+                      path === data.listing.previousPath
+                        ? "repository-detail__previous-page"
+                        : undefined
+                    }
                     key={label}
                     href={path}
                     data-sg-visit="true"
-                    onClick={(event) => {
+                    onClick={(event: MouseEvent<HTMLAnchorElement>) => {
                       if (
                         event.button === 0 &&
                         !event.metaKey &&
@@ -283,7 +292,7 @@ export function RepositoriesShowPage({
                     }}
                   >
                     {label}
-                  </InlineLink>
+                  </Button>
                 ) : null,
               )}
             </nav>
