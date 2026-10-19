@@ -102,3 +102,16 @@
     padding-inline: 0.625rem;
   }
 }
+
+@media (width < 1024px) {
+  .canvas-toolbar .canvas-toolbar-compact-button {
+    width: var(--brand-control-small-size);
+    min-width: var(--brand-control-small-size);
+    padding-inline: 0;
+    gap: 0;
+  }
+
+  .canvas-toolbar .canvas-toolbar-button-label {
+    display: none;
+  }
+}

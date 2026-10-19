@@ -52,10 +52,53 @@ function selectFilter(label: string) {
 }
 
 describe("ImprovementNotesPrototype()", () => {
+  it("shows the comment first and target with clickable route at the bottom of the card", () => {
+    render(<ImprovementNotesPrototype initial="single" />)
+    const note = sampleNotes[0]!
+    const card = screen.getByRole("article", { name: `Improvement note ${note.id}` })
+    const target = within(card).getByText(note.target)
+    expect(within(card).queryByText(copy.viewTarget)).not.toBeInTheDocument()
+    const route = within(card).getByRole("button", {
+      name: `${copy.viewTarget}: ${note.target} (${note.route})`,
+    })
+    const body = within(card).getByText(note.body)
+    expect(target.parentElement).toBe(route.parentElement)
+    expect(route.parentElement?.previousElementSibling).toHaveClass("improvement-demo__note-header")
+    expect(route.parentElement?.querySelector(".improvement-demo__note-separator")).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    )
+    expect(within(card).queryByText("Improvement note")).not.toBeInTheDocument()
+    expect(body.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(target.compareDocumentPosition(route) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(card).queryByText(String(note.id))).not.toBeInTheDocument()
+    expect(within(card).queryByText(copy.statuses.open)).not.toBeInTheDocument()
+    expect(within(card).queryByRole("button", { name: copy.editAction })).not.toBeInTheDocument()
+    const trigger = within(card).getByRole("button", { name: copy.noteActions(note.target) })
+    expect(trigger.querySelector("svg")).not.toBeNull()
+    fireEvent.click(trigger)
+    for (const name of [copy.editAction, copy.deleteAction]) {
+      expect(screen.getByRole("menuitem", { name }).querySelector("svg")).not.toBeNull()
+    }
+    expect(screen.getByRole("menuitem", { name: copy.deleteAction })).toHaveClass(
+      "improvement-demo__delete-item",
+    )
+    fireEvent.keyDown(screen.getByRole("menuitem", { name: copy.editAction }), { key: "Enter" })
+    expect(screen.getByRole("textbox", { name: copy.label })).toHaveValue(note.body)
+    expect(screen.getByRole("textbox", { name: copy.label })).toHaveFocus()
+  })
+
   it("opens notes from the toolbar counter and fixes eligible notes only from the active sidebar", () => {
     render(<ImprovementNotesPrototype initial="multiple" />)
     const toolbar = within(screen.getByRole("group", { name: copy.title }))
     expect(toolbar.getByRole("button", { name: copy.annotate })).toBeVisible()
+    expect(toolbar.getByRole("button", { name: copy.annotate })).toHaveAttribute(
+      "title",
+      copy.annotate,
+    )
+    expect(toolbar.getByRole("button", { name: copy.annotate })).toHaveClass(
+      "canvas-toolbar-compact-button",
+    )
     const counter = toolbar.getByRole("button", { name: copy.openNotes(3) })
     expect(counter).toHaveTextContent("3")
     expect(counter.querySelector("svg")).toBeNull()
@@ -109,7 +152,9 @@ describe("ImprovementNotesPrototype()", () => {
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     addNote("Explain notifications.", "notifications")
     expect(fixAll(2)).toBeEnabled()
-    fireEvent.click(screen.getByRole("button", { name: "View target: New project button" }))
+    fireEvent.click(
+      screen.getByRole("button", { name: "View target: New project button (/projects)" }),
+    )
     expect(screen.getByRole("button", { name: "Projects" })).toHaveAttribute("aria-current", "page")
     expect(
       screen.getByRole("button", { name: "Open improvement note 1: New project button" }),
@@ -138,7 +183,7 @@ describe("ImprovementNotesPrototype()", () => {
     )
     expect(fixAll(1)).toBeEnabled()
     expect(screen.getByText(copy.statuses.ready, { selector: "span" })).toBeVisible()
-    expect(screen.getByText(copy.statuses.open)).toBeVisible()
+    expect(screen.queryByText(copy.statuses.open)).not.toBeInTheDocument()
   })
 
   it("requires author confirmation and supports reopening a resolved note", () => {
@@ -155,6 +200,46 @@ describe("ImprovementNotesPrototype()", () => {
     selectFilter(copy.resolvedFilter)
     fireEvent.click(screen.getByRole("button", { name: copy.reopen }))
     expect(fixAll(1)).toBeEnabled()
+  })
+
+  it("puts ready status first, keeps metadata below the note and collapses the solution", () => {
+    render(<ImprovementNotesPrototype initial="multiple" />)
+    const note = sampleNotes[2]!
+    const card = screen.getByRole("article", { name: `Improvement note ${note.id}` })
+    const body = within(card).getByText(note.body)
+    const status = within(card).getByText(copy.statuses.ready, { selector: "span" })
+    expect(status.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const metadata = card.querySelector(".improvement-demo__note-meta")
+    if (!metadata) throw new Error("Expected the note metadata.")
+    expect(metadata.previousElementSibling).toBe(body.parentElement)
+    const disclosure = card.querySelector("details")
+    if (!disclosure) throw new Error("Expected the solution disclosure.")
+    expect(
+      metadata.compareDocumentPosition(disclosure) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(disclosure).not.toHaveAttribute("open")
+    expect(within(disclosure).getByText(copy.noteReady)).not.toBeVisible()
+    fireEvent.click(within(disclosure).getByText(copy.solution))
+    expect(disclosure).toHaveAttribute("open")
+    const solution = within(disclosure).getByText(copy.noteReady)
+    expect(solution).toBeVisible()
+    expect(Number.parseFloat(getComputedStyle(solution).fontSize)).toBeGreaterThan(
+      Number.parseFloat(getComputedStyle(within(disclosure).getByText(copy.solution)).fontSize),
+    )
+    expect(getComputedStyle(solution).whiteSpace).toBe("pre-wrap")
+    expect(getComputedStyle(solution).overflowWrap).toBe("anywhere")
+    const resolve = within(card).getByRole("button", { name: copy.resolve })
+    expect(
+      disclosure.compareDocumentPosition(resolve) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(within(card).getByText(copy.readyReadOnly)).toBeVisible()
+    fireEvent.click(within(card).getByRole("button", { name: copy.noteActions(note.target) }))
+    expect(screen.getByRole("menuitem", { name: copy.editAction })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    )
+    fireEvent.click(screen.getByRole("menuitem", { name: copy.editAction }))
+    expect(screen.queryByRole("textbox", { name: copy.label })).not.toBeInTheDocument()
   })
 
   it("preserves unsaved text until the author explicitly discards it", () => {
@@ -181,12 +266,13 @@ describe("ImprovementNotesPrototype()", () => {
     render(<ImprovementNotesPrototype initial="single" />)
     fireEvent.click(fixAll(1))
     fireEvent.click(screen.getByRole("button", { name: copy.closeHandoff }))
-    fireEvent.click(screen.getByRole("button", { name: copy.editAction }))
+    fireEvent.click(screen.getByRole("button", { name: copy.noteActions(sampleNotes[0]!.target) }))
+    fireEvent.click(screen.getByRole("menuitem", { name: copy.editAction }))
     fireEvent.change(screen.getByRole("textbox", { name: copy.label }), {
       target: { value: "Revised request" },
     })
     fireEvent.click(screen.getByRole("button", { name: copy.saveEdit }))
-    expect(screen.getByText(copy.statuses.open)).toBeVisible()
+    expect(screen.queryByText(copy.statuses.open)).not.toBeInTheDocument()
     expect(fixAll(1)).toBeEnabled()
   })
 
@@ -239,16 +325,38 @@ describe("ImprovementNotesPrototype()", () => {
 
   it("only deletes a saved note after confirmation", () => {
     render(<ImprovementNotesPrototype initial="single" />)
-    fireEvent.click(screen.getByRole("button", { name: copy.deleteAction }))
+    fireEvent.click(screen.getByRole("button", { name: copy.noteActions(sampleNotes[0]!.target) }))
+    fireEvent.click(screen.getByRole("menuitem", { name: copy.deleteAction }))
+    const dialog = screen.getByRole("dialog", { name: copy.deleteTitle })
+    expect(within(dialog).getByText(copy.deleteBody)).toBeVisible()
+    expect(dialog.querySelector("blockquote")).toHaveTextContent(sampleNotes[0]!.body)
+    expect(within(dialog).getByRole("button", { name: copy.deleteAction })).toHaveClass(
+      "improvement-demo__delete-confirm",
+    )
     fireEvent.click(screen.getByRole("button", { name: copy.cancel }))
     expect(fixAll(1)).toBeEnabled()
-    fireEvent.click(screen.getByRole("button", { name: copy.deleteAction }))
+    fireEvent.click(screen.getByRole("button", { name: copy.noteActions(sampleNotes[0]!.target) }))
+    fireEvent.keyDown(screen.getByRole("menuitem", { name: copy.deleteAction }), { key: " " })
     fireEvent.click(
       within(screen.getByRole("dialog", { name: copy.deleteTitle })).getByRole("button", {
         name: copy.deleteAction,
       }),
     )
     expect(fixAll(0)).toBeDisabled()
+  })
+
+  it("quotes the selected note as safe text with its original line breaks", () => {
+    render(<ImprovementNotesPrototype />)
+    const body = `<img src=x onerror=alert(1)>\n${"LongUnbrokenNote".repeat(80)}`
+    addNote(body)
+    fireEvent.click(screen.getByRole("button", { name: copy.noteActions("New project button") }))
+    fireEvent.click(screen.getByRole("menuitem", { name: copy.deleteAction }))
+    const dialog = screen.getByRole("dialog", { name: copy.deleteTitle })
+    const quote = dialog.querySelector("blockquote")
+    expect(quote?.textContent).toBe(body)
+    expect(quote?.querySelector("img")).toBeNull()
+    fireEvent.click(within(dialog).getByRole("button", { name: copy.cancel }))
+    expect(fixAll(1)).toBeEnabled()
   })
 
   it("clicks an actual target and crops exactly its element bounds", () => {

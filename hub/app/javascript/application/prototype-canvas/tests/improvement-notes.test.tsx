@@ -216,7 +216,11 @@ describe("App()", () => {
         expect(screen.getByRole("complementary", { name: copy.notes })).toBeVisible(),
       )
 
-      fireEvent.click(screen.getByRole("button", { name: "View target: Save" }))
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "View target: Save (/settings?tab=account#profile)",
+        }),
+      )
       expect(screen.getByTitle("Demo prototype")).toHaveAttribute(
         "src",
         `${previewOrigin}/settings?tab=account#profile`,
@@ -338,7 +342,8 @@ describe("App()", () => {
     )
     try {
       await act(() => vi.advanceTimersByTimeAsync(0))
-      fireEvent.click(screen.getByRole("button", { name: copy.editAction }))
+      fireEvent.click(screen.getByRole("button", { name: copy.noteActions("Save") }))
+      fireEvent.click(screen.getByRole("menuitem", { name: copy.editAction }))
       fireEvent.change(screen.getByRole("textbox", { name: copy.label }), {
         target: { value: "Older unsaved draft." },
       })
@@ -356,7 +361,8 @@ describe("App()", () => {
       expect(fetch.mock.calls.at(-1)?.[1]?.body).toContain('"expectedNoteRevision":1')
       fireEvent.click(screen.getByRole("button", { name: copy.closeComposer }))
       fireEvent.click(screen.getByRole("button", { name: copy.discard }))
-      fireEvent.click(screen.getByRole("button", { name: copy.deleteAction }))
+      fireEvent.click(screen.getByRole("button", { name: copy.noteActions("Save") }))
+      fireEvent.click(screen.getByRole("menuitem", { name: copy.deleteAction }))
       serverNote.revision = 3
       saved.revision++
       await act(() => vi.advanceTimersByTimeAsync(3000))
@@ -370,6 +376,78 @@ describe("App()", () => {
       vi.useRealTimers()
     }
   })
+  it("protects an open edit dialog when polling receives a ready result", async () => {
+    vi.useFakeTimers()
+    const { saved, fetch } = savedNotesFixture()
+    saved.notes.push({
+      id: 1,
+      kind: "improvement_note",
+      author: "local",
+      body: "Original feedback.",
+      route: "/settings",
+      target: "Save",
+      selector: "#save",
+      rect: anchor.rect,
+      capture: "",
+      anchor: REVIEW_ANCHOR_SCHEMA.parse(anchor),
+      status: "sent",
+      sync: "local",
+      revision: 1,
+    })
+    const view = render(
+      <ImprovementNotesPrototype
+        canvas={{
+          token: "local",
+          frameRef: { current: null },
+          prototypeUrl: origin,
+          branch: "prototype/demo",
+          hubOpen: false,
+          onOpenNotes: vi.fn(),
+          onNavigate: vi.fn(),
+        }}
+      />,
+    )
+    try {
+      await act(() => vi.advanceTimersByTimeAsync(0))
+      fireEvent.click(screen.getByRole("button", { name: copy.noteActions("Save") }))
+      fireEvent.click(screen.getByRole("menuitem", { name: copy.editAction }))
+      fireEvent.change(screen.getByRole("textbox", { name: copy.label }), {
+        target: { value: "Unsaved request." },
+      })
+      const note = saved.notes[0]!
+      note.status = "ready"
+      note.result = "Implemented the requested change.\nReview the updated control."
+      note.revision++
+      saved.revision++
+      await act(() => vi.advanceTimersByTimeAsync(3000))
+      expect(screen.getByRole("alert")).toHaveTextContent(copy.readyReadOnly)
+      const textbox = screen.getByRole("textbox", { name: copy.label })
+      expect(textbox).toHaveAttribute("readonly")
+      expect(textbox).toHaveValue("Unsaved request.")
+      expect(screen.getByRole("button", { name: copy.saveEdit })).toBeDisabled()
+      fetch.mockClear()
+      const form = textbox.closest("form")
+      if (!form) throw new Error("Expected the edit form.")
+      fireEvent.submit(form)
+      await act(() => vi.advanceTimersByTimeAsync(0))
+      expect(fetch).not.toHaveBeenCalled()
+      expect(note.body).toBe("Original feedback.")
+      expect(note.status).toBe("ready")
+      fireEvent.click(screen.getByRole("button", { name: copy.closeComposer }))
+      fireEvent.click(screen.getByRole("button", { name: copy.discard }))
+      const card = screen.getByRole("article", { name: "Improvement note 1" })
+      const disclosure = card.querySelector("details")
+      if (!disclosure) throw new Error("Expected the solution disclosure.")
+      expect(disclosure).not.toHaveAttribute("open")
+      fireEvent.click(within(disclosure).getByText(copy.solution))
+      expect(disclosure.querySelector("p")?.textContent).toBe(note.result)
+      expect(within(card).getByRole("button", { name: copy.resolve })).toBeVisible()
+    } finally {
+      view.unmount()
+      vi.useRealTimers()
+    }
+  })
+
   it("keeps an older bridge disabled instead of pretending combined selection works", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
     savedNotesFixture()

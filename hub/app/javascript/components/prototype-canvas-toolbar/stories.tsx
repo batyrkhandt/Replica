@@ -12,6 +12,14 @@ const config = {
 const meta = {
   title: "Components/Prototype canvas/Toolbar",
   component: Toolbar,
+  parameters: {
+    docs: {
+      description: {
+        component:
+          "Edit details includes a pencil icon. Below 1024px, Edit details and the live canvas Pick & polish control retain their icons, accessible names, and tooltips while hiding their labels.",
+      },
+    },
+  },
   args: {
     config,
     prototypeName: "Prototype",

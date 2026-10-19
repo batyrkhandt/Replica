@@ -206,6 +206,8 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
         if (!note) fail("This improvement note no longer exists.", 404)
         if (input.expectedNoteRevision !== note.revision)
           fail("This note changed while it was open. Reopen it before making changes.", 409)
+        if (input.operation === "edit" && note.status === "ready")
+          fail("Ready notes are read-only. Add a new note to request further changes.", 409)
         if (note.sync === "synced") note.syncedRevision ??= note.revision
         if (input.operation === "edit") {
           note.body = typeof input.body === "string" ? input.body.trim() : input.body

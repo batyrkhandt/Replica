@@ -1,4 +1,12 @@
-import { CheckCircleIcon, CrosshairsIcon, PencilIcon, SparkleIcon } from "@primer/octicons-react"
+import {
+  CheckCircleIcon,
+  ChevronRightIcon,
+  CrosshairsIcon,
+  KebabHorizontalIcon,
+  PencilIcon,
+  SparkleIcon,
+  TrashIcon,
+} from "@primer/octicons-react"
 import { ActionMenu, Button, FormControl, Textarea } from "@primer/react-brand"
 import {
   useCallback,
@@ -68,6 +76,7 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
   const [deleting, setDeleting] = useState<{
     id: number
     revision: number
+    body: string
     identity?: string
   } | null>(null)
   const [filter, setFilter] = useState("active")
@@ -95,6 +104,8 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
   }, [composerOpen])
   const selectionChanged =
     Boolean(canvas?.token) && selection !== null && selection.identity !== saved.state?.identity
+  const editingReady =
+    editing !== null && notes.some((note) => note.id === editing && note.status === "ready")
   const notesCount = notes.filter((note) => note.status !== "resolved").length
   const filterLabel =
     filter === "ready"
@@ -232,6 +243,10 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
   }
 
   async function save() {
+    if (editingReady) {
+      setMessage(copy.readyReadOnly)
+      return
+    }
     if (!selection || !draft.trim() || saved.busy || selectionChanged) return
     if (canvas?.token) {
       if (
@@ -350,6 +365,9 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
           ref={annotateRef}
           size="small"
           variant="secondary"
+          className="canvas-toolbar-compact-button"
+          aria-label={copy.annotate}
+          title={copy.annotate}
           leadingVisual={<CrosshairsIcon />}
           aria-pressed={annotating}
           disabled={embedded && (!preview.ready || (Boolean(canvas?.token) && !saved.state))}
@@ -364,7 +382,7 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
             setDragRect(null)
           }}
         >
-          {copy.annotate}
+          <span className="canvas-toolbar-button-label">{copy.annotate}</span>
         </Button>
         <Button
           ref={notesToggleRef}
@@ -775,35 +793,120 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
                 aria-label={`Improvement note ${note.id}`}
                 className={`improvement-demo__note${focused === note.id ? " improvement-demo__note--focused" : ""}`}
               >
+                <div className="improvement-demo__note-header">
+                  {note.status === "ready" ? (
+                    <span className="improvement-demo__status improvement-demo__status--ready">
+                      {copy.statuses.ready}
+                    </span>
+                  ) : null}
+                  <p className="improvement-demo__body">{note.body}</p>
+                  <div className="improvement-demo__note-menu">
+                    <ActionMenu selectionVariant="none" size="small" menuAlignment="end">
+                      <ActionMenu.Button
+                        className="improvement-demo__menu-trigger"
+                        variant="subtle"
+                        aria-label={copy.noteActions(note.target)}
+                        leadingVisual={<KebabHorizontalIcon size={16} />}
+                      >
+                        {""}
+                      </ActionMenu.Button>
+                      <ActionMenu.Overlay aria-label={copy.noteActions(note.target)}>
+                        <ActionMenu.Item
+                          value="edit"
+                          className="improvement-demo__menu-item"
+                          leadingVisual={<PencilIcon size={16} />}
+                          disabled={note.status === "ready"}
+                          title={note.status === "ready" ? copy.readyReadOnly : undefined}
+                          onClick={() => {
+                            if (note.status === "ready") {
+                              setMessage(copy.readyReadOnly)
+                              return
+                            }
+                            setSelection({
+                              ...note,
+                              identity: saved.state?.identity,
+                              noteRevision: note.revision,
+                              originalBody: note.body,
+                            })
+                            setEditing(note.id)
+                            setDraft(note.body)
+                          }}
+                          onKeyDownCapture={(event) => {
+                            if (event.key !== " " && event.key !== "Enter") return
+                            event.preventDefault()
+                            event.stopPropagation()
+                            event.currentTarget.click()
+                          }}
+                        >
+                          {copy.editAction}
+                        </ActionMenu.Item>
+                        <ActionMenu.Item
+                          value="delete"
+                          className="improvement-demo__menu-item improvement-demo__delete-item"
+                          leadingVisual={<TrashIcon size={16} />}
+                          onClick={() =>
+                            setDeleting({
+                              id: note.id,
+                              revision: note.revision,
+                              body: note.body,
+                              identity: saved.state?.identity,
+                            })
+                          }
+                          onKeyDownCapture={(event) => {
+                            if (event.key !== " " && event.key !== "Enter") return
+                            event.preventDefault()
+                            event.stopPropagation()
+                            event.currentTarget.click()
+                          }}
+                        >
+                          {copy.deleteAction}
+                        </ActionMenu.Item>
+                      </ActionMenu.Overlay>
+                    </ActionMenu>
+                  </div>
+                </div>
                 <div className="improvement-demo__note-meta">
-                  <span className="improvement-demo__number">{note.id}</span>
-                  <code>{note.route}</code>
+                  <span>{note.target}</span>
+                  <span className="improvement-demo__note-separator" aria-hidden="true" />
+                  <button
+                    className="improvement-demo__note-route"
+                    type="button"
+                    aria-label={`${copy.viewTarget}: ${note.target} (${note.route})`}
+                    onClick={() => {
+                      if (canvas && note.anchor) {
+                        const destination = new URL(canvas.prototypeUrl)
+                        destination.pathname = note.anchor.route.pathname
+                        destination.search = note.anchor.route.search
+                        destination.hash = note.anchor.route.hash
+                        canvas.onNavigate(destination.href)
+                      } else setRoute(note.route)
+                      setFocused(note.id)
+                    }}
+                  >
+                    <code>{note.route}</code>
+                  </button>
+                </div>
+                {note.status !== "open" && note.status !== "ready" ? (
                   <span
                     className={`improvement-demo__status improvement-demo__status--${note.status}`}
                   >
                     {copy.statuses[note.status]}
                   </span>
-                </div>
-                <button
-                  className="improvement-demo__target"
-                  type="button"
-                  aria-label={`${copy.viewTarget}: ${note.target}`}
-                  onClick={() => {
-                    if (canvas && note.anchor) {
-                      const destination = new URL(canvas.prototypeUrl)
-                      destination.pathname = note.anchor.route.pathname
-                      destination.search = note.anchor.route.search
-                      destination.hash = note.anchor.route.hash
-                      canvas.onNavigate(destination.href)
-                    } else setRoute(note.route)
-                    setFocused(note.id)
-                  }}
-                >
-                  {note.target}
-                  <span>{copy.viewTarget}</span>
-                </button>
-                <p className="improvement-demo__body">{note.body}</p>
-                {note.result ? <p className="improvement-demo__result">{note.result}</p> : null}
+                ) : null}
+                {note.status === "ready" ? (
+                  <>
+                    <details className="improvement-demo__solution">
+                      <summary>
+                        <ChevronRightIcon size={14} aria-hidden="true" />
+                        {copy.solution}
+                      </summary>
+                      <p>{note.result || (embedded ? copy.solutionUnavailable : copy.noteReady)}</p>
+                    </details>
+                    <p className="improvement-demo__read-only">{copy.readyReadOnly}</p>
+                  </>
+                ) : note.result ? (
+                  <p className="improvement-demo__result">{note.result}</p>
+                ) : null}
                 {note.capture && !note.capturePlaceholder ? (
                   <img
                     className="improvement-demo__thumbnail"
@@ -811,14 +914,9 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
                     alt={`${note.capturePlaceholder ? copy.capturePlaceholder : copy.capture}: ${note.target}`}
                   />
                 ) : null}
-                {!embedded &&
-                (note.status === "sent" || note.status === "ready" || note.status === "blocked") ? (
+                {!embedded && (note.status === "sent" || note.status === "blocked") ? (
                   <p className="improvement-demo__result">
-                    {note.status === "sent"
-                      ? copy.noteSent
-                      : note.status === "ready"
-                        ? copy.noteReady
-                        : copy.noteBlocked}
+                    {note.status === "sent" ? copy.noteSent : copy.noteBlocked}
                   </p>
                 ) : null}
                 <div className="improvement-demo__note-actions">
@@ -859,35 +957,6 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
                       {copy.retryFix}
                     </Button>
                   ) : null}
-                  <Button
-                    size="small"
-                    variant="subtle"
-                    onClick={() => {
-                      setSelection({
-                        ...note,
-                        identity: saved.state?.identity,
-                        noteRevision: note.revision,
-                        originalBody: note.body,
-                      })
-                      setEditing(note.id)
-                      setDraft(note.body)
-                    }}
-                  >
-                    {copy.editAction}
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="subtle"
-                    onClick={() =>
-                      setDeleting({
-                        id: note.id,
-                        revision: note.revision,
-                        identity: saved.state?.identity,
-                      })
-                    }
-                  >
-                    {copy.deleteAction}
-                  </Button>
                 </div>
                 {!embedded && note.status === "sent" ? (
                   <details className="improvement-demo__simulation">
@@ -981,6 +1050,7 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
         >
           {saved.error ? <p role="alert">{saved.error}</p> : null}
           {selectionChanged ? <p role="alert">{copy.branchChanged}</p> : null}
+          {editingReady ? <p role="alert">{copy.readyReadOnly}</p> : null}
           <form
             onSubmit={(event) => {
               event.preventDefault()
@@ -995,6 +1065,7 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
                 maxLength={10000}
                 rows={4}
                 placeholder={copy.placeholder}
+                readOnly={editingReady}
                 onChange={(event) => setDraft(event.target.value)}
                 required
               />
@@ -1004,7 +1075,7 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
                 type="submit"
                 size="small"
                 variant="primary"
-                disabled={!draft.trim() || saved.busy || selectionChanged}
+                disabled={!draft.trim() || saved.busy || selectionChanged || editingReady}
               >
                 {editing === null ? copy.save : copy.saveEdit}
               </Button>
@@ -1047,6 +1118,7 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
           onClose={() => setDeleting(null)}
         >
           <p>{copy.deleteBody}</p>
+          <blockquote className="improvement-demo__delete-preview">{deleting.body}</blockquote>
           <div className="improvement-demo__dialog-actions">
             <Button size="small" variant="secondary" onClick={() => setDeleting(null)}>
               {copy.cancel}
@@ -1054,6 +1126,7 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
             <Button
               size="small"
               variant="primary"
+              className="improvement-demo__delete-confirm"
               onClick={async () => {
                 if (
                   canvas?.token &&

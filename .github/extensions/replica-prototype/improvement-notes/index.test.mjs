@@ -353,6 +353,23 @@ it("pulls creator notes while preserving unsynchronized edits and rejecting fore
     state = await store.sync(state)
     assert.equal(state.notes[0].status, "ready")
     assert.equal(state.notes[0].body, "Updated in another checkout")
+    await assert.rejects(
+      store.save({
+        ...state,
+        operation: "edit",
+        id: 1,
+        expectedNoteRevision: state.notes[0].revision,
+        body: "Cannot edit a ready note",
+      }),
+      /Ready notes are read-only/,
+    )
+    state = await store.save({
+      ...state,
+      operation: "status",
+      id: 1,
+      expectedNoteRevision: state.notes[0].revision,
+      status: "resolved",
+    })
     state = await store.save({
       ...state,
       operation: "edit",
@@ -370,6 +387,52 @@ it("pulls creator notes while preserving unsynchronized edits and rejecting fore
     state = await store.sync(state)
     assert.match(state.syncError, /another author/)
     assert.equal(state.notes[0].body, "Unsynced draft")
+  })
+})
+
+it("rejects ready-note edits with current and stale revisions without changing saved data", async () => {
+  await fixture(async ({ create, anchor }) => {
+    const store = create()
+    let state = await store.save({
+      ...(await store.load()),
+      operation: "create",
+      body: "Original request",
+      anchor,
+    })
+    const openedRevision = state.notes[0].revision
+    state = await store.fix(state)
+    const batch = await store.batch({ batchId: state.activeBatch })
+    state = await store.results({
+      batchId: batch.id,
+      results: batch.notes.map((note) => ({
+        localId: note.localId,
+        revision: note.revision,
+        status: "ready",
+        message: "Implemented the request.",
+      })),
+    })
+    for (const revision of [openedRevision, state.notes[0].revision]) {
+      await assert.rejects(
+        store.save({
+          ...state,
+          operation: "edit",
+          id: 1,
+          expectedNoteRevision: revision,
+          body: "Unwanted replacement",
+        }),
+        (error) =>
+          error.statusCode === 409 && /read-only|changed while it was open/.test(error.message),
+      )
+      assert.deepEqual(await store.load(), state)
+    }
+    state = await store.save({
+      ...state,
+      operation: "status",
+      id: 1,
+      expectedNoteRevision: state.notes[0].revision,
+      status: "resolved",
+    })
+    assert.equal(state.notes[0].status, "resolved")
   })
 })
 
