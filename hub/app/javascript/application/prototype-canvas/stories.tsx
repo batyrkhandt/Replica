@@ -346,7 +346,7 @@ export const CommentsSidebar: Story = {
       !avatar ||
       !author ||
       Math.abs(avatar.width - 20) > 0.5 ||
-      Math.abs(avatar.left - surfaceLeft - 4) > 0.5 ||
+      Math.abs(avatar.left - surfaceLeft - 8) > 0.5 ||
       Math.abs(avatar.left + avatar.width / 2 - dot.left - dot.width / 2) > 0.5 ||
       Math.abs(avatar.top + avatar.height / 2 - author.top - author.height / 2) > 0.5
     )

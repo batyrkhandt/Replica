@@ -14,7 +14,7 @@
   content: "";
   position: absolute;
   inset-block: 0;
-  inset-inline: calc(-1 * var(--hub-space-16)) calc(-1 * var(--hub-space-4));
+  inset-inline: calc(-1 * var(--hub-space-16) - var(--hub-space-4)) calc(-1 * var(--hub-space-4));
   border-radius: inherit;
   pointer-events: none;
   z-index: -1;
@@ -44,7 +44,7 @@
   content: "";
   position: absolute;
   inset-block: 0;
-  inset-inline: calc(-1 * var(--hub-space-16)) calc(-1 * var(--hub-space-4));
+  inset-inline: calc(-1 * var(--hub-space-16) - var(--hub-space-4)) calc(-1 * var(--hub-space-4));
   border-radius: var(--brand-borderRadius-medium);
 }
 

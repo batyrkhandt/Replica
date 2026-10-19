@@ -95,6 +95,10 @@
   box-shadow: none;
 }
 
+.review-thread-message .review-thread-message__menu-trigger:not(:disabled):hover {
+  background: var(--brand-color-border-muted);
+}
+
 .review-thread-message [role="menu"] li {
   column-gap: var(--brand-control-medium-gap);
 }
