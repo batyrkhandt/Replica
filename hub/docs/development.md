@@ -2,6 +2,8 @@
 
 Docker-compatible tooling is the only host requirement. Run these commands from `hub/`. The provided devcontainer provides Ruby, Node, SQLite, Git, GitHub CLI, and Chromium.
 
+Hub uses npm. The Node devcontainer feature's optional pnpm installation is disabled.
+
 ## Start and stop
 
 ```text
@@ -31,6 +33,25 @@ The container mounts the repository root but opens in `hub/`, so extension check
 For Copilot plugin development, follow the [contributor workflow](prototype-canvas.md#contributor-workflow) to build assets and load a local checkout with `copilot --plugin-dir`. Prototype authors use the [CLI installation and update path](../../.github/extensions/replica-prototype/README.md#install) instead.
 
 Use `rebuild` after changing the container definition, `stop` to stop the container, and `down` to remove it.
+
+### Use an npm registry proxy
+
+If your network requires an npm registry proxy, pass its URL when starting the container:
+
+```sh
+bin/devcontainer up --use-npm-proxy https://npm-proxy.example.com/npm/
+bin/devcontainer dev
+```
+
+The option also works with `dev`, `rebuild`, `storybook`, `exec`, and `shell`; place it before any `exec` command. It selects the registry for the CLI image's npm installation and the container's initial dependency setup. After startup succeeds, it saves the registry in the container user's npm configuration, so later npm commands, including CI's `npm ci`, use it without repeating the option. It also updates an existing container without rebuilding or removing it.
+
+The registry must serve the locked dependencies for Hub and `packages/learning/`, plus `starter/` and `actions/build/` for local mode. `up` installs the first two; the first local-mode `dev` also prepares the example and shared build dependencies.
+
+Use an HTTP(S) registry URL without credentials, whitespace, a query, or a fragment. This option does not configure an HTTP network proxy or disable TLS verification. It does not change the host's npm settings, repository `.npmrc` files, lockfiles, or the production image. Without the option, the wrapper leaves the registry configuration unchanged.
+
+Tools that fetch registry URLs directly do not use npm's settings. In particular, `bin/check-dependency-age` still requests publication metadata from the public registries.
+
+To remove the saved override, run `bin/devcontainer exec npm config delete registry --location=user`. Removing the container also removes its saved registry setting.
 
 Restart `bin/devcontainer dev` after changing Rails routes or browser scripts served directly by Rails. Restart Vite when browser assets do not match the saved source.
 
