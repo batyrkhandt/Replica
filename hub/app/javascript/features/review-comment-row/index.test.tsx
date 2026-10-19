@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import type { ReviewThread } from "@utils/review-comment/types"
@@ -64,7 +64,6 @@ const THREAD: ReviewThread = {
 const COPY = {
   buildLabel: "build %{number}",
   changedAnchorLabel: "Context changed",
-  checkingAnchorLabel: "Checking",
   deletedCommentLabel: "Comment deleted",
   missingAnchorLabel: "Not found",
   movedAnchorLabel: "Moved",
@@ -77,6 +76,25 @@ const COPY = {
 }
 
 describe("ReviewCommentRow()", () => {
+  it("shows no target status until the preview returns a result", () => {
+    const props = {
+      thread: THREAD,
+      currentBuildNumber: 2,
+      selected: false,
+      selectionBlocked: false,
+      copy: COPY,
+      onSelect: vi.fn(),
+    }
+    const { rerender } = render(<ReviewCommentRow {...props} />)
+
+    expect(screen.queryByText("Checking")).not.toBeInTheDocument()
+    expect(screen.queryByText("Not found")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Please align this control/ })).toBeEnabled()
+
+    rerender(<ReviewCommentRow {...props} resolution={{ commentId: 1, status: "missing" }} />)
+    expect(screen.getByText("Not found")).toBeInTheDocument()
+  })
+
   it("uses a circular Brand avatar for both known and missing images", () => {
     const props = {
       currentBuildNumber: 2,
@@ -181,6 +199,7 @@ describe("ReviewCommentRow()", () => {
   })
 
   it("opens an overridden Build link without replacing the canvas", () => {
+    const onSelect = vi.fn()
     render(
       <ReviewCommentRow
         thread={THREAD}
@@ -189,7 +208,7 @@ describe("ReviewCommentRow()", () => {
         selected={false}
         selectionBlocked={false}
         copy={COPY}
-        onSelect={vi.fn()}
+        onSelect={onSelect}
       />,
     )
 
@@ -198,5 +217,17 @@ describe("ReviewCommentRow()", () => {
       "rel",
       "noopener noreferrer",
     )
+    const buildLink = screen.getByRole("link", { name: "build 2" })
+    expect(buildLink).toHaveAttribute(
+      "href",
+      "https://hub.example.com/repositories/2001/prototypes/1?build=2",
+    )
+    expect(buildLink.parentElement).toHaveTextContent("(build 2)")
+    expect(screen.getByText("The Octocat").parentElement).toContainElement(buildLink)
+    expect(buildLink.closest("button")).toBeNull()
+    fireEvent.click(buildLink)
+    expect(onSelect).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: /Please align this control/ }))
+    expect(onSelect).toHaveBeenCalledWith(THREAD)
   })
 })

@@ -1357,6 +1357,7 @@ export function HubPanel({
           }}
           threads={visibleThreads}
           currentBuildNumber={currentBuild?.number || 0}
+          buildLinkOrigin={status?.hubOrigin}
           totalCount={visibleThreads.length}
           hasThreads={threads.length > 0}
           filters={filters}

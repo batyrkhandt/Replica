@@ -52,7 +52,6 @@ const COPY: ReviewCommentsCopy = {
   emptyLabel: "No comments have been added.",
   noMatchesLabel: "No comments match these filters.",
   buildLabel: "build %{number}",
-  checkingAnchorLabel: "Checking",
   movedAnchorLabel: "Moved",
   changedAnchorLabel: "Context changed",
   missingAnchorLabel: "Not found",

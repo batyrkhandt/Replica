@@ -16,6 +16,7 @@ export function ReviewCommentsSidebar({
   frame,
   threads,
   currentBuildNumber,
+  buildLinkOrigin,
   totalCount,
   hasThreads,
   filters,
@@ -68,6 +69,9 @@ export function ReviewCommentsSidebar({
                 key={thread.root.id}
                 thread={thread}
                 currentBuildNumber={currentBuildNumber}
+                buildHref={
+                  buildLinkOrigin ? new URL(thread.root.buildPath, buildLinkOrigin).href : undefined
+                }
                 resolution={resolutions.get(thread.root.id)}
                 selected={selectedThreadId === thread.root.id}
                 selectionBlocked={selectionBlocked}

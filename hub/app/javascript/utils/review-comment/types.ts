@@ -58,7 +58,6 @@ export interface ReviewCommentsCopy {
   emptyLabel: string
   noMatchesLabel: string
   buildLabel: string
-  checkingAnchorLabel: string
   movedAnchorLabel: string
   changedAnchorLabel: string
   missingAnchorLabel: string

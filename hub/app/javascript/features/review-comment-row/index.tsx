@@ -1,4 +1,5 @@
 import { Label } from "@primer/react-brand"
+import { useId } from "react"
 
 import { HubUserAvatar } from "@components/hub-user-avatar"
 import { ReviewRelativeTime } from "@features/review-relative-time"
@@ -7,7 +8,6 @@ import type { ReviewCommentRowProps } from "./types"
 
 import "./styles.css"
 
-/** Uses a native button so long comments do not overlap the author or status. */
 export function ReviewCommentRow({
   thread,
   currentBuildNumber,
@@ -19,6 +19,7 @@ export function ReviewCommentRow({
   onSelect,
   buildHref,
 }: ReviewCommentRowProps) {
+  const id = useId()
   const { root } = thread
   const author = root.author.name || `@${root.author.login}`
   const buildLabel = copy.buildLabel.replace("%{number}", root.buildNumber.toString())
@@ -33,7 +34,7 @@ export function ReviewCommentRow({
   } else if (anchorStatusLabel !== undefined) {
     statusLabel = anchorStatusLabel
   } else if (!resolution) {
-    statusLabel = copy.checkingAnchorLabel
+    statusLabel = null
   } else if (resolution.status === "resolved") {
     statusLabel = null
   } else if (resolution.status === "moved") {
@@ -46,73 +47,78 @@ export function ReviewCommentRow({
 
   return (
     <article className={`review-comment-row${selected ? " review-comment-row--selected" : ""}`}>
-      <button
-        type="button"
-        className="review-comment-row__button"
-        aria-pressed={selected}
-        disabled={selectionBlocked && !selected}
-        title={selectionBlocked && !selected ? copy.selectionBlockedLabel : undefined}
-        onClick={() => onSelect(thread)}
-      >
-        {thread.unread ? (
-          <span
-            role="img"
-            aria-label={copy.unreadLabel}
-            title={copy.unreadLabel}
-            className="review-comment-row__unread"
-          />
-        ) : null}
+      {thread.unread ? (
+        <span
+          role="img"
+          aria-label={copy.unreadLabel}
+          title={copy.unreadLabel}
+          className="review-comment-row__unread"
+        />
+      ) : null}
 
-        <span className="review-comment-row__layout">
-          <HubUserAvatar
-            src={root.author.avatarUrl}
-            size={28}
-            className="review-comment-row__avatar"
-          />
+      <div className="review-comment-row__layout">
+        <HubUserAvatar
+          src={root.author.avatarUrl}
+          size={28}
+          className="review-comment-row__avatar"
+        />
 
-          <span className="review-comment-row__content">
-            <span className="review-comment-row__copy">
-              <span className="review-comment-row__metadata">
-                <strong className="review-comment-row__author">{author}</strong>
+        <div className="review-comment-row__content">
+          <div className="review-comment-row__copy">
+            <div className="review-comment-row__metadata">
+              <span className="review-comment-row__author-and-build">
+                <strong id={`${id}-author`} className="review-comment-row__author">
+                  {author}
+                </strong>
 
-                <ReviewRelativeTime value={thread.lastActivityAt} />
+                {showBuildLink ? (
+                  <span className="review-comment-row__build">
+                    (
+                    <a
+                      href={buildHref || root.buildPath}
+                      target={buildHref ? "_blank" : undefined}
+                      rel={buildHref ? "noopener noreferrer" : undefined}
+                    >
+                      {buildLabel}
+                    </a>
+                    )
+                  </span>
+                ) : null}
               </span>
 
-              <span className="review-comment-row__body">
+              <ReviewRelativeTime value={thread.lastActivityAt} />
+            </div>
+
+            <button
+              type="button"
+              className="review-comment-row__button"
+              aria-labelledby={`${id}-author ${id}-body`}
+              aria-pressed={selected}
+              disabled={selectionBlocked && !selected}
+              title={selectionBlocked && !selected ? copy.selectionBlockedLabel : undefined}
+              onClick={() => onSelect(thread)}
+            >
+              <span id={`${id}-body`} className="review-comment-row__body">
                 {root.body ?? copy.deletedCommentLabel}
               </span>
-            </span>
-          </span>
-        </span>
-      </button>
+            </button>
+          </div>
 
-      {showBuildLink || statusLabel || thread.replies.length > 0 ? (
-        <span className="review-comment-row__context">
-          {showBuildLink ? (
-            <span className="review-comment-row__build">
-              <a
-                href={buildHref || root.buildPath}
-                target={buildHref ? "_blank" : undefined}
-                rel={buildHref ? "noopener noreferrer" : undefined}
-              >
-                {buildLabel}
-              </a>
-            </span>
-          ) : (
-            <span className="review-comment-row__build" />
-          )}
+          {statusLabel || thread.replies.length > 0 ? (
+            <div className="review-comment-row__context">
+              {thread.replies.length > 0 ? (
+                <span className="review-comment-row__replies">{replyCountLabel}</span>
+              ) : null}
 
-          {thread.replies.length > 0 ? (
-            <span className="review-comment-row__replies">{replyCountLabel}</span>
+              {statusLabel ? (
+                <Label size="small" className="review-comment-row__status">
+                  {statusLabel}
+                </Label>
+              ) : null}
+            </div>
           ) : null}
-
-          {statusLabel ? (
-            <Label size="small" className="review-comment-row__status">
-              {statusLabel}
-            </Label>
-          ) : null}
-        </span>
-      ) : null}
+        </div>
+      </div>
     </article>
   )
 }

@@ -23,6 +23,48 @@ afterEach(() => {
 })
 
 describe("HubPanel()", () => {
+  it("opens an earlier comment Build on the selected Hub rather than the loopback canvas", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation((input) => {
+        if (input === "/api/hub/events") return Promise.reject(new Error("Offline"))
+        return Promise.resolve(
+          Response.json({ comments: [octocatRootComment], hasMore: false, nextCursor: null }),
+        )
+      }),
+    )
+    render(
+      <ThemeProvider>
+        <HubPanel
+          config={{ name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" }}
+          frameRef={createRef<HTMLIFrameElement>()}
+          status={{
+            ...publicationHub,
+            state: "connected",
+            prototype: {
+              ...importedPrototype,
+              build: { ...importedPrototype.build!, number: 2 },
+            },
+          }}
+          onStatusChange={async () => {}}
+          onSelectHub={async () => {}}
+          onConnect={() => {}}
+          open={false}
+          onClose={() => {}}
+        />
+      </ThemeProvider>,
+    )
+    fireEvent.click(await screen.findByRole("button", { name: /^Comments, 1/ }))
+
+    const buildLink = screen.getByRole("link", { name: "build 1" })
+    expect(buildLink).toHaveAttribute(
+      "href",
+      `https://hub.example.com${octocatRootComment.buildPath}`,
+    )
+    expect(buildLink).toHaveAttribute("target", "_blank")
+    expect(buildLink).toHaveAttribute("rel", "noopener noreferrer")
+  })
+
   it("keeps throttled comments and the draft until the Hub changes", async () => {
     const message = "Too many requests. No changes were made. Wait 60 seconds, then try again."
     const fetchMock = vi.fn<typeof fetch>().mockImplementation((input, options) => {
