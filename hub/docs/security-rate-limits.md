@@ -12,9 +12,10 @@ These fixed budgets are product policy, not measured capacity or configurable de
 | Analytics destination creation, edits, pause, resume, and disconnect | 5 per minute | Hub user |
 | Workflow installation or update requests | 5 per 10 minutes | Hub user |
 | Hub administrator mutations | 10 per minute | Hub user |
+| Learning recalls for agents | 30 per minute | Canvas connection |
 | New supported, signature-verified webhook processing | 600 per minute | Entire Hub |
 
-Authenticated budgets span repositories and credentials. Features have separate counters. Repository permission, CSRF, administrator role, fresh authorization, and webhook signature checks are not replaced by a quota. Rejected authorization and fresh analytics challenges cannot write. A request's quota admission is not proof of permission or successful processing.
+Budgets counted per Hub user span repositories and credentials. Features have separate counters. Repository permission, CSRF, administrator role, fresh authorization, and webhook signature checks are not replaced by a quota. Rejected authorization and fresh analytics challenges cannot write. A request's quota admission is not proof of permission or successful processing.
 
 ## Counting and retry guidance
 

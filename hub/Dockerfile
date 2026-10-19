@@ -7,9 +7,9 @@
 
 # For a containerized dev environment, see Dev Containers: https://guides.rubyonrails.org/getting_started_with_devcontainer.html
 
-# Make sure RUBY_VERSION matches the Ruby version in .ruby-version
+# Keep RUBY_VERSION, .ruby-version, and the matching image index digest in sync.
 ARG RUBY_VERSION=4.0.5
-FROM docker.io/library/ruby:$RUBY_VERSION-slim AS base
+FROM docker.io/library/ruby:$RUBY_VERSION-slim@sha256:42ad5227a4b2758f32563b34b5967e1055e75c80243eef04e6d2572887d1dec4 AS base
 
 ARG BUNDLER_VERSION=4.0.13
 
@@ -30,7 +30,7 @@ ENV RAILS_ENV="production" \
     BUNDLE_WITHOUT="development:test" \
     LD_PRELOAD="/usr/local/lib/libjemalloc.so"
 
-FROM docker.io/library/node:24-bookworm-slim AS node
+FROM docker.io/library/node:24-bookworm-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5 AS node
 
 # Throw-away build stage to reduce size of final image
 FROM base AS build

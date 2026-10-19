@@ -142,6 +142,8 @@ The module must be inside the checkout and export `createMemoryProvider(options)
 
 The optional `observation.redact` capability adds `redactRecord`, described in [`src/provider-contract.mjs`](src/provider-contract.mjs); without it, `redact` refuses with `unsupported`.
 
+Provider queries may filter audit entries with `operations`, together with scope, IDs, and time. An empty operations list matches nothing; omitting it returns every matching operation. Comment removal and imports that erase deleted text read only `evidence.redact` receipts, so their audit reads do not return the repository's growing recall history. SQLite indexes those operations, including when it opens an existing store. JSON Lines still scans the file, but reads it one line at a time and retains only matches; its writes retain only the existing IDs they need to check. No recall audit entries are deleted or compacted.
+
 ## Label with Copilot
 
 `replica-learning label` with no file labels every comment the labeler has not been asked about, then reports how many it labeled and what Copilot reported it cost. The built-in labeler uses the [Copilot SDK](https://github.com/github/copilot-sdk), an optional dependency that `npm ci` installs:

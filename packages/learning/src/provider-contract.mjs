@@ -83,16 +83,18 @@ export function assertQuery(query) {
 /**
  * The reference filter semantics every provider must match. scope must equal the record's
  * scope exactly. ids matches id. episodeIds matches an event's episodeId or an episode's id.
- * since is inclusive and until exclusive, on the stream's time field.
+ * operations matches an audit entry's operation. since is inclusive and until exclusive, on
+ * the stream's time field. An empty filter array matches nothing.
  *
  * @param {string} stream
  * @param {Record<string, any>} record
- * @param {{ scope: object, ids?: string[], episodeIds?: string[], since?: string, until?: string }} query
+ * @param {{ scope: object, ids?: string[], episodeIds?: string[], operations?: string[], since?: string, until?: string }} query
  */
 export function matchesQuery(stream, record, query) {
   assertQuery(query)
   if (!sameScope(record.scope, query.scope)) return false
   if (query.ids && !query.ids.includes(record.id)) return false
+  if (query.operations && !query.operations.includes(record.operation)) return false
   if (query.episodeIds) {
     const episodeId = stream === "episodes" ? record.id : record.episodeId
     if (!query.episodeIds.includes(episodeId)) return false

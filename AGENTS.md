@@ -9,6 +9,7 @@ Read [Contributing](CONTRIBUTING.md) and the [shared documentation index](docs/R
 - [Coding conventions](docs/coding-conventions.md) apply to complete changes, tests, and comments.
 - [Documentation conventions](docs/documentation-conventions.md) apply to discussions, prose, labels, and errors.
 - [Testing and review](docs/testing-and-review.md) explains how to choose checks and review a change.
+- Use the [test-writing skill](.github/skills/write-tests/SKILL.md) when adding or changing automated tests.
 
 Keep shared rules in root guides and project-specific rules in the affected project. Do not apply Hub's Rails, Primer, or devcontainer requirements to the starter, build action, or shared packages. The starter's copied instructions must remain usable without this monorepo.
 

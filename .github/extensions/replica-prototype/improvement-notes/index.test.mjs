@@ -151,7 +151,12 @@ it("captures an immutable cross-screen batch and does not apply results to edite
       status: "ready",
       message: "Implemented spacing.",
     }))
-    state = await store.results({ batchId: batch.id, results })
+    assert.deepEqual(await store.results({ batchId: batch.id, results }), {
+      batchId: batch.id,
+      completed: true,
+      noteCount: batch.notes.length,
+    })
+    state = await store.load()
     assert.deepEqual(
       state.notes.map((note) => note.status),
       ["open", "ready", "open"],
@@ -216,15 +221,19 @@ it("reports dispatch failure durably without automatically replaying the request
     state = await store.sync(state)
     assert.match(state.syncError, /outcome is unknown/)
     const batch = await store.batch({ batchId: state.activeBatch })
-    state = await store.results({
-      batchId: batch.id,
-      results: batch.notes.map((note) => ({
-        localId: note.localId,
-        revision: note.revision,
-        status: "ready",
-        message: "Delivery was confirmed and the change is implemented.",
-      })),
-    })
+    assert.deepEqual(
+      await store.results({
+        batchId: batch.id,
+        results: batch.notes.map((note) => ({
+          localId: note.localId,
+          revision: note.revision,
+          status: "ready",
+          message: "Delivery was confirmed and the change is implemented.",
+        })),
+      }),
+      { batchId: batch.id, completed: true, noteCount: batch.notes.length },
+    )
+    state = await store.load()
     assert.equal(state.notes[0].status, "ready")
     assert.equal(state.activeBatch, null)
   })
@@ -299,6 +308,74 @@ it("syncs a discovered branch before a Build and refuses another author's accoun
   })
 })
 
+it("rejects owner-bound notes when the selected Hub differs while disconnected", async () => {
+  await fixture(async ({ create, anchor }) => {
+    let hub = {
+      origin: "https://hub.example.com",
+      status: async () => ({
+        state: "connected",
+        repository: "example/prototype",
+        branch: "prototype/demo",
+        prototype: { id: 7, repositoryId: 9, viewerLogin: "octocat", viewerId: 1 },
+      }),
+      request: async (_url, options) => ({
+        localId: options.body.local_id,
+        revision: options.body.revision,
+      }),
+    }
+    const store = create(async () => hub)
+    let state = await store.load()
+    state = await store.save({
+      ...state,
+      operation: "create",
+      body: "Owned by the first Hub",
+      anchor,
+    })
+    await store.sync(state)
+    hub = {
+      origin: "https://other-hub.example.com",
+      status: async () => ({ state: "undiscovered" }),
+    }
+    await assert.rejects(store.load(), /different Hub account or deployment/)
+  })
+})
+
+it("does not dispatch a batch when the checkout changes during the Hub ownership check", async () => {
+  await fixture(async ({ create, anchor, exec, root, messages }) => {
+    let statusCalls = 0
+    const hub = {
+      origin: "https://hub.example.com",
+      status: async () => {
+        statusCalls++
+        if (statusCalls === 2) {
+          await exec("git", ["-C", root, "checkout", "-q", "-b", "prototype/other"])
+          return { state: "unavailable" }
+        }
+        return {
+          state: "connected",
+          repository: "example/prototype",
+          branch: "prototype/demo",
+          prototype: { id: 7, repositoryId: 9, viewerLogin: "octocat", viewerId: 1 },
+        }
+      },
+      request: async (_url, options) => ({
+        localId: options.body.local_id,
+        revision: options.body.revision,
+      }),
+    }
+    const store = create(async () => hub)
+    let state = await store.save({
+      ...(await store.load()),
+      operation: "create",
+      body: "Keep this on its original checkout",
+      anchor,
+    })
+    state = await store.sync(state)
+    await assert.rejects(store.fix(state), /branch changed while checking Hub ownership/)
+    assert.deepEqual(messages, [])
+  })
+})
+
 it("retains local notes when Hub cannot sync and rejects malformed note input", async () => {
   await fixture(async ({ create, anchor }) => {
     const store = create()
@@ -316,6 +393,61 @@ it("retains local notes when Hub cannot sync and rejects malformed note input", 
     state = await store.sync(state)
     assert.match(state.syncError, /saved locally/)
     assert.equal(state.notes.length, 1)
+  })
+})
+
+it("cancels a pending batch after Hub edits remove its unchanged sent notes", async () => {
+  await fixture(async ({ create, anchor, messages }) => {
+    let remote
+    const hub = {
+      origin: "https://hub.example.com",
+      status: async () => ({
+        state: "connected",
+        repository: "example/prototype",
+        branch: "prototype/demo",
+        prototype: { id: 7, repositoryId: 9, viewerLogin: "octocat", viewerId: 1 },
+      }),
+      request: async (_url, options) => {
+        if (options.method !== "POST") return { notes: remote ? [remote] : [] }
+        remote = {
+          localId: options.body.local_id,
+          kind: "improvement_note",
+          revision: options.body.revision,
+          body: options.body.body,
+          anchor: options.body.anchor,
+          status: options.body.status,
+          deletedAt: options.body.deleted ? "2026-10-18T12:00:00Z" : null,
+          author: { login: "octocat" },
+          capture: options.body.capture,
+        }
+        return { localId: remote.localId, revision: remote.revision }
+      },
+    }
+    const store = create(async () => hub)
+    let state = await store.save({
+      ...(await store.load()),
+      operation: "create",
+      body: "Original request",
+      anchor,
+    })
+    state = await store.sync(state)
+    state = await store.fix(state)
+    const batchId = state.activeBatch
+    state = await store.sync(state)
+    assert.equal(remote.status, "sent")
+    remote = {
+      ...remote,
+      revision: remote.revision + 1,
+      status: "open",
+      body: "Edited from another checkout",
+    }
+
+    state = await store.sync(state)
+    assert.equal(state.activeBatch, null)
+    assert.equal(state.notes[0].body, "Edited from another checkout")
+    assert.equal((await store.batch({ batchId })).state, "cancelled")
+    state = await store.fix(state)
+    assert.equal(messages.length, 2)
   })
 })
 
@@ -402,15 +534,19 @@ it("rejects ready-note edits with current and stale revisions without changing s
     const openedRevision = state.notes[0].revision
     state = await store.fix(state)
     const batch = await store.batch({ batchId: state.activeBatch })
-    state = await store.results({
-      batchId: batch.id,
-      results: batch.notes.map((note) => ({
-        localId: note.localId,
-        revision: note.revision,
-        status: "ready",
-        message: "Implemented the request.",
-      })),
-    })
+    assert.deepEqual(
+      await store.results({
+        batchId: batch.id,
+        results: batch.notes.map((note) => ({
+          localId: note.localId,
+          revision: note.revision,
+          status: "ready",
+          message: "Implemented the request.",
+        })),
+      }),
+      { batchId: batch.id, completed: true, noteCount: batch.notes.length },
+    )
+    state = await store.load()
     for (const revision of [openedRevision, state.notes[0].revision]) {
       await assert.rejects(
         store.save({

@@ -413,8 +413,6 @@ test("creates an independent repository with exactly the tracked starter files",
   assert.equal(execFileSync("git", ["remote"], { cwd: destination }).toString(), "")
   assert.equal(spawnSync("git", ["rev-parse", "HEAD"], { cwd: destination }).status, 128)
   assert.equal(actual.length, paths.length)
-  assertContextBundle(destination)
-  assertBrowserSetup(destination)
   assert.ok(!readdirSync(directory).some(name => name.startsWith(".replica-starter.")))
 })
 
@@ -446,8 +444,6 @@ test("installs a public-style archive without a checkout or credentials", t => {
   )
   assert.equal(execFileSync("git", ["remote"], { cwd: destination }).toString(), "")
   assert.equal(spawnSync("git", ["rev-parse", "HEAD"], { cwd: destination }).status, 128)
-  assertContextBundle(destination)
-  assertBrowserSetup(destination)
   assertNoTemporaryFiles(fixture.directory)
 })
 

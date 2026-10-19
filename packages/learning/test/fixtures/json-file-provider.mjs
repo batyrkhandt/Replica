@@ -67,6 +67,7 @@ export function createMemoryProvider({ dataDirectory, file = "json-file-store.js
     if (!query?.scope) throw fail("invalid_input", "A query needs a scope.")
     if (!sameScope(record.scope, query.scope)) return false
     if (query.ids && !query.ids.includes(record.id)) return false
+    if (query.operations && !query.operations.includes(record.operation)) return false
     if (
       query.episodeIds &&
       !query.episodeIds.includes(stream === "episodes" ? record.id : record.episodeId)

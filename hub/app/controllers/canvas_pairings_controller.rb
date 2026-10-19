@@ -20,10 +20,16 @@ class CanvasPairingsController < SuperglueController
 
     SessionRevocation.with_generation!(generation) do
       if LocalDevelopment.enabled?
-        pairing.approve!(Current.user, browser_session: Current.session)
+        pairing.approve! \
+          Current.user,
+          browser_session: Current.session,
+          learnings_consent_version: params[:learnings_consent_version]
       else
         GithubAppConfiguration.with_credentials!(**snapshot) do
-          pairing.approve!(Current.user, browser_session: Current.session)
+          pairing.approve! \
+            Current.user,
+            browser_session: Current.session,
+            learnings_consent_version: params[:learnings_consent_version]
         end
       end
     end

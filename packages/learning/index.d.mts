@@ -388,6 +388,7 @@ export interface ProviderQuery {
   scope: Scope
   ids?: string[]
   episodeIds?: string[]
+  operations?: string[]
   since?: Timestamp
   until?: Timestamp
 }

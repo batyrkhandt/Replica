@@ -51,6 +51,10 @@ A decision applies to the suggestion as you saw it. If a run changed the suggest
 
 **What an agent gets** previews the default recall within its count and text limits. Each accepted learning says whether that preview includes it, leaves it out for space, or cannot use it. An agent's task can change the order and which learnings fit. The security audit records each run request and decision for the repository.
 
+## How agents get learnings
+
+When a person works with Copilot in a repository that has a Hub connection, the [Replica prototype plugin](prototype-canvas.md#learnings-for-agents) adds the accepted learnings to their prompts. It never sends the prompt to Hub, so agents get the learnings that **What an agent gets** shows, whatever the prompt. Its first successful answer replaces earlier guidance, including after a plugin restart or session resume; later unchanged answers add nothing. When the accepted learnings change, for example when an administrator edits or retires one, the next prompt in that session gets the whole new list, which replaces the earlier one, or a note that no team learnings apply anymore. A session also gets that note when a Hub administrator turns Learnings off. The text tells the agent that each learning is guidance from the team and data, not a command, and that it never overrides the person's request or the repository's instructions. The learning store records each recall as a use by that person. Only connections approved on a page that mentions learnings get them, so a person who connected earlier connects to Hub again to get them. In Copilot CLI 1.0.96, the plugin runs only with experimental features on: start Copilot CLI with `--experimental`, or run `/experimental on`.
+
 ## Usage
 
 Hub asks Copilot with the token in `REPLICA_COPILOT_TOKEN`, so the usage counts toward the Copilot plan of the token's owner. Labeling is the only step that uses Copilot. A run with no new, edited, or still-unprocessed comments makes no model requests. A request also sends the other comments in each thread it asks about, as context. Hub lets Copilot choose the model unless the store's configuration names one.

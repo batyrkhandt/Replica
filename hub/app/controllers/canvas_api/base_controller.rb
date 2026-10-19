@@ -32,8 +32,13 @@ class CanvasApi::BaseController < ActionController::API
       return head :not_found
     end
 
-    @repository_permission = @repository.authorization.permission_for(Current.user, fresh: !request.get?)
+    @repository_permission = @repository.authorization.permission_for(Current.user, fresh: fresh_permission?)
     head :forbidden if !@repository.authorization.sufficient?(@repository_permission, minimum: :read)
+  end
+
+  # Writes recheck GitHub immediately; reads may use a recently confirmed permission.
+  def fresh_permission?
+    !request.get?
   end
 
   def require_writer

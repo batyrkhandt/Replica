@@ -147,6 +147,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_060000) do
     t.datetime "updated_at", null: false
     t.integer "user_id", null: false
     t.datetime "fresh_authorized_at"
+    t.datetime "learnings_consented_at"
     t.index ["expires_at"], name: "index_canvas_grants_on_expires_at"
     t.index ["inactive_at"], name: "index_canvas_grants_on_inactive_at"
     t.index ["refresh_token_digest"], name: "index_canvas_grants_on_refresh_token_digest", unique: true
@@ -169,6 +170,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_060000) do
     t.datetime "updated_at", null: false
     t.string "user_code", null: false
     t.integer "user_id"
+    t.datetime "learnings_consented_at"
     t.index ["consumed_at"], name: "index_canvas_pairings_on_consumed_at", where: "consumed_at IS NOT NULL"
     t.index ["device_code_digest"], name: "index_canvas_pairings_on_device_code_digest", unique: true
     t.index ["expires_at"], name: "index_canvas_pairings_on_expires_at"
@@ -177,6 +179,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_060000) do
     t.index ["user_id"], name: "index_canvas_pairings_on_user_id"
     t.check_constraint "(approved_at IS NULL AND user_id IS NULL) OR (approved_at IS NOT NULL AND user_id IS NOT NULL)", name: "canvas_pairings_approval"
     t.check_constraint "consumed_at IS NULL OR approved_at IS NOT NULL", name: "canvas_pairings_consumption"
+    t.check_constraint "learnings_consented_at IS NULL OR approved_at IS NOT NULL", name: "canvas_pairings_learnings_consent"
   end
 
   create_table "comment_mentions", force: :cascade do |t|
