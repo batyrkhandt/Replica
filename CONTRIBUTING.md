@@ -25,6 +25,8 @@ For improvements, explain the problem you want to solve and who would benefit. D
 
 ## Set up the development environment
 
+Each Node.js project's `engines.node` declares its supported versions. The [Node compatibility workflow](.github/workflows/node-compatibility.yml) checks the lower bounds and current releases across Hub, Starter, the build action, and Learning. The devcontainer, production image, and composite build action retain their pinned runtime defaults; choosing another supported major locally does not change them.
+
 ### Replica Hub
 
 Replica Hub uses a devcontainer so contributors run the same Ruby, Node, SQLite, GitHub CLI, and Chromium versions.
@@ -85,7 +87,7 @@ npm test
 
 ### Replica learning
 
-The learning package requires Node.js 24, npm, and Git:
+The learning package requires npm, Git, and a Node.js version matching `engines.node` in [packages/learning/package.json](packages/learning/package.json):
 
 ```sh
 cd packages/learning

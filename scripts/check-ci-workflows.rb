@@ -2,6 +2,7 @@ require "yaml"
 require "open3"
 require "tmpdir"
 require "fileutils"
+require "json"
 
 def check(condition, message)
   abort(message) unless condition
@@ -116,6 +117,45 @@ gates.each do |(workflow, id), script|
   end
 end
 puts "CI workflow guards and wiring passed (#{checks} shell cases)."
+
+projects = %w[hub starter actions/build packages/learning]
+projects.each do |project|
+  manifest = JSON.parse(File.read(File.join(root, project, "package.json")))
+  lock = JSON.parse(File.read(File.join(root, project, "package-lock.json")))
+  check(manifest.dig("engines", "node") == "^24.15.0 || ^26.0.0", "#{project}: supported Node versions changed")
+  check(lock.dig("packages", "", "engines") == manifest.fetch("engines"), "#{project}: locked Node engines differ from the manifest")
+end
+workflows.fetch("hub-ci").each do |id, job|
+  job.fetch("steps", []).each do |step|
+    next unless step["uses"].to_s.start_with?("actions/setup-node@")
+
+    check(step.dig("with", "node-version") == 24, "hub-ci/#{id}: default checks must keep the pinned Node major")
+    check(!step.fetch("with").key?("node-version-file"), "hub-ci/#{id}: supported ranges must not select the default CI runtime")
+  end
+end
+compatibility = YAML.safe_load(File.read(File.join(root, ".github/workflows/node-compatibility.yml")))
+check(compatibility.fetch("permissions") == { "contents" => "read" }, "Node compatibility must use read-only repository access")
+node_checks = compatibility.fetch("jobs").fetch("check")
+check(node_checks.dig("strategy", "matrix", "node") == ["24.15.0", "26.0.0", "26"], "Node compatibility must cover supported lower bounds and current Node 26")
+check(node_checks.dig("strategy", "matrix", "project") == projects, "Node compatibility must cover every Node project")
+check(node_checks.dig("strategy", "fail-fast") == false, "Node compatibility must report each project and version independently")
+check(expression(node_checks.dig("defaults", "run", "working-directory")) == "matrix.project", "Node compatibility must run inside the selected project")
+setup_node = node_checks.fetch("steps").find { |step| step["uses"].to_s.start_with?("actions/setup-node@") }
+check(setup_node && expression(setup_node.dig("with", "node-version")) == "matrix.node", "Node compatibility must execute the selected version")
+check(setup_node.dig("with", "check-latest") == true, "Node compatibility must resolve the current supported release")
+check(node_checks.fetch("steps").any? { |step| step["run"] == "npm ci --ignore-scripts --engine-strict" && !step.key?("if") }, "Node compatibility must reject unsupported dependency engines in every project")
+{
+  "hub" => ["npm test", "npm run controls:test", "npm run extension:test", "npm run build", "npm run storybook:build", "npm run lint", "npm run controls:assets:check", "npm run extension:assets:check"],
+  "starter" => ["npm run format:check", "npm run typecheck", "npm test", "npm run build"],
+  "actions/build" => ["npm run lint", "npm test"],
+  "packages/learning" => ["npm run schema:check", "npm test", "npm run demo", "npm run demo:agent-memory-repo"]
+}.each do |project, commands|
+  step = node_checks.fetch("steps").find { |candidate| expression(candidate["if"]) == "matrix.project == '#{project}'" && candidate.key?("run") && candidate["name"].to_s.start_with?("Check ") }
+  check(step, "Node compatibility must check #{project}")
+  lines = step.fetch("run").lines.map(&:strip)
+  commands.each { |command| check(lines.include?(command), "Node compatibility must run #{command} for #{project}") }
+end
+puts "Node support ranges, lockfiles and compatibility workflow wiring passed."
 
 release = YAML.safe_load(File.read(File.join(root, ".github/workflows/hub-release.yml"))).fetch("jobs")
 prepare = release.fetch("prepare")

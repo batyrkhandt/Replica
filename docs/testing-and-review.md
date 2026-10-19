@@ -60,6 +60,8 @@ The workflows preserve the existing required check names; skipping an entire wor
 
 When adding a shared dependency or a new project, update the selector and its behavioral tests together. Unclassified paths deliberately run both suites until their dependencies are known. Run `node --test scripts/select-ci-suites.test.mjs` and `ruby scripts/check-ci-workflows.rb` from the repository root. The latter reads the actual workflow gates and checks their success, failure, cancellation, and missing-output behavior; both commands run before CI selects suites. Check changed workflows with `actionlint` when available. Actual job skipping and check reporting still need verification on GitHub after publishing.
 
+The separate [Node compatibility workflow](../.github/workflows/node-compatibility.yml) runs on Node source, dependency, tooling, and workflow changes. It checks every Node project at each supported major's lower bound and the current release, alongside the existing default-runtime checks. It includes browser capture, Controls and extension integration, frontend builds, and Learning demos without changing the container runtime defaults or existing required check names. `scripts/check-ci-workflows.rb` also checks the supported ranges, matching lockfile metadata, and compatibility workflow wiring.
+
 ## Update dependencies
 
 Hub and the shared build action wait seven days before resolving newly published dependencies. npm enforces the delay through each project's committed `.npmrc`. Hub's RubyGems source in `Gemfile` applies the delay to Bundler. Dependabot applies the same cooldown to npm, Bundler, and GitHub Actions updates across the repository. The starter manages its dependency resolution independently.
