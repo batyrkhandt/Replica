@@ -7,11 +7,17 @@ This reference does not dispatch or load workflow companions.
 
 Read [context resolution](../../product-design/references/context-resolution.md).
 Select the first existing root, `.agents/context/`, then `.github/contexts/`.
-Read `DESIGN-SYSTEM.md`, `PRODUCT-DESIGN.md`, `REPOSITORY.md` and
-`BROWSER-VALIDATION.md` directly there. No manifest or prototype-specific pack
-file is required. Never mix roots or read drafts as active context.
-Read `SEED-DATA.md` for new or changed fixtures, `RESPONSIVE-DESIGN.md` for
-responsive decisions and `ACCESSIBILITY.md` for product accessibility environments.
+For application work, read the applicable sections of these owners and follow relevant topic links:
+
+- `REPOSITORY.md`: `Where UI lives`, `Commands` and `Constraints`.
+- `DESIGN-SYSTEM.md`: shared defaults and task-relevant sections before component, token or pattern decisions.
+- `PRODUCT-DESIGN.md`: when creating or changing behavior, states, flows, messaging or product decisions.
+- `BROWSER-VALIDATION.md`: before starting a preview or performing rendered validation.
+- `SEED-DATA.md`: for new or changed fixtures; `RESPONSIVE-DESIGN.md`: for responsive decisions; `ACCESSIBILITY.md`: for product accessibility environments.
+
+If a consumer uses different headings, select the equivalent sections by owner rather than reading the entire file.
+
+Read only relevant sections and directly linked owner topics, retaining shared authority, safety rules and limitations. Use the resolution rules to determine when an owner topic applies; do not read every topic as a checklist. A missing conditional document blocks only the decision that needs it. No manifest or prototype-specific pack file is required. Never mix context roots or read drafts as active context.
 
 Read shared defaults, safety rules, relevant headings and limitations.
 Follow relevant owner links, evidence anchors and local documentation indexes
@@ -29,10 +35,7 @@ installed files, including this reference or
 [product-design](../../product-design/SKILL.md), stop affected work with the
 exact path. Do not install dependencies or invent fallback policy.
 
-Use product-design's workflow for relevant UI decisions and convert its
-context-backed behavior into implementation checks. Unrelated known gaps do
-not block supported work. Consequential contradictions or missing rules remain
-unresolved and return to the selected workflow's conditional clarification.
+Use product-design's workflow for relevant UI decisions and convert its context-backed behavior into implementation checks. Reuse unchanged decisions already established for the task rather than repeating a design pass. Select additional audit or review skills only when the user requests them or their applicable skill/repository instructions require them. Loading a skill is not evidence that its review was completed; preserve required accessibility checks and visual-approval boundaries, and report incomplete reviews as incomplete. Unrelated known gaps do not block supported work. Consequential contradictions or missing rules remain unresolved and return to the selected workflow's conditional clarification.
 
 ## Task inputs, not setup requirements
 
@@ -78,6 +81,7 @@ named page or a catalog example is the target implementation.
 
 Use the active design-system context's declared evidence sources, installed
 APIs and fallback rules under context resolution's applied-guidance contract.
+Reuse an established composition when it satisfies the requested behavior. Use a consumer-declared recipe, catalogue or research tool only when a specific composition or requirement remains unresolved; do not repeat lookup for general reassurance.
 When a named gap requires source inspection, read full relevant component,
 token and pattern sections, including accessibility requirements, not whole catalogues.
 Local documentation is sufficient when the context declares it. For MCP
@@ -95,6 +99,8 @@ Resolve version conflicts before editing. For author-chosen tokens,
 verify their names, semantic roles and applicable constraints. Do not guess
 from a token name or substitute another provider. Use existing supported
 compositions rather than recreating primitives.
+
+For a JavaScript package, resolve a public import from its package metadata: follow the applicable `exports` condition, including `types` when checking declarations, or its declared `types`, `typings` or package entry. Follow re-exports to the component definition. Package metadata and the installed version are authoritative; do not guess a component path from its name. Use the consumer's documented resolver when one exists. Other ecosystems use their declared package and API discovery mechanisms.
 
 Stop API discovery once the selected import, composition, required props, states,
 narrow behavior and keyboard/focus contract are established for this task.
