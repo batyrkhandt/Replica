@@ -129,6 +129,7 @@ let currentReviewComments = REVIEW_COMMENTS
 const PROTOTYPES_SHOW_PAGE_DATA: PrototypesShowPageData = {
   accountMenuLabel: "Account menu for @octocat",
   darkThemeLabel: "Dark",
+  feedbackLabel: "Feedback",
   lightThemeLabel: "Light",
   systemThemeLabel: "System",
   author: {

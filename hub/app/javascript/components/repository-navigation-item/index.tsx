@@ -11,10 +11,17 @@ type RepositoryNavigationItemProps = {
   | {
       href: string
       selected?: boolean
+      external?: boolean
       onClick?: MouseEventHandler<HTMLAnchorElement>
       expanded?: never
     }
-  | { href?: never; selected?: never; onClick: () => void; expanded: boolean }
+  | {
+      href?: never
+      selected?: never
+      external?: never
+      onClick: () => void
+      expanded: boolean
+    }
 )
 
 /** Renders a sidebar destination or a control with the same row treatment. */
@@ -22,6 +29,7 @@ export function RepositoryNavigationItem({
   ariaLabel,
   count,
   expanded,
+  external = false,
   href,
   icon: Icon,
   label,
@@ -45,12 +53,14 @@ export function RepositoryNavigationItem({
   return href !== undefined ? (
     <a
       href={href}
-      data-sg-visit="true"
+      data-sg-visit={external ? undefined : "true"}
       className="repository-navigation-item"
       data-has-count={count !== undefined && count > 0 ? "true" : undefined}
       data-active={selected ? "true" : undefined}
       aria-current={selected ? "page" : undefined}
       aria-label={ariaLabel}
+      target={external ? "_blank" : undefined}
+      rel={external ? "noopener noreferrer" : undefined}
       onClick={onClick}
     >
       {content}

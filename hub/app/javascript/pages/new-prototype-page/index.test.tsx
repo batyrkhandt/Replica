@@ -8,6 +8,7 @@ import { templatesData } from "@/storybook/fixtures/templates"
 const PAGE_DATA: NewPrototypePageData = {
   accountMenuLabel: "Account menu",
   darkThemeLabel: "Dark",
+  feedbackLabel: "Feedback",
   lightThemeLabel: "Light",
   systemThemeLabel: "System",
   authenticityToken: "token",

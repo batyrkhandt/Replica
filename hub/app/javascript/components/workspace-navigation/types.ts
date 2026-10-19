@@ -3,6 +3,7 @@ export interface WorkspaceAccountData {
   authenticityToken: string
   collapseNavigationLabel: string
   expandNavigationLabel: string
+  feedbackLabel: string
   currentUser: {
     avatarUrl: string | null
     login: string

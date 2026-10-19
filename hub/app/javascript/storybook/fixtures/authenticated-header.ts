@@ -5,6 +5,7 @@ export const authenticatedHeaderData = {
   authenticityToken: "storybook-token",
   currentUser: octocat,
   darkThemeLabel: "Dark",
+  feedbackLabel: "Feedback",
   lightThemeLabel: "Light",
   productName: "Replica Hub",
   rootPath: "/repositories",
