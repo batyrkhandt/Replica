@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { ReviewCommentsCopy, ReviewThread } from "@utils/review-comment/types"
@@ -74,6 +74,8 @@ const COPY: ReviewCommentsCopy = {
   reactionCountOtherLabel: "%{reaction}, %{count} reactions",
   reactionErrorLabel: "The reaction could not be changed.",
   readErrorLabel: "Hub could not mark this conversation as read.",
+  markUnreadLabel: "Mark as unread",
+  markUnreadErrorLabel: "Hub could not mark this conversation as unread.",
   reactionLabels: {
     "+1": "Thumbs up",
     "-1": "Thumbs down",
@@ -181,6 +183,7 @@ function renderConversation(
     onAddReaction: vi.fn(() => Promise.resolve(true)),
     onRemoveReaction: vi.fn(() => Promise.resolve(true)),
     onMarkRead: vi.fn(() => Promise.resolve(true)),
+    onMarkUnread: vi.fn(() => Promise.resolve(true)),
   }
   const initialThread = overrides.thread ?? THREAD
   function conversation(thread: ReviewThread) {
@@ -234,6 +237,7 @@ function renderConversation(
   const rendered = render(conversation(initialThread))
   return {
     ...callbacks,
+    unmount: rendered.unmount,
     refreshThread: (thread: ReviewThread) => rendered.rerender(conversation(thread)),
   }
 }
@@ -712,6 +716,170 @@ describe("ReviewThreadConversation()", () => {
 
     await waitFor(() => expect(onMarkRead).toHaveBeenCalledWith(2))
     expect(onMarkRead).toHaveBeenCalledOnce()
+  })
+
+  it("puts Mark as unread first and separates Delete from the other root actions", () => {
+    renderConversation()
+    fireEvent.click(screen.getByRole("button", { name: "Actions for comment by @octocat" }))
+    const menu = screen.getByRole("menu")
+    const items = within(menu).getAllByRole("menuitem")
+    expect(items.map((item) => item.textContent)).toEqual(["Mark as unread", "Edit", "Delete"])
+    const divider = within(menu).getByRole("separator")
+    expect(
+      items[1]!.compareDocumentPosition(divider) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      divider.compareDocumentPosition(items[2]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it("offers unread on another author's root but not on a reply", async () => {
+    const onMarkUnread = vi.fn(() => Promise.resolve(true))
+    renderConversation({
+      onMarkUnread,
+      thread: {
+        ...THREAD,
+        root: { ...THREAD.root, viewerCanEdit: false, viewerCanDelete: false },
+        replies: [
+          {
+            id: 2,
+            kind: "reply",
+            rootId: THREAD.root.id,
+            body: "My reply",
+            createdAt: "2026-09-14T13:00:00Z",
+            updatedAt: "2026-09-14T13:00:00Z",
+            editedAt: null,
+            deletedAt: null,
+            author: { login: "mona", name: "Mona", avatarUrl: null },
+            viewerCanEdit: true,
+            viewerCanDelete: true,
+            reactions: [],
+          },
+        ],
+      },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Actions for comment by @octocat" }))
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Mark as unread",
+    ])
+    fireEvent.click(screen.getByRole("menuitem", { name: "Mark as unread" }))
+    await waitFor(() => expect(onMarkUnread).toHaveBeenCalledOnce())
+    fireEvent.click(screen.getByRole("button", { name: "Actions for comment by @mona" }))
+    expect(screen.queryByRole("menuitem", { name: "Mark as unread" })).not.toBeInTheDocument()
+    expect(screen.getByRole("menuitem", { name: "Edit" })).toBeInTheDocument()
+  })
+
+  it("keeps manual unread state while open and marks read again after reopening", async () => {
+    const onMarkRead = vi.fn(() => Promise.resolve(true))
+    const onMarkUnread = vi.fn(() => Promise.resolve(true))
+    const conversation = renderConversation({ onMarkRead, onMarkUnread })
+    fireEvent.click(screen.getByRole("button", { name: "Actions for comment by @octocat" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Mark as unread" }))
+    await waitFor(() => expect(onMarkUnread).toHaveBeenCalledOnce())
+    const unread = {
+      ...THREAD,
+      root: { ...THREAD.root, viewerLastSeenActivityVersion: null },
+      unread: true,
+    }
+    conversation.refreshThread(unread)
+    await act(async () => {})
+    expect(screen.getByRole("dialog", { name: "Conversation" })).toBeInTheDocument()
+    expect(conversation.onClose).not.toHaveBeenCalled()
+    expect(onMarkRead).not.toHaveBeenCalled()
+    conversation.unmount()
+    renderConversation({ thread: unread, onMarkRead })
+    await waitFor(() => expect(onMarkRead).toHaveBeenCalledWith(1))
+    expect(onMarkRead).toHaveBeenCalledOnce()
+  })
+
+  it("waits for the opening read acknowledgement before allowing manual unread", async () => {
+    let finishRead: ((saved: boolean) => void) | undefined
+    const onMarkRead = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finishRead = resolve
+        }),
+    )
+    const onMarkUnread = vi.fn(() => Promise.resolve(true))
+    renderConversation({
+      thread: {
+        ...THREAD,
+        root: { ...THREAD.root, viewerLastSeenActivityVersion: null },
+        unread: true,
+      },
+      onMarkRead,
+      onMarkUnread,
+    })
+    await waitFor(() => expect(onMarkRead).toHaveBeenCalledOnce())
+    fireEvent.click(screen.getByRole("button", { name: "Actions for comment by @octocat" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Mark as unread" }))
+    expect(onMarkUnread).not.toHaveBeenCalled()
+    await act(async () => {
+      finishRead?.(true)
+      await Promise.resolve()
+    })
+    if (!screen.queryByRole("menuitem", { name: "Mark as unread" })) {
+      fireEvent.click(screen.getByRole("button", { name: "Actions for comment by @octocat" }))
+    }
+    fireEvent.click(screen.getByRole("menuitem", { name: "Mark as unread" }))
+    await waitFor(() => expect(onMarkUnread).toHaveBeenCalledOnce())
+  })
+
+  it.each(["returned", "rejected"])(
+    "shows a %s unread failure and allows retry without losing the reply draft",
+    async (failure) => {
+      const onMarkUnread = vi.fn<() => Promise<boolean>>()
+      if (failure === "returned") onMarkUnread.mockResolvedValueOnce(false)
+      else onMarkUnread.mockRejectedValueOnce(new Error("Network unavailable"))
+      onMarkUnread.mockResolvedValueOnce(true)
+      const conversation = renderConversation({ onMarkUnread })
+      fireEvent.change(screen.getByRole("textbox", { name: "Reply" }), {
+        target: { value: "Unsaved reply" },
+      })
+      fireEvent.click(screen.getByRole("button", { name: "Actions for comment by @octocat" }))
+      expect(screen.getByRole("menuitem", { name: "Edit" })).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      )
+      expect(screen.getByRole("menuitem", { name: "Delete" })).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      )
+      fireEvent.click(screen.getByRole("menuitem", { name: "Mark as unread" }))
+      await waitFor(() =>
+        expect(screen.getByRole("alert")).toHaveTextContent(COPY.markUnreadErrorLabel),
+      )
+      expect(screen.getByRole("textbox", { name: "Reply" })).toHaveValue("Unsaved reply")
+      fireEvent.click(screen.getByRole("button", { name: "Actions for comment by @octocat" }))
+      fireEvent.click(screen.getByRole("menuitem", { name: "Mark as unread" }))
+      await waitFor(() => expect(onMarkUnread).toHaveBeenCalledTimes(2))
+      await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument())
+      conversation.refreshThread({
+        ...THREAD,
+        root: { ...THREAD.root, viewerLastSeenActivityVersion: null },
+        unread: true,
+      })
+      expect(screen.getByRole("textbox", { name: "Reply" })).toHaveValue("Unsaved reply")
+      expect(conversation.onClose).not.toHaveBeenCalled()
+    },
+  )
+
+  it("preserves an edit draft when marking the conversation unread", async () => {
+    const conversation = renderConversation()
+    fireEvent.click(screen.getByRole("button", { name: "Actions for comment by @octocat" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Edit" }))
+    fireEvent.change(screen.getByRole("textbox", { name: "Edit comment" }), {
+      target: { value: "Unsaved edit" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Actions for comment by @octocat" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Mark as unread" }))
+    await waitFor(() => expect(conversation.onMarkUnread).toHaveBeenCalledOnce())
+    conversation.refreshThread({
+      ...THREAD,
+      root: { ...THREAD.root, viewerLastSeenActivityVersion: null },
+      unread: true,
+    })
+    expect(screen.getByRole("textbox", { name: "Edit comment" })).toHaveValue("Unsaved edit")
   })
 
   it("keeps newer live activity unread while the conversation stays open", async () => {

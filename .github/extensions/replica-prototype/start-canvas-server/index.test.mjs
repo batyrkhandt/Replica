@@ -1069,6 +1069,20 @@ esac
       assert.equal((await send("/api/hub/comments/9/resolution", "POST")).status, 200)
       assert.equal(
         (
+          await send("/api/hub/comments/9/read", "POST", {
+            review_thread_read: { activity_version: 1 },
+          })
+        ).status,
+        200,
+      )
+      assert.equal(calls.at(-1).activity, undefined)
+      assert.equal((await send("/api/hub/comments/9/read", "DELETE")).status, 200)
+      assert.ok(calls.at(-1).path.endsWith("/review_comments/9/read"))
+      assert.equal(calls.at(-1).method, "DELETE")
+      assert.equal(calls.at(-1).body, "")
+      assert.equal(calls.at(-1).activity, "interactive")
+      assert.equal(
+        (
           await send("/api/hub/comments/9/reactions/%2B1", "DELETE", {
             review_comment_reaction: { activity_version: 1 },
           })

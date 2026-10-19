@@ -112,6 +112,12 @@
   color: var(--hub-fg-danger);
 }
 
+.review-thread-message__menu-divider {
+  border-top: 1px solid var(--hub-border-muted);
+  margin-block: var(--hub-space-4);
+  list-style: none;
+}
+
 .review-thread-message__delete-item span {
   color: var(--hub-fg-danger);
 }

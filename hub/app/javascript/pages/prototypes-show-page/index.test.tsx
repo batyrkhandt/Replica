@@ -292,6 +292,8 @@ const PROTOTYPES_SHOW_PAGE_DATA: PrototypesShowPageData = {
       reactionCountOtherLabel: "%{reaction}, %{count} reactions",
       reactionErrorLabel: "The reaction could not be changed.",
       readErrorLabel: "Hub could not mark this conversation as read.",
+      markUnreadLabel: "Mark as unread",
+      markUnreadErrorLabel: "Hub could not mark this conversation as unread. Try again.",
       reactionLabels: {
         "+1": "Thumbs up",
         "-1": "Thumbs down",
@@ -391,6 +393,7 @@ vi.mock("@hooks/use-review-comments", () => ({
     addReaction: vi.fn(),
     removeReaction: vi.fn(),
     markThreadRead: vi.fn(),
+    markThreadUnread: vi.fn(),
   }),
 }))
 

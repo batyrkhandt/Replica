@@ -65,6 +65,75 @@ describe("HubPanel()", () => {
     expect(buildLink).toHaveAttribute("rel", "noopener noreferrer")
   })
 
+  it("persists unread through the canvas proxy, keeps the draft open, and reads on reopening", async () => {
+    let lastSeen: number | null = octocatRootComment.activityVersion
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation((input, options) => {
+      if (input === "/api/hub/events") return Promise.reject(new Error("Offline"))
+      if (input === "/api/hub/comments/1/read") {
+        lastSeen = options?.method === "DELETE" ? null : octocatRootComment.activityVersion
+      }
+      return Promise.resolve(
+        Response.json({
+          comments: [{ ...octocatRootComment, viewerLastSeenActivityVersion: lastSeen }],
+          hasMore: false,
+          nextCursor: null,
+        }),
+      )
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    render(
+      <ThemeProvider>
+        <HubPanel
+          config={{ name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" }}
+          frameRef={createRef<HTMLIFrameElement>()}
+          status={{ ...publicationHub, state: "connected", prototype: importedPrototype }}
+          onStatusChange={async () => {}}
+          onSelectHub={async () => {}}
+          onConnect={() => {}}
+          open={false}
+          onClose={() => {}}
+        />
+      </ThemeProvider>,
+    )
+    fireEvent.click(await screen.findByRole("button", { name: /^Comments, 1/ }))
+    fireEvent.click(screen.getByRole("button", { name: /Please align this control/ }))
+    const dialog = screen.getByRole("dialog", { name: reviewCommentsCopy.threadHeading })
+    const reply = within(dialog).getByRole("textbox", { name: "Reply" })
+    fireEvent.change(reply, { target: { value: "Keep this draft." } })
+    fireEvent.click(within(dialog).getByRole("button", { name: "Actions for comment by @octocat" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: reviewCommentsCopy.markUnreadLabel }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Please align this control/ }),
+      ).toHaveAccessibleName(/Unread/),
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/hub/comments/1/read",
+      expect.objectContaining({ method: "DELETE" }),
+    )
+    expect(dialog).toBeInTheDocument()
+    expect(reply).toHaveValue("Keep this draft.")
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/hub/comments/1/read",
+      expect.objectContaining({ method: "POST" }),
+    )
+    fireEvent.change(reply, { target: { value: "" } })
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: reviewCommentsCopy.backToCommentsLabel }),
+    )
+    expect(dialog).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: /Please align this control/ }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Please align this control/ }),
+      ).not.toHaveAccessibleName(/Unread/),
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/hub/comments/1/read",
+      expect.objectContaining({ method: "POST" }),
+    )
+  })
+
   it("keeps throttled comments and the draft until the Hub changes", async () => {
     const message = "Too many requests. No changes were made. Wait 60 seconds, then try again."
     const fetchMock = vi.fn<typeof fetch>().mockImplementation((input, options) => {

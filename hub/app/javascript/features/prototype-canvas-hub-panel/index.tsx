@@ -176,8 +176,8 @@ export function HubPanel({
   const [liveError, setLiveError] = useState(false)
   const [mutation, setMutation] = useState<ReviewCommentMutation | null>(null)
   const mutationRef = useRef(false)
-  const reactionRevisionRef = useRef(0)
-  const reactionPendingRef = useRef(false)
+  const commentMutationRevisionRef = useRef(0)
+  const commentMutationPendingRef = useRef(false)
   const bridgeNonceRef = useRef("")
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const identityRef = useRef("")
@@ -367,9 +367,9 @@ export function HubPanel({
   )
 
   const loadComments = useCallback(async () => {
-    if (!prototypeId || reactionPendingRef.current) return
+    if (!prototypeId || commentMutationPendingRef.current) return
     const requestedIdentity = identity
-    const reactionRevision = reactionRevisionRef.current
+    const commentMutationRevision = commentMutationRevisionRef.current
     setLoading(true)
     try {
       const loaded: ReviewComment[] = []
@@ -388,7 +388,7 @@ export function HubPanel({
       }
       if (
         identityRef.current !== requestedIdentity ||
-        reactionRevisionRef.current !== reactionRevision
+        commentMutationRevisionRef.current !== commentMutationRevision
       )
         return
       setCommentState({ identity: requestedIdentity, items: loaded })
@@ -397,7 +397,7 @@ export function HubPanel({
     } catch (cause) {
       if (
         identityRef.current === requestedIdentity &&
-        reactionRevisionRef.current === reactionRevision
+        commentMutationRevisionRef.current === commentMutationRevision
       ) {
         setCommentsLoadFailed(true)
         setError(cause instanceof Error ? cause.message : String(cause))
@@ -405,7 +405,7 @@ export function HubPanel({
     } finally {
       if (
         identityRef.current === requestedIdentity &&
-        reactionRevisionRef.current === reactionRevision
+        commentMutationRevisionRef.current === commentMutationRevision
       ) {
         setLoading(false)
       }
@@ -427,8 +427,8 @@ export function HubPanel({
       setDescription("")
       setMutation(null)
       mutationRef.current = false
-      reactionPendingRef.current = false
-      reactionRevisionRef.current += 1
+      commentMutationPendingRef.current = false
+      commentMutationRevisionRef.current += 1
       setMarkers(new Map())
       setBridgeReady(false)
       setSelectionMode(null)
@@ -731,15 +731,18 @@ export function HubPanel({
     action?: ReviewCommentMutation,
   ) {
     const requestedIdentity = identity
-    const reaction = action?.kind === "add-reaction" || action?.kind === "remove-reaction"
+    const updatesImmediately =
+      action?.kind === "add-reaction" ||
+      action?.kind === "remove-reaction" ||
+      action?.kind === "mark-unread"
     if (action) {
       if (mutationRef.current) return false
       mutationRef.current = true
       setMutation(action)
     }
-    if (reaction) {
-      reactionPendingRef.current = true
-      reactionRevisionRef.current += 1
+    if (updatesImmediately) {
+      commentMutationPendingRef.current = true
+      commentMutationRevisionRef.current += 1
     }
     setRateLimitMessage("")
     try {
@@ -748,7 +751,7 @@ export function HubPanel({
         ...(body ? { body: JSON.stringify(body) } : {}),
       })
       if (identityRef.current !== requestedIdentity) return false
-      if (reaction) {
+      if (updatesImmediately) {
         const changed = REVIEW_COMMENT_MUTATION_SCHEMA.parse(result)
         setCommentState((previous) => {
           if (previous.identity !== requestedIdentity) return previous
@@ -758,7 +761,8 @@ export function HubPanel({
         })
       }
       // Let the conversation clear its saved draft before updating the thread.
-      if (!reaction) refreshTimer.current = window.setTimeout(() => void loadComments(), 0)
+      if (!updatesImmediately)
+        refreshTimer.current = window.setTimeout(() => void loadComments(), 0)
       return true
     } catch (cause) {
       if (identityRef.current === requestedIdentity) {
@@ -769,9 +773,9 @@ export function HubPanel({
       return false
     } finally {
       if (action && identityRef.current === requestedIdentity) {
-        if (reaction) {
-          reactionPendingRef.current = false
-          reactionRevisionRef.current += 1
+        if (updatesImmediately) {
+          commentMutationPendingRef.current = false
+          commentMutationRevisionRef.current += 1
           refreshTimer.current = window.setTimeout(() => void loadComments(), 0)
         }
         mutationRef.current = false
@@ -1480,6 +1484,11 @@ export function HubPanel({
                 onMarkRead: (version) =>
                   change(`${active.root.id}/read`, "POST", {
                     review_thread_read: { activity_version: version },
+                  }),
+                onMarkUnread: () =>
+                  change(`${active.root.id}/read`, "DELETE", undefined, {
+                    kind: "mark-unread",
+                    commentId: active.root.id,
                   }),
               }
             : null

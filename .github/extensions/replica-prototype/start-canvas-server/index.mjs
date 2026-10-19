@@ -567,16 +567,16 @@ async function routeRequest(
     const method = request.method
     const valid = !operation
       ? ["PATCH", "DELETE"].includes(method)
-      : operation === "replies" || operation === "read"
+      : operation === "replies"
         ? method === "POST" && !content
-        : operation === "resolution"
+        : operation === "resolution" || operation === "read"
           ? ["POST", "DELETE"].includes(method) && !content
           : (method === "POST" && !content) || (method === "DELETE" && !!content)
     if (!valid) throw httpError(405, "Review action not supported.")
     const body =
       (!operation && method === "PATCH") ||
       operation === "replies" ||
-      operation === "read" ||
+      (operation === "read" && method === "POST") ||
       operation === "reactions"
         ? await readJson(request)
         : undefined
@@ -587,7 +587,7 @@ async function routeRequest(
       await hub.request(`${await reviewPath(hub)}/${id}${suffix}`, {
         method,
         body,
-        interactive: operation !== "read",
+        interactive: operation !== "read" || method === "DELETE",
       }),
     )
     return

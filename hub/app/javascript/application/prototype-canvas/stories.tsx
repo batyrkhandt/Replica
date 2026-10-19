@@ -39,7 +39,7 @@ function PublicationDemo({
           url: "https://hub.example.com/repositories/2001/prototypes/1?build=2",
         },
       }
-    const comments: ReviewComment[] = withComments
+    let comments: ReviewComment[] = withComments
       ? [
           repliedReviewThread.root,
           ...repliedReviewThread.replies,
@@ -184,7 +184,20 @@ function PublicationDemo({
           hasMore: false,
           nextCursor: null,
         }
-      else if (path === "/api/hub/events") {
+      else if (withComments && /^\/api\/hub\/comments\/\d+\/read$/.test(path)) {
+        const id = Number(path.split("/").at(-2))
+        const root = comments.find((comment) => comment.id === id && comment.kind === "root")
+        if (!root || root.kind !== "root") throw new Error("Unknown demo conversation.")
+        if (init?.method !== "POST" && init?.method !== "DELETE")
+          throw new Error("Unsupported demo read-state action.")
+
+        const updated = {
+          ...root,
+          viewerLastSeenActivityVersion: init.method === "DELETE" ? null : root.activityVersion,
+        }
+        comments = comments.map((comment) => (comment.id === root.id ? updated : comment))
+        data = { comments: [updated] }
+      } else if (path === "/api/hub/events") {
         return new Response(
           new ReadableStream({
             start(controller) {

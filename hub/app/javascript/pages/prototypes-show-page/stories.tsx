@@ -172,6 +172,7 @@ function reviewState(
       addReaction: noComment,
       removeReaction: noComment,
       markThreadRead: noComment,
+      markThreadUnread: noComment,
     },
     conversationDraftActive: false,
     createComment: unsuccessfulAction,

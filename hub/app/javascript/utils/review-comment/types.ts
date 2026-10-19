@@ -80,6 +80,8 @@ export interface ReviewCommentsCopy {
   reactionCountOtherLabel: string
   reactionErrorLabel: string
   readErrorLabel: string
+  markUnreadLabel: string
+  markUnreadErrorLabel: string
   reactionLabels: Record<ReviewReactionContent, string>
   commentActionsLabel: string
   editLabel: string
