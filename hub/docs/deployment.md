@@ -43,6 +43,9 @@ Restart every Hub web and job container after changing these settings. No image 
 | `OTEL_TRACES_SAMPLER_ARG` | Sampling-policy argument; for `parentbased_traceidratio`, a fraction from `0` to `1`, such as `0.1`. |
 | `OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE` | Optional path inside the container to a trusted CA certificate for a private endpoint. Mount the certificate when needed; keep TLS verification enabled. |
 | `OTEL_SDK_DISABLED` | Set to `true` to disable tracing regardless of the exporter setting. |
+| `REPLICA_OTEL_INCLUDE_SENSITIVE_DATA` | Set to `true` to include structured job-argument identity fields listed below. Defaults to `false`; credential-keyed fields remain filtered. |
+| `REPLICA_OTEL_TRUST_INCOMING_CONTEXT` | Set to `true` only behind a trusted ingress that removes client-supplied trace headers and supplies its own. Defaults to `false`. |
+| `REPLICA_OTEL_UNTRACED_HOSTS` | Optional comma-separated exact hostnames to exclude from outbound Net::HTTP tracing and trace-header injection. Subdomains are not included automatically. Empty entries are rejected. |
 
 The exporter also accepts the common `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, and `OTEL_EXPORTER_OTLP_PROTOCOL` settings. Trace-specific values take precedence. The common endpoint is a base URL to which the exporter appends `/v1/traces`; the trace-specific endpoint is used as supplied. Enabling export requires an explicit endpoint. Hub rejects unsupported exporters, protocols, and malformed endpoint URLs at startup.
 
@@ -54,13 +57,31 @@ Sentry documents a direct OTLP trace endpoint. Datadog provides a Collector expo
 
 The deployment operator controls the destination and credentials. Restrict recipients and network access through your deployment's outbound-network policy. Hub's repository analytics destination settings do not configure or restrict tracing.
 
+For mutual TLS, the exporter accepts `OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE` and `OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY`, pointing to mounted client certificate and key files. Keep certificate verification enabled.
+
+### Trace-context boundaries
+
+Public HTTP requests start new traces by default. Hub ignores their incoming `traceparent`, so a client cannot override the deployment's root sampling decision by supplying a sampled parent. Enable `REPLICA_OTEL_TRUST_INCOMING_CONTEXT` only when all traffic passes through an ingress that sanitizes client-supplied trace headers. This setting trusts every incoming request; it does not authenticate a proxy or enforce a network restriction.
+
+Hub discards incoming `tracestate` and baggage even with trusted ingress. Jobs continue the context serialized by Hub through its trusted job queue. Protect queue storage and access independently.
+
+Outbound Net::HTTP calls propagate trace context by default. Use `REPLICA_OTEL_UNTRACED_HOSTS` to exclude specific destinations; those calls also lose their HTTP spans. This setting does not block the requests or restrict telemetry export destinations. Hub fixes its propagation policy in code; `OTEL_PROPAGATORS` does not override these boundaries.
+
 ### Data and delivery limits
 
-Hub exports an allowlist of operational span attributes. It removes raw URL paths and queries, request and response headers, bodies, SQL text and parameter values, job arguments, span events, span links, and error status descriptions before export. HTTP span names use methods and route templates instead of concrete URLs. Trace context can cross service boundaries, but Hub does not propagate incoming OpenTelemetry baggage. Operator-supplied resource attributes are exported as configured.
+Tracing includes SQL query text, serialized job arguments, and exception type, message, and stack trace by default. Job spans retain queue, job ID, adapter, provider job ID, and priority metadata when the instrumentation supplies them. Hub uses explicit attribute lists matching its bundled instrumentation, including legacy HTTP and code keys that those versions still emit.
+
+Hub filters structured job arguments with Rails' configured parameter filters. By default it also filters the keys `email`, `name`, `username`, `user_name`, `first_name`, `last_name`, `display_name`, `given_name`, `family_name`, and `login`. Set `REPLICA_OTEL_INCLUDE_SENSITIVE_DATA=true` to include those identity fields. This relaxes only Hub's additional identity filter and Rails' baseline literal `email` rule; other configured filters still apply, including password, token, credential, and authorization rules. Cookie-keyed values remain filtered in either mode. The flag does not attach signed-in user records or enable request bodies or headers.
+
+Filtering is key-based, not a guarantee that exported data contains no personal information or secrets. SQL text can contain literal values, exception messages and stack traces can contain application data, and positional or free-text job arguments lack field names to filter. SQL bind values are not attached separately. Serialized model arguments may include Global IDs. Configure your APM's access and retention policies accordingly, and apply additional Collector filtering if needed. Operator-supplied resource attributes are exported as configured.
+
+The deployment operator controls the identity flag through environment configuration. Restart every web and job process when enabling or disabling it. The new setting applies to diagnostics collected by those processes; data already sent remains subject to the recipient's retention policy.
+
+Hub excludes raw HTTP URL paths and queries, request and response headers and bodies, arbitrary span events, span links, and error status descriptions from export. Exception events retain only `exception.type`, `exception.message`, and `exception.stacktrace`. HTTP span names use methods and route templates instead of concrete URLs.
 
 Active Job execution continues the enqueueing trace when the job's serialized context is available. The SDK's bounded background queue exports batches outside the request path and resets its worker after process forks. Hub allows up to five seconds to flush at normal process exit. Collector or provider outages are logged and may drop traces; delivery is not durable and does not gate successful Hub requests. Forced termination can lose pending spans.
 
-Health checks at `/up` are excluded. Asset compilation with `SECRET_KEY_BASE_DUMMY` does not initialize tracing. This integration does not enable browser monitoring, metric or log export, exception stack-trace export, or vendor-native error reporting.
+Health checks at `/up` are excluded. Asset compilation with `SECRET_KEY_BASE_DUMMY` does not initialize tracing. This integration does not enable browser monitoring, metric or log export, or vendor-native error reporting. Providers that discard OTLP span events may not display the exported exceptions.
 
 For exporter settings and their formats, see the [Ruby OTLP exporter](https://github.com/open-telemetry/opentelemetry-ruby/tree/main/exporter/otlp) and the [Ruby SDK documentation](https://opentelemetry.io/docs/languages/ruby/). Provider setup examples are available for [Sentry OTLP](https://docs.sentry.io/concepts/otlp/direct/traces/) and the [Datadog Collector exporter](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/exporter/datadogexporter).
 
