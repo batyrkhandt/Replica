@@ -205,16 +205,20 @@ The preview's browser origin differs from the original address. Original-origin 
 After you review and accept the Copilot app's repository configuration,
 session setup checks the Replica plugin before installing app dependencies.
 An enabled installation needs one local CLI check and no network requests.
+If `copilot` is missing, setup runs `npm install -g @github/copilot`, then uses npm's global installation path without requiring a shell restart or changing `PATH`. It does not reinstall an existing CLI, use sudo, install Node.js, or change shell configuration. The npm global installation directory must be writable.
 Setup enables a disabled marketplace installation or installs a missing one
 from `github/replica`. It preserves an existing marketplace's branch or release
-pin and stops on conflicting sources or CLI errors. For an organization-required
+pin and stops plugin setup on conflicting sources or CLI errors. For an organization-required
 pin, register the approved marketplace before setup.
 
 Outside automatic session setup, run `node scripts/setup-replica-plugin.mjs`
-manually. The script requires Node.js and Copilot CLI and uses no agent.
+manually. The script requires Node.js and npm and uses no agent.
 Installation commands run without interactive input and have bounded timeouts;
-approval or policy failures need user action. A failed plugin check stops the
-startup command before `npm ci`; resolve it and rerun setup.
+approval or policy failures need user action. Session startup always attempts `npm ci`, even if CLI installation or plugin setup fails. If dependencies install successfully, startup completes without a hard error, but the Replica canvas remains unavailable until plugin setup succeeds. Dependency installation failures still fail startup.
+
+Session startup runs `node scripts/setup-replica-plugin.mjs --startup`. After `npm ci` finishes, the script prints a final summary of dependency installation and Replica plugin setup, including failure reasons and recovery commands. Plugin installation success does not prove that the current session loaded the canvas; the summary includes the separate activation steps.
+
+Plugin failures also print the cause and recovery guidance when they occur. Repository setup scripts have no documented way to post a chat message; agents do not automatically receive this output. Open the app's setup output to diagnose the failure, then rerun `node scripts/setup-replica-plugin.mjs` after resolving it. Running that script without `--startup` only sets up the plugin and still exits nonzero on failure.
 For manual installation, updates or source changes, follow the
 [plugin guide](https://github.com/github/replica/blob/main/.github/extensions/replica-prototype/README.md#install).
 Keep only one Replica provider active.

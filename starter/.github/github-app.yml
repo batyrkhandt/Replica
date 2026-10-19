@@ -1,6 +1,6 @@
 scripts:
   - name: Startup
-    command: node scripts/setup-replica-plugin.mjs && npm ci
+    command: node scripts/setup-replica-plugin.mjs --startup
     triggers:
       - session.create
   - name: Dev
