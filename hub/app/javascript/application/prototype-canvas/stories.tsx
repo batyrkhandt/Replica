@@ -314,14 +314,10 @@ export const CommentsSidebar: Story = {
     const surface = getComputedStyle(row, "::before")
     const surfaceLeft = bounds.left + parseFloat(surface.left)
     const surfaceRight = bounds.right - parseFloat(surface.right)
-    if (
-      !Number.isFinite(surfaceLeft) ||
-      Math.abs(unread.getBoundingClientRect().left - surfaceLeft - 4) > 0.5
-    )
-      throw new Error("The unread dot must sit 4px inside the comment's hover surface.")
     const scroller = row.closest(".review-comments-sidebar__body")?.getBoundingClientRect()
     if (
       !scroller ||
+      !Number.isFinite(surfaceLeft) ||
       !Number.isFinite(surfaceRight) ||
       surfaceLeft < scroller.left - 0.5 ||
       surfaceRight > scroller.right + 0.5
@@ -337,9 +333,11 @@ export const CommentsSidebar: Story = {
       !avatar ||
       !author ||
       Math.abs(avatar.width - 20) > 0.5 ||
+      Math.abs(avatar.left - surfaceLeft - 4) > 0.5 ||
+      Math.abs(avatar.left + avatar.width / 2 - dot.left - dot.width / 2) > 0.5 ||
       Math.abs(avatar.top + avatar.height / 2 - author.top - author.height / 2) > 0.5
     )
-      throw new Error("The compact avatar must be centered beside the author's name.")
+      throw new Error("The compact avatar must align above the unread dot beside the author.")
   },
 }
 export const ShareManagement: Story = {

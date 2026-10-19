@@ -65,7 +65,10 @@
 .review-comment-row .review-comment-row__avatar {
   width: 1.25rem;
   height: 1.25rem;
-  flex: 0 0 1.25rem;
+  position: absolute;
+  inset-inline-start: calc(-1 * var(--hub-space-24));
+  top: 50%;
+  transform: translateY(-50%);
   overflow: hidden;
   border-radius: 50%;
   color: var(--hub-fg-muted);
@@ -85,7 +88,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--hub-fg-default);
+  color: var(--hub-fg-muted);
   font-weight: 400;
 }
 
@@ -99,6 +102,7 @@
   gap: var(--hub-space-4);
   flex: 1;
   min-width: 0;
+  position: relative;
 }
 
 .review-comment-row__metadata time {
@@ -118,7 +122,7 @@
   border-radius: 50%;
   position: absolute;
   top: 50%;
-  inset-inline-start: calc(-2 * var(--hub-space-12));
+  inset-inline-start: calc(-1 * var(--hub-space-24) + (1.25rem - var(--hub-space-8)) / 2);
   transform: translateY(-50%);
 }
 
@@ -133,6 +137,11 @@
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+  color: var(--hub-fg-muted);
+}
+
+.review-comment-row--unread .review-comment-row__author,
+.review-comment-row--unread .review-comment-row__body {
   color: var(--hub-fg-default);
 }
 
