@@ -34,6 +34,10 @@ type Story = StoryObj<typeof meta>
 
 export const Single: Story = {}
 
+export const Read: Story = {
+  args: { thread: { ...singleReviewThread, unread: false } },
+}
+
 export const MultipleMessages: Story = {
   args: {
     thread: repliedReviewThread,

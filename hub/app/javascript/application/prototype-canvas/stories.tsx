@@ -57,7 +57,7 @@ function PublicationDemo({
             id: 4,
             buildNumber: 2,
             buildPath: "/repositories/2001/prototypes/1?build=2",
-            body: "Can we keep the heading aligned on narrow screens?",
+            body: "Can we keep the heading aligned?",
           },
           {
             ...repliedReviewThread.replies[0]!,
@@ -327,6 +327,19 @@ export const CommentsSidebar: Story = {
       surfaceRight > scroller.right + 0.5
     )
       throw new Error("The wider hover surface must remain inside the comment scroll area.")
+    const body = row.querySelector(".review-comment-row__body")?.getBoundingClientRect()
+    const avatar = row.querySelector(".review-comment-row__avatar")?.getBoundingClientRect()
+    const author = row.querySelector(".review-comment-row__author")?.getBoundingClientRect()
+    const dot = unread.getBoundingClientRect()
+    if (!body || Math.abs(dot.top + dot.height / 2 - body.top - body.height / 2) > 0.5)
+      throw new Error("The unread dot must be vertically centered beside the comment text.")
+    if (
+      !avatar ||
+      !author ||
+      Math.abs(avatar.width - 20) > 0.5 ||
+      Math.abs(avatar.top + avatar.height / 2 - author.top - author.height / 2) > 0.5
+    )
+      throw new Error("The compact avatar must be centered beside the author's name.")
   },
 }
 export const ShareManagement: Story = {

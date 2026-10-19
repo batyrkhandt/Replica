@@ -22,6 +22,7 @@ export function ReviewCommentRow({
   const id = useId()
   const { root } = thread
   const author = root.author.name || `@${root.author.login}`
+  const selectionDisabled = selectionBlocked && !selected
   const buildLabel = copy.buildLabel.replace("%{number}", root.buildNumber.toString())
   const showBuildLink = root.buildNumber !== currentBuildNumber
   const replyCountLabel =
@@ -46,30 +47,28 @@ export function ReviewCommentRow({
   }
 
   return (
-    <article className={`review-comment-row${selected ? " review-comment-row--selected" : ""}`}>
-      {thread.unread ? (
-        <span
-          role="img"
-          aria-label={copy.unreadLabel}
-          title={copy.unreadLabel}
-          className="review-comment-row__unread"
-        />
-      ) : null}
+    <article
+      className={`review-comment-row${selected ? " review-comment-row--selected" : ""}${thread.unread ? " review-comment-row--unread" : ""}`}
+      onClick={(event) => {
+        if (selectionDisabled || (event.target instanceof Element && event.target.closest("a")))
+          return
 
+        onSelect(thread)
+      }}
+    >
       <div className="review-comment-row__layout">
-        <HubUserAvatar
-          src={root.author.avatarUrl}
-          size={28}
-          className="review-comment-row__avatar"
-        />
-
         <div className="review-comment-row__content">
           <div className="review-comment-row__copy">
             <div className="review-comment-row__metadata">
               <span className="review-comment-row__author-and-build">
-                <strong id={`${id}-author`} className="review-comment-row__author">
+                <HubUserAvatar
+                  src={root.author.avatarUrl}
+                  size={20}
+                  className="review-comment-row__avatar"
+                />
+                <span id={`${id}-author`} className="review-comment-row__author">
                   {author}
-                </strong>
+                </span>
 
                 {showBuildLink ? (
                   <span className="review-comment-row__build">
@@ -92,14 +91,24 @@ export function ReviewCommentRow({
             <button
               type="button"
               className="review-comment-row__button"
-              aria-labelledby={`${id}-author ${id}-body`}
+              aria-labelledby={`${id}-author ${id}-body${thread.unread ? ` ${id}-unread` : ""}`}
               aria-pressed={selected}
-              disabled={selectionBlocked && !selected}
-              title={selectionBlocked && !selected ? copy.selectionBlockedLabel : undefined}
-              onClick={() => onSelect(thread)}
+              disabled={selectionDisabled}
+              title={selectionDisabled ? copy.selectionBlockedLabel : undefined}
             >
-              <span id={`${id}-body`} className="review-comment-row__body">
-                {root.body ?? copy.deletedCommentLabel}
+              <span className="review-comment-row__body-container">
+                {thread.unread ? (
+                  <span
+                    role="img"
+                    id={`${id}-unread`}
+                    aria-label={copy.unreadLabel}
+                    title={copy.unreadLabel}
+                    className="review-comment-row__unread"
+                  />
+                ) : null}
+                <span id={`${id}-body`} className="review-comment-row__body">
+                  {root.body ?? copy.deletedCommentLabel}
+                </span>
               </span>
             </button>
           </div>
