@@ -52,14 +52,20 @@ export function ReviewThreadConversation({
   onAddReaction,
   onRemoveReaction,
   onMarkRead,
+  onMarkUnread,
 }: ReviewThreadConversationProps) {
   const headingId = useId()
   const previousFocusRef = useRef<HTMLElement | null>(null)
   const messagesScrollTopRef = useRef(0)
   const openedActivityVersionRef = useRef(thread.root.activityVersion)
   const attemptedReadVersionRef = useRef<number | null>(null)
+  const readPendingRef = useRef(false)
+  const unreadPendingRef = useRef(false)
   const wasConfirmingDiscardRef = useRef(false)
   const [readFailed, setReadFailed] = useState(false)
+  const [readPending, setReadPending] = useState(false)
+  const [unreadFailed, setUnreadFailed] = useState(false)
+  const [unreadPending, setUnreadPending] = useState(false)
   const { burst, canvas } = useEmojiBurst()
   const conversation = useReviewThreadConversation({
     thread,
@@ -100,6 +106,7 @@ export function ReviewThreadConversation({
       state.confirmingDeleteId,
       state.resolved,
       readFailed,
+      unreadFailed,
       thread.replies.length,
       thread.participants.length,
       comments.map((comment) => comment.reactions.length).join(","),
@@ -159,8 +166,35 @@ export function ReviewThreadConversation({
     }
 
     attemptedReadVersionRef.current = openedActivityVersion
-    void onMarkRead(openedActivityVersion).then((saved) => setReadFailed(!saved))
+    readPendingRef.current = true
+    setReadPending(true)
+    void onMarkRead(openedActivityVersion)
+      .then((saved) => setReadFailed(!saved))
+      .catch(() => setReadFailed(true))
+      .finally(() => {
+        readPendingRef.current = false
+        setReadPending(false)
+      })
   }, [onMarkRead, thread.unread])
+
+  async function markUnread() {
+    if (readPendingRef.current || unreadPendingRef.current || mutation !== null) return
+
+    attemptedReadVersionRef.current = openedActivityVersionRef.current
+    unreadPendingRef.current = true
+    setUnreadPending(true)
+    setUnreadFailed(false)
+    try {
+      const saved = await onMarkUnread()
+      setUnreadFailed(!saved)
+      if (saved) setReadFailed(false)
+    } catch {
+      setUnreadFailed(true)
+    } finally {
+      unreadPendingRef.current = false
+      setUnreadPending(false)
+    }
+  }
 
   useEffect(() => {
     function dismiss() {
@@ -289,6 +323,14 @@ export function ReviewThreadConversation({
           />
         ) : null}
 
+        {unreadFailed ? (
+          <HubAlert
+            variant="critical"
+            title={copy.markUnreadErrorLabel}
+            className="review-thread-conversation__banner"
+          />
+        ) : null}
+
         <div
           className="review-thread-conversation__messages"
           onClickCapture={(event) => {
@@ -373,6 +415,8 @@ export function ReviewThreadConversation({
               onAddReaction={(content) => onAddReaction(comment.id, content)}
               onRemoveReaction={(content) => onRemoveReaction(comment.id, content)}
               onBurstReaction={burst}
+              onMarkUnread={comment.kind === "root" ? () => void markUnread() : undefined}
+              markUnreadDisabled={readPending || unreadPending || mutation !== null}
             />
           ))}
         </div>

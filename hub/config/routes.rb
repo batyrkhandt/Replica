@@ -91,7 +91,7 @@ Rails.application.routes.draw do
             controller: "review_comment_reactions"
           resource :resolution, only: %i[create destroy],
             controller: "review_comment_resolutions"
-          resource :read, only: :create, controller: "review_thread_reads"
+          resource :read, only: %i[create destroy], controller: "review_thread_reads"
         end
       end
     end
@@ -133,7 +133,7 @@ Rails.application.routes.draw do
             controller: "review_comment_reactions",
             constraints: { content: /(?:\+1|-1|laugh|hooray|confused|heart|rocket|eyes)/ }
           resources :replies, only: :create, controller: "review_comment_replies"
-          resource :read, only: :create, controller: "review_thread_reads"
+          resource :read, only: %i[create destroy], controller: "review_thread_reads"
           resource :resolution, only: %i[create destroy],
             controller: "review_comment_resolutions"
         end

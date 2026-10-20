@@ -83,8 +83,16 @@ describe("RepositoryNavigation()", () => {
         "Public sharing",
         "End all Hub sessions",
         "Security audit",
+        "Feedback",
       ])
+      const feedback = screen.getByRole("link", { name: "Feedback" })
+      expect(feedback).toHaveAttribute("href", "https://gh.io/replica-feedback")
+      expect(feedback).toHaveAttribute("target", "_blank")
+      expect(feedback).toHaveAttribute("rel", "noopener noreferrer")
+      expect(feedback).not.toHaveAttribute("data-sg-visit")
       for (const link of container.querySelectorAll("aside a")) {
+        if (link === feedback) continue
+
         expect(link).toHaveAttribute("data-sg-visit", "true")
       }
       expect(screen.getByRole("link", { name: "Prototypes" })).toHaveAttribute(
@@ -109,7 +117,7 @@ describe("RepositoryNavigation()", () => {
         repositorySelector,
       )
       const account = container.querySelector(".repository-navigation__account")!
-      expect(account.querySelector("a")).toBeNull()
+      expect(account.querySelector("a")).toBe(feedback)
       expect([...account.querySelectorAll("button")]).toEqual([
         screen.getByRole("button", { name: collapsed ? "Expand sidebar" : "Collapse sidebar" }),
         screen.getByRole("button", { name: prototypeWorkspaceData.accountMenuLabel }),

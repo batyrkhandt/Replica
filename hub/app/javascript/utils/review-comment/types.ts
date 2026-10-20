@@ -58,7 +58,6 @@ export interface ReviewCommentsCopy {
   emptyLabel: string
   noMatchesLabel: string
   buildLabel: string
-  checkingAnchorLabel: string
   movedAnchorLabel: string
   changedAnchorLabel: string
   missingAnchorLabel: string
@@ -81,6 +80,8 @@ export interface ReviewCommentsCopy {
   reactionCountOtherLabel: string
   reactionErrorLabel: string
   readErrorLabel: string
+  markUnreadLabel: string
+  markUnreadErrorLabel: string
   reactionLabels: Record<ReviewReactionContent, string>
   commentActionsLabel: string
   editLabel: string

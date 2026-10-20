@@ -200,6 +200,7 @@ class ReviewCommentsTest < ActionDispatch::IntegrationTest
     assert_equal original_anchor, edited.fetch("anchor")
     assert_equal @first_build.number, edited.fetch("buildNumber")
     assert_equal 2, edited.fetch("activityVersion")
+    assert_equal 2, edited.fetch("viewerLastSeenActivityVersion")
 
     other_author = users.create(github_id: 1_002, login: "mona")
     other_comment = ReviewComment.create! \
@@ -505,6 +506,75 @@ class ReviewCommentsTest < ActionDispatch::IntegrationTest
       as: :json
 
     assert_response :unprocessable_entity
+  end
+
+  test "marks another author's conversation unread only for the current viewer without changing inbox state" do
+    author = users.create(github_id: 1_002, login: "mona")
+    @prototype.update!(author: @user)
+    root = ReviewComment.create! \
+      prototype: @prototype,
+      build: @first_build,
+      user: author,
+      body: "Other reviewer's thread",
+      anchor: valid_anchor
+    Notification.record_comment!(root)
+    Notification.for_user(@user).sole.update!(read_at: Time.current)
+    root.thread.create_reply!(user: author, body: "Follow-up")
+    notifications = Notification.for_user(@user).order(:id).map(&:attributes)
+    assert_equal [ false, true ], notifications.map { _1.fetch("read_at").nil? }
+    root.thread.record_read_by!(@user, activity_version: 2)
+    author_read = root.thread.record_read_by!(author, activity_version: 2)
+    other_root = create_comment(@second_build, "Another conversation", created_at: Time.current)
+    other_read = other_root.thread.record_read_by!(@user, activity_version: 1)
+    activity_at = root.reload.updated_at
+    stream = ReviewCommentsChannel.broadcasting_for(@prototype)
+
+    assert_no_broadcasts stream do
+      delete "#{@path}/#{root.id}/read"
+    end
+
+    assert_response :success
+    assert_equal root.id, changed_comment.fetch("id")
+    assert_nil changed_comment.fetch("viewerLastSeenActivityVersion")
+    assert_equal false, changed_comment.fetch("viewerCanEdit")
+    assert_not ReviewThreadRead.exists?(root:, user: @user)
+    assert_equal 2, author_read.reload.last_seen_activity_version
+    assert_equal 1, other_read.reload.last_seen_activity_version
+    assert_equal notifications, Notification.for_user(@user).order(:id).map(&:attributes)
+    assert_equal 2, root.reload.activity_version
+    assert_equal activity_at, root.updated_at
+
+    get @path
+    assert_response :success
+    listed = changed_comments.find { _1.fetch("id") == root.id }
+    assert_nil listed.fetch("viewerLastSeenActivityVersion")
+
+    delete "#{@path}/#{root.id}/read"
+    assert_response :success
+    assert_nil changed_comment.fetch("viewerLastSeenActivityVersion")
+
+    post "#{@path}/#{root.id}/read",
+      params: { review_thread_read: { activity_version: 2 } },
+      as: :json
+    assert_response :success
+    assert_equal 2, changed_comment.fetch("viewerLastSeenActivityVersion")
+  end
+
+  test "rejects unread changes outside the authorized root scope" do
+    root = create_comment(@first_build, "Root", created_at: Time.current)
+    reply = root.thread.create_reply!(user: @user, body: "Reply")
+    other_prototype = prototypes.create(repository: @repository, branch_name: "prototype/other")
+    other_path = repository_prototype_review_comments_path(@repository.github_id, other_prototype)
+    read = root.thread.record_read_by!(@user, activity_version: 2)
+
+    delete "#{@path}/#{reply.id}/read"
+    assert_response :not_found
+    delete "#{other_path}/#{root.id}/read"
+    assert_response :not_found
+    stub_github_permissions([ @repository_payload ], { 2001 => nil })
+    delete "#{@path}/#{root.id}/read"
+    assert_response :not_found
+    assert_equal 2, read.reload.last_seen_activity_version
   end
 
   test "rejects a preview-origin form without a Hub authenticity token" do

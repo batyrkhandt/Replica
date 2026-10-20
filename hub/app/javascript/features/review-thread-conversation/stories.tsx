@@ -32,6 +32,7 @@ const meta = {
     onAddReaction: successfulAction,
     onRemoveReaction: successfulAction,
     onMarkRead: successfulAction,
+    onMarkUnread: successfulAction,
   },
   decorators: [
     (Story, { args }) => (
@@ -77,6 +78,19 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Single: Story = {}
+
+export const ReadOnlyConversation: Story = {
+  args: {
+    thread: {
+      ...singleReviewThread,
+      root: {
+        ...singleReviewThread.root,
+        viewerCanEdit: false,
+        viewerCanDelete: false,
+      },
+    },
+  },
+}
 
 export const Dark: Story = { globals: { colorMode: "night" } }
 

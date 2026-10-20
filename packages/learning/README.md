@@ -1,6 +1,6 @@
 # Replica learning
 
-`@github/replica-learning` lets Replica learn from review evidence without training a model. It owns the version 1 learning contracts, the memory provider interface, built-in SQLite, JSON Lines, and in-memory providers, two reference consolidators, a conformance suite, the `replica-learning` command, and an example that plugs in [Agent Memory Repo](examples/agent-memory-repo/README.md). It isn't published to npm yet, so run it from a Replica checkout with Node.js 24.
+`@github/replica-learning` lets Replica learn from review evidence without training a model. It owns the version 1 learning contracts, the memory provider interface, built-in SQLite, JSON Lines, and in-memory providers, two reference consolidators, a conformance suite, the `replica-learning` command, and an example that plugs in [Agent Memory Repo](examples/agent-memory-repo/README.md). It isn't published to npm yet, so run it from a Replica checkout with a Node.js version matching `engines.node` in [package.json](package.json).
 
 The design and its trade-offs are in [ADR 0001](../../docs/adr/0001-learning-extension-architecture.md).
 
@@ -135,7 +135,7 @@ The module must be inside the checkout and export `createMemoryProvider(options)
 
 | Provider | Choose it with | Stores | Redaction |
 | --- | --- | --- | --- |
-| SQLite, the default | `"sqlite"` | One database file, with the SQLite driver built into Node.js 24 | Yes |
+| SQLite, the default | `"sqlite"` | One database file, with the SQLite driver built into Node.js | Yes |
 | JSON Lines | `"jsonl"` | One file per stream that a person can read | Yes |
 | In memory | `"in-memory"` | Process memory, for tests | Yes |
 | Single file | [`test/fixtures/json-file-provider.mjs`](test/fixtures/json-file-provider.mjs) | One JSON file, written only from the contract with no imports from this package | No |

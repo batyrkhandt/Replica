@@ -10,6 +10,30 @@ afterEach(() => {
 })
 
 describe("PublicationDemo()", () => {
+  it("shows the updated comments in the complete canvas sidebar without contacting Hub", async () => {
+    const externalFetch = vi.fn(() => Promise.reject(new Error("Unexpected external request.")))
+    vi.stubGlobal("fetch", externalFetch)
+    const Demo = story.component
+    const view = render(
+      <Demo scenario="Published" prototypeUrl="http://localhost:4321/" withComments />,
+      { wrapper: HubThemeProvider },
+    )
+    fireEvent.click(await screen.findByRole("button", { name: /^Comments, 3/ }, { timeout: 5_000 }))
+    const sidebar = screen.getByRole("complementary", { name: "Comments" })
+    expect(sidebar).toHaveClass("hub-sidebar")
+    expect(within(sidebar).getByRole("link", { name: "build 1" })).toHaveAttribute(
+      "href",
+      "https://hub.example.com/repositories/2001/prototypes/1?build=1",
+    )
+    expect(within(sidebar).getByText("1 reply")).toBeVisible()
+    expect(within(sidebar).getByText("2 replies")).toBeVisible()
+    expect(within(sidebar).getAllByRole("button", { pressed: false })).toHaveLength(3)
+    expect(within(sidebar).queryByRole("link", { name: "build 2" })).not.toBeInTheDocument()
+    expect(within(sidebar).queryByText("Checking")).not.toBeInTheDocument()
+    expect(externalFetch).not.toHaveBeenCalled()
+    view.unmount()
+  })
+
   it("shows the Publish/Share group and opens fixture management without contacting Hub", async () => {
     const externalFetch = vi.fn(() => Promise.reject(new Error("Unexpected external request.")))
     vi.stubGlobal("fetch", externalFetch)

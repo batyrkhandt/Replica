@@ -14,6 +14,14 @@ class ReviewThreadReadsController < ApplicationController
     render_review_comment_change root, broadcast: false
   end
 
+  # Clears only the current reviewer's read state.
+  # @route DELETE /repositories/:repository_github_id/prototypes/:prototype_id/review_comments/:review_comment_id/read (repository_prototype_review_comment_read)
+  def destroy
+    root = @prototype.review_comments.roots.find(params[:review_comment_id])
+    root.thread.record_unread_by! Current.user
+    render_review_comment_change root, broadcast: false
+  end
+
   private
 
   # Requires the browser to name the positive activity version it displayed.

@@ -220,6 +220,9 @@ export function PrototypesShowPage({
                             ),
                           )
                         }
+                        onMarkUnread={async () =>
+                          Boolean(await review.comments.markThreadUnread(selectedThread.root.id))
+                        }
                       />
                     </div>
                   ) : null}
