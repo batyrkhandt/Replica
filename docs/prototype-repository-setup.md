@@ -73,7 +73,7 @@ Guidance drafts are not active guidance. Installed tokens or packages are not pr
 
 ### Share the baseline on GitHub
 
-After reviewing the starter files, guidance, and starting pages, use the intended empty GitHub repository or create one with the agreed owner and visibility. Connect it as `origin`, make the initial commit, and push the intended default branch only when authorized. For an existing shared repository, follow its contribution process to merge the reviewed changes instead of replacing its remote or history. Ask an engineer for help with these Git steps if needed.
+After reviewing the starter files, guidance, and starting pages, use the intended empty GitHub repository or create one with the agreed owner and visibility. Connect it as a remote named `origin`, make the initial commit, and push the intended default branch only when authorized. For an existing shared repository, follow its contribution process to merge the reviewed changes instead of replacing its remote or history. Ask an engineer for help with these Git steps if needed.
 
 Verify the repository's actual default branch contains the intended baseline before calling it ready for teammates or continuing to Hub repository connection. A local preview is not evidence of a published Hub Build.
 
