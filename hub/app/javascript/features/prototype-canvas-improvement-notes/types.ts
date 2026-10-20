@@ -12,6 +12,7 @@ export type Note = {
   id: number
   kind: "improvement_note"
   author: string
+  authorProfile?: { id: number; login: string; avatarUrl: string | null }
   localId?: string
   result?: string
   body: string
@@ -25,6 +26,27 @@ export type Note = {
   status: "open" | "sent" | "ready" | "resolved" | "blocked"
   sync: "local" | "synced" | "failed"
   revision: number
+  thread?: {
+    version: 1 | 2
+    originalAuthor?: { id: number; login: string; avatarUrl: string | null }
+    originalStatus: "open" | "sent" | "ready" | "blocked"
+    messages: (
+      | {
+          id: string
+          role: "author"
+          body: string
+          status: "open" | "sent" | "ready" | "blocked"
+          author?: { id: number; login: string; avatarUrl: string | null }
+        }
+      | {
+          id: string
+          role: "copilot"
+          body: string
+          status: "ready" | "blocked"
+          requestIds: string[]
+        }
+    )[]
+  }
 }
 export type Selection = Pick<
   Note,

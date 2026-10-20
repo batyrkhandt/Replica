@@ -56,7 +56,17 @@ module HasReviewCommentContext
 
   # Returns the only field accepted when changing or replying to a comment.
   def comment_body
+    reject_note_thread_parameters!
     params.require(:review_comment).permit(:body)[:body]
+  end
+
+  # Reserves local work history for the dedicated improvement-note API.
+  def reject_note_thread_parameters!
+    fields = %w[note_thread thread]
+    nested = params[:review_comment]
+    if fields.any? { params.key?(_1) || (nested.is_a?(ActionController::Parameters) && nested.key?(_1)) }
+      raise ActionController::BadRequest, "Improvement threads require the improvement notes API."
+    end
   end
 
   # Returns changed records and tells subscribed browsers to reload when requested.

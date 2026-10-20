@@ -1377,6 +1377,8 @@ esac
         "renderer-rolldown-runtime.js",
         "renderer-improvement-notes-prototype.js",
         "renderer-improvement-notes-vendor.js",
+        "renderer-prototype-canvas-thread-sample.js",
+        "renderer-prototype-canvas-improvement-threads.js",
       ]) {
         const chunk = await fetch(new URL(`/assets/${name}`, server.url))
         assert.equal(chunk.status, 200)

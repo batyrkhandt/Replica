@@ -14,6 +14,7 @@
 #  learning_removal_due_at :datetime
 #  note_revision           :integer
 #  note_status             :string
+#  note_thread             :json
 #  resolved_at             :datetime
 #  created_at              :datetime         not null
 #  updated_at              :datetime         not null
@@ -53,6 +54,7 @@
 #  review_comments_deletion_time     (deleted_at IS NULL OR deleted_at >= created_at)
 #  review_comments_edit_state        (edited_at IS NULL OR (deleted_at IS NULL AND edited_at >= created_at))
 #  review_comments_kind              ((kind = 'review' AND local_id IS NULL AND note_revision IS NULL AND note_status IS NULL AND capture IS NULL) OR (kind = 'improvement_note' AND root_id IS NULL AND build_id IS NULL AND local_id IS NOT NULL AND length(local_id) = 36 AND note_revision IS NOT NULL AND note_revision > 0 AND note_status IS NOT NULL AND note_status IN ('open', 'sent', 'ready', 'resolved', 'blocked') AND (capture IS NULL OR length(CAST(capture AS BLOB)) <= 1500000)))
+#  review_comments_note_thread       (note_thread IS NULL OR (kind = 'improvement_note' AND CASE WHEN json_valid(note_thread) THEN json_type(note_thread) = 'object' ELSE 0 END AND length(CAST(note_thread AS BLOB)) BETWEEN 2 AND 32768))
 #  review_comments_resolution        ((resolved_at IS NULL AND resolved_by_id IS NULL) OR (root_id IS NULL AND resolved_at IS NOT NULL AND resolved_by_id IS NOT NULL))
 #  review_comments_root_not_self     (root_id IS NULL OR root_id <> id)
 #  review_comments_thread_shape      ((root_id IS NULL AND anchor IS NOT NULL AND (build_id IS NOT NULL OR kind = 'improvement_note')) OR (kind = 'review' AND root_id IS NOT NULL AND build_id IS NULL AND anchor IS NULL))
@@ -120,6 +122,7 @@ class ReviewComment < ApplicationRecord
     dependent: :delete_all
 
   has_object :anchor_contract
+  has_object :note_thread_contract
   has_object :thread
   has_object :mentions
 
@@ -159,6 +162,7 @@ class ReviewComment < ApplicationRecord
   end
 
   before_validation :set_initial_activity_version, on: :create
+  before_save :clear_deleted_note_thread
   after_create :record_author_read, if: -> { root_comment? && !improvement_note? }
   after_create :record_analytics_creation, unless: :improvement_note?
   before_destroy :remove_notifications
@@ -177,6 +181,7 @@ class ReviewComment < ApplicationRecord
   validates :note_revision, numericality: { only_integer: true, greater_than: 0 }, if: :improvement_note?
   validates :local_id, format: { with: /\A[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\z/ }, if: :improvement_note?
   validate :improvement_note_shape
+  validate -> { note_thread_contract.validate_record }
   validates :build, absence: true, if: :reply?
   validates :anchor, presence: true, if: :root_comment?
   validates :anchor, absence: true, if: :reply?
@@ -360,6 +365,11 @@ class ReviewComment < ApplicationRecord
   end
 
   private
+
+  # Deletes conversation text with the original body, retaining the existing tombstone.
+  def clear_deleted_note_thread
+    self.note_thread = nil if improvement_note? && deleted_at.present?
+  end
 
   # Keeps notes standalone, bounded and outside ordinary review interactions.
   def improvement_note_shape

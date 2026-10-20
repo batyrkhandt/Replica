@@ -51,6 +51,7 @@ function PanelExample({
   collapsed = false,
   controlFailure = false,
   loading = false,
+  empty = false,
 }: {
   failure?: boolean
   scopeFailure?: boolean
@@ -58,6 +59,7 @@ function PanelExample({
   collapsed?: boolean
   controlFailure?: boolean
   loading?: boolean
+  empty?: boolean
 }) {
   const controller = createControls(declaration)
   const snapshot = useSyncExternalStore(
@@ -90,8 +92,8 @@ function PanelExample({
     }
   const state: PanelState = {
     runtimeAvailable: !failed,
-    status: failed ? "missing-runtime" : "ready",
-    scopes: failed ? [] : [scope],
+    status: failed ? "missing-runtime" : empty ? "no-controls" : "ready",
+    scopes: failed || empty ? [] : [scope],
     scopeErrors: scopeFailure
       ? [{ scope: "brokenPage", error: "The title default exceeds maxLength." }]
       : [],
@@ -179,6 +181,17 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Movable: Story = {}
+export const Empty: Story = {
+  args: { empty: true },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "The empty panel keeps its explanation above a left-aligned green Learn more link with an external-link icon. The link is vertically centered in the gray footer and retains its keyboard focus outline in both themes.",
+      },
+    },
+  },
+}
 export const Collapsed: Story = { args: { collapsed: true } }
 export const ConnectionFailure: Story = { args: { failure: true } }
 export const StorageFailure: Story = { args: { storageFailure: true } }

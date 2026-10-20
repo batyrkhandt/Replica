@@ -18,6 +18,7 @@ export const copy = {
   controlsConnecting: "Connecting controls...",
   controlsEmpty:
     "No active controls. This prototype may have no declaration or this route may not mount controls.",
+  controlsLearnMore: "Learn more",
   controlsMissingRuntime: "No supported controls runtime found.",
   controlsLocalMissingRuntime: "Local controls couldn't connect.",
   controlsLocalConnectionFailed:

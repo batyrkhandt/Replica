@@ -2,7 +2,7 @@ class CanvasApi::ImprovementNotesController < CanvasApi::BaseController
   include HasReviewCommentContext
   include ReviewCommentMutations
 
-  prepend_before_action -> { reject_large_request(maximum: 1_550_000) }, only: :create
+  prepend_before_action -> { reject_large_request(maximum: 1_600_000) }, only: :create
   before_action :require_writer, only: :create
   rescue_from ActiveRecord::RecordInvalid, with: :invalid_note
 
@@ -11,7 +11,7 @@ class CanvasApi::ImprovementNotesController < CanvasApi::BaseController
     notes = @prototype.improvement_notes.where(user: Current.user).includes(:user).order(:id).limit(201)
     return render json: { error: "Too many improvement notes." }, status: :conflict if notes.size > 200
 
-    render json: { notes: notes.map { review_comment_json(_1) } }
+    render json: { threadVersion: ReviewComment::NoteThreadContract::VERSION, notes: notes.map { review_comment_json(_1) } }
   end
 
   # @route POST /api/canvas/repositories/:repository_github_id/prototypes/:prototype_id/improvement_notes (canvas_api_improvement_notes)
@@ -22,9 +22,16 @@ class CanvasApi::ImprovementNotesController < CanvasApi::BaseController
     return head :bad_request unless previous_revision.is_a?(Integer) && previous_revision >= 0
     return head :bad_request unless [ true, false ].include?(params[:deleted])
     return head :bad_request unless params[:anchor].is_a?(ActionController::Parameters)
+    return head :bad_request if params.key?(:thread) && !params[:thread].is_a?(ActionController::Parameters)
+    return head :bad_request if params.key?(:note_thread)
+
+    thread = params[:thread]&.to_unsafe_h
 
     @prototype.with_lock do
       note = @prototype.improvement_notes.find_or_initialize_by(user: Current.user, local_id: params[:local_id])
+      if note.note_thread.present? && !params.key?(:thread)
+        return render json: { error: "Upgrade the client to preserve this note's thread." }, status: :conflict
+      end
       if note.persisted? && note.anchor != params[:anchor].to_unsafe_h
         return render json: { error: "A saved note's target cannot change." }, status: :conflict
       end
@@ -33,11 +40,18 @@ class CanvasApi::ImprovementNotesController < CanvasApi::BaseController
         return render json: { error: "The Hub note has a newer revision." }, status: :conflict
       end
       if note.persisted? && revision == note.note_revision
+        if note.deleted_at.present? && thread
+          retry_note = note.dup
+          retry_note.assign_attributes(note_thread: thread, note_status: params[:status])
+          retry_note.note_thread_contract.validate_record
+          raise ActiveRecord::RecordInvalid, retry_note if retry_note.errors.any?
+        end
         same = note.body == (params[:deleted] ? nil : params[:body]) &&
           note.note_status == params[:status] &&
           note.anchor == params[:anchor]&.to_unsafe_h &&
           note.deleted_at.present? == params[:deleted] &&
-          note.capture == params[:capture]
+          note.capture == params[:capture] &&
+          note.note_thread == (params[:deleted] ? nil : thread)
         return render json: { error: "This note revision has different content." }, status: :conflict unless same
 
         return render json: review_comment_json(note)
@@ -55,6 +69,7 @@ class CanvasApi::ImprovementNotesController < CanvasApi::BaseController
         body: params[:deleted] ? nil : params[:body],
         note_revision: revision,
         note_status: params[:status],
+        note_thread: thread,
         capture: params[:capture]
       if params[:deleted]
         note.created_at ||= Time.current

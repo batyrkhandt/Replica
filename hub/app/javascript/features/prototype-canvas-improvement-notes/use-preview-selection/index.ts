@@ -43,7 +43,7 @@ export function usePreviewSelection({
   const [resolutions, setResolutions] = useState<Map<number, AnchorResolution>>(new Map())
   const anchorKey = JSON.stringify(
     notes
-      .filter((note) => note.anchor && note.status !== "resolved")
+      .filter((note) => note.anchor)
       .slice(0, 200)
       .map((note) => ({ id: note.id, anchor: note.anchor })),
   )

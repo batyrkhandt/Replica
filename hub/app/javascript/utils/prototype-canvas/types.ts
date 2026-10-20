@@ -140,6 +140,7 @@ export type CanvasConfig = {
   name: string
   token: string
   improvementNotesDemo?: boolean
+  improvementThreadsSample?: boolean
   pickAndPolish?: boolean
 }
 

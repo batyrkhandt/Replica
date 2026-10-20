@@ -43,6 +43,7 @@ module ReviewCommentPages
         id: comment.id, kind: "improvement_note", localId: comment.local_id,
         revision: comment.note_revision, status: comment.note_status,
         body: comment.body, anchor: comment.anchor, capture: comment.capture,
+        thread: comment.note_thread,
         deletedAt: comment.deleted_at&.iso8601(6),
         createdAt: comment.created_at.iso8601(6), updatedAt: comment.updated_at.iso8601(6),
         author: author_json(comment.user),

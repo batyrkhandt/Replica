@@ -18,6 +18,23 @@ const base = {
 }
 
 describe("createCanvasContext()", () => {
+  it("keeps thread samples explicitly opted in without changing saved-note identity", async () => {
+    await withContext(async (fixture) => {
+      const input = { ...base, ...paths(fixture) }
+      const ordinary = await createCanvasContext(input)
+      const sample = await createCanvasContext({ ...input, improvementThreadsSample: true })
+      assert.equal(ordinary.improvementThreadsSample, undefined)
+      assert.equal(sample.improvementThreadsSample, true)
+      assert.equal(sample.stateId, ordinary.stateId)
+      execFileSync("git", ["checkout", "-qb", "thread-sample"], { cwd: fixture.repositoryPath })
+      assert.equal((await currentCanvasContext(sample)).improvementThreadsSample, true)
+      await assert.rejects(
+        createCanvasContext({ ...input, improvementThreadsSample: "true" }),
+        /must be a boolean/,
+      )
+    })
+  })
+
   it("keeps the demo opt-in through checkout refresh without changing the prototype identity", async () => {
     await withContext(async (fixture) => {
       const input = { ...base, ...paths(fixture) }

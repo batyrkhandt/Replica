@@ -1,5 +1,6 @@
 export const copy = {
   title: "Pick & polish",
+  localAuthor: "Local author",
   branch: "prototype/welcome",
   demo: "UI prototype",
   demoNotice: "Sample preview. Notes reset on reload. No Hub API calls or agent work.",
@@ -83,6 +84,7 @@ export const copy = {
   productionSent: "Notes sent to Copilot. Review the changes before confirming resolution.",
   productionBusy: "Copilot is working on the captured batch.",
   branchChanged: "The prototype branch changed. Close this draft and select the target again.",
+  workChanged: "The open improvements changed while syncing. Review them and select Fix all again.",
   returnToActive: "Return to active",
   regionTarget: "Selected region",
   closeComposer: "Close note composer",

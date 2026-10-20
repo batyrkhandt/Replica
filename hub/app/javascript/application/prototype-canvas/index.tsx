@@ -34,6 +34,12 @@ const ImprovementNotesPrototype = lazy(() =>
   })),
 )
 
+const PrototypeCanvasThreadSample = lazy(() =>
+  import("@features/prototype-canvas-thread-sample").then((module) => ({
+    default: module.PrototypeCanvasThreadSample,
+  })),
+)
+
 /** Composes canvas workflows while preserving the preview across panels and dialogs. */
 export function App({ config }: Props) {
   const shellRef = useRef<HTMLElement>(null)
@@ -261,7 +267,11 @@ export function App({ config }: Props) {
           onClose={closeHub}
         />
 
-        {config.pickAndPolish || config.improvementNotesDemo ? (
+        {config.improvementThreadsSample ? (
+          <Suspense fallback={<p role="status">{copy.improvementNotesLoading}</p>}>
+            <PrototypeCanvasThreadSample />
+          </Suspense>
+        ) : config.pickAndPolish || config.improvementNotesDemo ? (
           <Suspense
             fallback={
               <p className="visually-hidden" role="status">

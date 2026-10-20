@@ -21,6 +21,8 @@ import { renderToStaticMarkup } from "react-dom/server"
 
 import { HubSidebar } from "@components/hub-sidebar"
 import { HubCounter } from "@components/hub-counter"
+import { ImprovementThreads } from "@features/prototype-canvas-improvement-threads"
+import { improvementThreadView } from "./thread-view"
 import type { ReviewAnchor } from "@utils/review-anchor/types"
 import { CanvasDialog } from "@components/prototype-canvas-dialog"
 import { capturePreview } from "./capture"
@@ -65,6 +67,10 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
     }),
   )
   const saved = useSavedNotes(canvas?.token)
+  const syncError =
+    saved.state?.syncError === "Notes are saved locally until Hub discovers this branch."
+      ? null
+      : saved.state?.syncError
   const notes = canvas?.token ? (saved.state?.notes ?? []) : demoNotes
   const [route, setRoute] = useState<Route>("/projects")
   const [annotating, setAnnotating] = useState(false)
@@ -403,7 +409,14 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
       aria-label={copy.title}
       className={`improvement-demo${embedded ? " improvement-demo--embedded" : ""}`}
       onKeyDown={(event) => {
-        if (event.key !== "Escape" || selection || deleting !== null || handoffOpen) return
+        if (
+          event.key !== "Escape" ||
+          event.defaultPrevented ||
+          selection ||
+          deleting !== null ||
+          handoffOpen
+        )
+          return
         setAnnotating(false)
         setRegionMode(false)
         setFirstCorner(null)
@@ -662,7 +675,7 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
             </footer>
           </section>
         ) : null}
-        {embedded ? (
+        {embedded && !canvas?.token ? (
           <div className="canvas-improvement-markers">
             {currentNotes.map((note) => {
               const resolution = preview.resolutions.get(note.id)
@@ -690,349 +703,410 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
             })}
           </div>
         ) : null}
-        <HubSidebar
-          className="improvement-notes-sidebar"
-          contentClassName="improvement-demo__panel"
-          title={copy.notes}
-          open={panelOpen && !canvas?.hubOpen}
-          closeLabel={copy.closeNotes}
-          onClose={() => {
-            setPanelOpen(false)
-            notesToggleRef.current?.focus()
-          }}
-        >
-          {saved.error && (!selection || !notesAvailable) ? (
-            <p role="alert">{saved.error}</p>
-          ) : null}
-          {saved.state?.syncError ? <p role="status">{saved.state.syncError}</p> : null}
-          {canvas?.token && !saved.state ? <p role="status">{copy.storageLoading}</p> : null}
-          {embedded && !preview.ready ? <p role="status">{copy.bridgeUnavailable}</p> : null}
-          <div className="improvement-demo__filters">
-            <ActionMenu
-              size="small"
-              selectionVariant="single"
-              menuAlignment="start"
-              onSelect={setFilter}
-            >
-              <ActionMenu.Button
-                size="small"
-                variant="secondary"
-                aria-label={`${copy.filter}: ${filterLabel}`}
-              >
-                {filterLabel}
-              </ActionMenu.Button>
-              <ActionMenu.Overlay aria-label={copy.filter}>
-                {[
-                  { value: "active", label: copy.allActive },
-                  { value: "ready", label: copy.readyFilter },
-                  { value: "resolved", label: copy.resolvedFilter },
-                ].map((item) => (
-                  <ActionMenu.Item
-                    key={item.value}
-                    value={item.value}
-                    selected={filter === item.value}
-                    role="menuitemradio"
-                    onKeyDownCapture={(event) => {
-                      if (event.key !== " " && event.key !== "Enter") return
-                      event.preventDefault()
-                      event.stopPropagation()
-                      event.currentTarget.click()
-                    }}
-                  >
-                    {item.label}
-                  </ActionMenu.Item>
-                ))}
-              </ActionMenu.Overlay>
-            </ActionMenu>
-            {filter === "active" ? (
-              <Button
-                size="small"
-                variant="primary"
-                className="improvement-demo__fix-all"
-                leadingVisual={<SparkleIcon />}
-                aria-label={copy.fixAll(eligible.length)}
-                disabled={!eligible.length || activeBatch || saved.busy}
-                title={activeBatch ? (embedded ? copy.productionBusy : copy.fixBusy) : undefined}
-                onClick={() => void fix()}
-              >
-                <span className="improvement-demo__fix-label">
-                  {copy.fix}
-                  <HubCounter>{eligible.length}</HubCounter>
-                </span>
-              </Button>
+        {canvas?.token ? (
+          <ImprovementThreads
+            identity={saved.state?.identity ?? ""}
+            controls={false}
+            returnFocusRef={notesToggleRef}
+            open={panelOpen && !canvas.hubOpen && !selection}
+            active={(panelOpen || annotating) && !canvas.hubOpen && !selection}
+            onOpen={openNotes}
+            onClose={() => {
+              setPanelOpen(false)
+              notesToggleRef.current?.focus()
+            }}
+            threads={notes.map((note) =>
+              improvementThreadView(note, preview.resolutions.get(note.id)),
+            )}
+            busy={saved.busy || !saved.state}
+            activeBatch={Boolean(saved.state?.activeBatch)}
+            error={
+              saved.error ||
+              syncError ||
+              saved.state?.profileError ||
+              (!saved.state ? copy.storageLoading : !preview.ready ? copy.bridgeUnavailable : "")
+            }
+            onSelect={(id) => {
+              const note = notes.find((item) => item.id === id)
+              if (note && note.route !== route)
+                canvas.onNavigate(new URL(note.route, canvas.prototypeUrl).href)
+            }}
+            onFollowUp={(thread, body) =>
+              saved.change("follow-up", {
+                id: thread.id,
+                expectedNoteRevision: thread.revision,
+                body,
+              })
+            }
+            onResolve={(thread) =>
+              saved.change("status", {
+                id: thread.id,
+                expectedNoteRevision: thread.revision,
+                status: "resolved",
+              })
+            }
+            onDelete={(thread) =>
+              saved.change("delete", {
+                id: thread.id,
+                expectedNoteRevision: thread.revision,
+              })
+            }
+            onFix={() => saved.change("fix")}
+            onRetry={(thread) =>
+              saved.change("status", {
+                id: thread.id,
+                expectedNoteRevision: thread.revision,
+                status: "open",
+              })
+            }
+          />
+        ) : (
+          <HubSidebar
+            className="improvement-notes-sidebar"
+            contentClassName="improvement-demo__panel"
+            title={copy.notes}
+            open={panelOpen && !canvas?.hubOpen}
+            closeLabel={copy.closeNotes}
+            onClose={() => {
+              setPanelOpen(false)
+              notesToggleRef.current?.focus()
+            }}
+          >
+            {saved.error && (!selection || !notesAvailable) ? (
+              <p role="alert">{saved.error}</p>
             ) : null}
-          </div>
-          <div className="improvement-demo__note-list">
-            {!visible.length ? (
-              <div className="improvement-demo__empty">
-                <PencilIcon size={28} />
-                <h2>{notes.length ? copy.emptyFilter : copy.empty}</h2>
-                {!notes.length ? (
-                  <>
-                    <p>{copy.emptyBody}</p>
-                    <Button
-                      size="small"
-                      variant="secondary"
-                      leadingVisual={<CrosshairsIcon />}
-                      disabled={embedded && (!preview.ready || !notesAvailable)}
-                      onClick={() => {
-                        setAnnotating(true)
-                        setPanelOpen(false)
-                        annotateRef.current?.focus()
+            {syncError ? <p role="status">{syncError}</p> : null}
+            {canvas?.token && !saved.state ? <p role="status">{copy.storageLoading}</p> : null}
+            {embedded && !preview.ready ? <p role="status">{copy.bridgeUnavailable}</p> : null}
+            <div className="improvement-demo__filters">
+              <ActionMenu
+                size="small"
+                selectionVariant="single"
+                menuAlignment="start"
+                onSelect={setFilter}
+              >
+                <ActionMenu.Button
+                  size="small"
+                  variant="secondary"
+                  aria-label={`${copy.filter}: ${filterLabel}`}
+                >
+                  {filterLabel}
+                </ActionMenu.Button>
+                <ActionMenu.Overlay aria-label={copy.filter}>
+                  {[
+                    { value: "active", label: copy.allActive },
+                    { value: "ready", label: copy.readyFilter },
+                    { value: "resolved", label: copy.resolvedFilter },
+                  ].map((item) => (
+                    <ActionMenu.Item
+                      key={item.value}
+                      value={item.value}
+                      selected={filter === item.value}
+                      role="menuitemradio"
+                      onKeyDownCapture={(event) => {
+                        if (event.key !== " " && event.key !== "Enter") return
+                        event.preventDefault()
+                        event.stopPropagation()
+                        event.currentTarget.click()
                       }}
                     >
-                      {copy.annotate}
-                    </Button>
-                  </>
-                ) : null}
-              </div>
-            ) : null}
-            {visible.map((note) => (
-              <article
-                key={note.id}
-                aria-label={`Improvement note ${note.id}`}
-                className={`improvement-demo__note${focused === note.id ? " improvement-demo__note--focused" : ""}`}
-              >
-                <div className="improvement-demo__note-header">
-                  {note.status === "ready" ? (
-                    <span className="improvement-demo__status improvement-demo__status--ready">
-                      {copy.statuses.ready}
+                      {item.label}
+                    </ActionMenu.Item>
+                  ))}
+                </ActionMenu.Overlay>
+              </ActionMenu>
+              {filter === "active" ? (
+                <Button
+                  size="small"
+                  variant="primary"
+                  className="improvement-demo__fix-all"
+                  leadingVisual={<SparkleIcon />}
+                  aria-label={copy.fixAll(eligible.length)}
+                  disabled={!eligible.length || activeBatch || saved.busy}
+                  title={activeBatch ? (embedded ? copy.productionBusy : copy.fixBusy) : undefined}
+                  onClick={() => void fix()}
+                >
+                  <span className="improvement-demo__fix-label">
+                    {copy.fix}
+                    <HubCounter>{eligible.length}</HubCounter>
+                  </span>
+                </Button>
+              ) : null}
+            </div>
+            <div className="improvement-demo__note-list">
+              {!visible.length ? (
+                <div className="improvement-demo__empty">
+                  <PencilIcon size={28} />
+                  <h2>{notes.length ? copy.emptyFilter : copy.empty}</h2>
+                  {!notes.length ? (
+                    <>
+                      <p>{copy.emptyBody}</p>
+                      <Button
+                        size="small"
+                        variant="secondary"
+                        leadingVisual={<CrosshairsIcon />}
+                        disabled={embedded && (!preview.ready || !notesAvailable)}
+                        onClick={() => {
+                          setAnnotating(true)
+                          setPanelOpen(false)
+                          annotateRef.current?.focus()
+                        }}
+                      >
+                        {copy.annotate}
+                      </Button>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+              {visible.map((note) => (
+                <article
+                  key={note.id}
+                  aria-label={`Improvement note ${note.id}`}
+                  className={`improvement-demo__note${focused === note.id ? " improvement-demo__note--focused" : ""}`}
+                >
+                  <div className="improvement-demo__note-header">
+                    {note.status === "ready" ? (
+                      <span className="improvement-demo__status improvement-demo__status--ready">
+                        {copy.statuses.ready}
+                      </span>
+                    ) : null}
+                    <p className="improvement-demo__body">{note.body}</p>
+                    <div className="improvement-demo__note-menu">
+                      <ActionMenu selectionVariant="none" size="small" menuAlignment="end">
+                        <ActionMenu.Button
+                          className="improvement-demo__menu-trigger"
+                          variant="subtle"
+                          aria-label={copy.noteActions(note.target)}
+                          leadingVisual={<KebabHorizontalIcon size={16} />}
+                        >
+                          {""}
+                        </ActionMenu.Button>
+                        <ActionMenu.Overlay aria-label={copy.noteActions(note.target)}>
+                          <ActionMenu.Item
+                            value="edit"
+                            className="improvement-demo__menu-item"
+                            leadingVisual={<PencilIcon size={16} />}
+                            disabled={note.status === "ready"}
+                            title={note.status === "ready" ? copy.readyReadOnly : undefined}
+                            onClick={() => {
+                              if (note.status === "ready") {
+                                setMessage(copy.readyReadOnly)
+                                return
+                              }
+                              setSelection({
+                                ...note,
+                                identity: saved.state?.identity,
+                                noteRevision: note.revision,
+                                originalBody: note.body,
+                              })
+                              setEditing(note.id)
+                              setDraft(note.body)
+                            }}
+                            onKeyDownCapture={(event) => {
+                              if (event.key !== " " && event.key !== "Enter") return
+                              event.preventDefault()
+                              event.stopPropagation()
+                              event.currentTarget.click()
+                            }}
+                          >
+                            {copy.editAction}
+                          </ActionMenu.Item>
+                          <ActionMenu.Item
+                            value="delete"
+                            className="improvement-demo__menu-item improvement-demo__delete-item"
+                            leadingVisual={<TrashIcon size={16} />}
+                            onClick={() =>
+                              setDeleting({
+                                id: note.id,
+                                revision: note.revision,
+                                body: note.body,
+                                identity: saved.state?.identity,
+                              })
+                            }
+                            onKeyDownCapture={(event) => {
+                              if (event.key !== " " && event.key !== "Enter") return
+                              event.preventDefault()
+                              event.stopPropagation()
+                              event.currentTarget.click()
+                            }}
+                          >
+                            {copy.deleteAction}
+                          </ActionMenu.Item>
+                        </ActionMenu.Overlay>
+                      </ActionMenu>
+                    </div>
+                  </div>
+                  <div className="improvement-demo__note-meta">
+                    <span>{note.target}</span>
+                    <span className="improvement-demo__note-separator" aria-hidden="true" />
+                    <button
+                      className="improvement-demo__note-route"
+                      type="button"
+                      aria-label={`${copy.viewTarget}: ${note.target} (${note.route})`}
+                      onClick={() => {
+                        if (canvas && note.anchor) {
+                          const destination = new URL(canvas.prototypeUrl)
+                          destination.pathname = note.anchor.route.pathname
+                          destination.search = note.anchor.route.search
+                          destination.hash = note.anchor.route.hash
+                          canvas.onNavigate(destination.href)
+                        } else setRoute(note.route)
+                        setFocused(note.id)
+                      }}
+                    >
+                      <code>{note.route}</code>
+                    </button>
+                  </div>
+                  {note.status !== "open" && note.status !== "ready" ? (
+                    <span
+                      className={`improvement-demo__status improvement-demo__status--${note.status}`}
+                    >
+                      {copy.statuses[note.status]}
                     </span>
                   ) : null}
-                  <p className="improvement-demo__body">{note.body}</p>
-                  <div className="improvement-demo__note-menu">
-                    <ActionMenu selectionVariant="none" size="small" menuAlignment="end">
-                      <ActionMenu.Button
-                        className="improvement-demo__menu-trigger"
-                        variant="subtle"
-                        aria-label={copy.noteActions(note.target)}
-                        leadingVisual={<KebabHorizontalIcon size={16} />}
-                      >
-                        {""}
-                      </ActionMenu.Button>
-                      <ActionMenu.Overlay aria-label={copy.noteActions(note.target)}>
-                        <ActionMenu.Item
-                          value="edit"
-                          className="improvement-demo__menu-item"
-                          leadingVisual={<PencilIcon size={16} />}
-                          disabled={note.status === "ready"}
-                          title={note.status === "ready" ? copy.readyReadOnly : undefined}
-                          onClick={() => {
-                            if (note.status === "ready") {
-                              setMessage(copy.readyReadOnly)
-                              return
-                            }
-                            setSelection({
-                              ...note,
-                              identity: saved.state?.identity,
-                              noteRevision: note.revision,
-                              originalBody: note.body,
-                            })
-                            setEditing(note.id)
-                            setDraft(note.body)
-                          }}
-                          onKeyDownCapture={(event) => {
-                            if (event.key !== " " && event.key !== "Enter") return
-                            event.preventDefault()
-                            event.stopPropagation()
-                            event.currentTarget.click()
-                          }}
-                        >
-                          {copy.editAction}
-                        </ActionMenu.Item>
-                        <ActionMenu.Item
-                          value="delete"
-                          className="improvement-demo__menu-item improvement-demo__delete-item"
-                          leadingVisual={<TrashIcon size={16} />}
-                          onClick={() =>
-                            setDeleting({
-                              id: note.id,
-                              revision: note.revision,
-                              body: note.body,
-                              identity: saved.state?.identity,
-                            })
-                          }
-                          onKeyDownCapture={(event) => {
-                            if (event.key !== " " && event.key !== "Enter") return
-                            event.preventDefault()
-                            event.stopPropagation()
-                            event.currentTarget.click()
-                          }}
-                        >
-                          {copy.deleteAction}
-                        </ActionMenu.Item>
-                      </ActionMenu.Overlay>
-                    </ActionMenu>
-                  </div>
-                </div>
-                <div className="improvement-demo__note-meta">
-                  <span>{note.target}</span>
-                  <span className="improvement-demo__note-separator" aria-hidden="true" />
-                  <button
-                    className="improvement-demo__note-route"
-                    type="button"
-                    aria-label={`${copy.viewTarget}: ${note.target} (${note.route})`}
-                    onClick={() => {
-                      if (canvas && note.anchor) {
-                        const destination = new URL(canvas.prototypeUrl)
-                        destination.pathname = note.anchor.route.pathname
-                        destination.search = note.anchor.route.search
-                        destination.hash = note.anchor.route.hash
-                        canvas.onNavigate(destination.href)
-                      } else setRoute(note.route)
-                      setFocused(note.id)
-                    }}
-                  >
-                    <code>{note.route}</code>
-                  </button>
-                </div>
-                {note.status !== "open" && note.status !== "ready" ? (
-                  <span
-                    className={`improvement-demo__status improvement-demo__status--${note.status}`}
-                  >
-                    {copy.statuses[note.status]}
-                  </span>
-                ) : null}
-                {note.status === "ready" ? (
-                  <>
-                    <details className="improvement-demo__solution">
-                      <summary>
-                        <ChevronRightIcon size={14} aria-hidden="true" />
-                        {copy.solution}
-                      </summary>
-                      <p>{note.result || (embedded ? copy.solutionUnavailable : copy.noteReady)}</p>
-                    </details>
-                    <p className="improvement-demo__read-only">{copy.readyReadOnly}</p>
-                  </>
-                ) : note.result ? (
-                  <p className="improvement-demo__result">{note.result}</p>
-                ) : null}
-                {note.capture && !note.capturePlaceholder ? (
-                  <img
-                    className="improvement-demo__thumbnail"
-                    src={note.capture}
-                    alt={`${note.capturePlaceholder ? copy.capturePlaceholder : copy.capture}: ${note.target}`}
-                  />
-                ) : null}
-                {!embedded && (note.status === "sent" || note.status === "blocked") ? (
-                  <p className="improvement-demo__result">
-                    {note.status === "sent" ? copy.noteSent : copy.noteBlocked}
-                  </p>
-                ) : null}
-                <div className="improvement-demo__note-actions">
-                  {embedded && note.status === "sent" ? (
-                    <Button
-                      size="small"
-                      variant="secondary"
-                      onClick={() => void changeStatus(note, "open")}
-                    >
-                      {copy.returnToActive}
-                    </Button>
-                  ) : null}
                   {note.status === "ready" ? (
-                    <Button
-                      size="small"
-                      variant="secondary"
-                      leadingVisual={<CheckCircleIcon />}
-                      onClick={() => changeStatus(note, "resolved")}
-                    >
-                      {copy.resolve}
-                    </Button>
+                    <>
+                      <details className="improvement-demo__solution">
+                        <summary>
+                          <ChevronRightIcon size={14} aria-hidden="true" />
+                          {copy.solution}
+                        </summary>
+                        <p>
+                          {note.result || (embedded ? copy.solutionUnavailable : copy.noteReady)}
+                        </p>
+                      </details>
+                      <p className="improvement-demo__read-only">{copy.readyReadOnly}</p>
+                    </>
+                  ) : note.result ? (
+                    <p className="improvement-demo__result">{note.result}</p>
                   ) : null}
-                  {note.status === "resolved" ? (
-                    <Button
-                      size="small"
-                      variant="secondary"
-                      onClick={() => changeStatus(note, "open")}
-                    >
-                      {copy.reopen}
-                    </Button>
+                  {note.capture && !note.capturePlaceholder ? (
+                    <img
+                      className="improvement-demo__thumbnail"
+                      src={note.capture}
+                      alt={`${note.capturePlaceholder ? copy.capturePlaceholder : copy.capture}: ${note.target}`}
+                    />
                   ) : null}
-                  {note.status === "blocked" ? (
-                    <Button
-                      size="small"
-                      variant="secondary"
-                      onClick={() => changeStatus(note, "open")}
-                    >
-                      {copy.retryFix}
-                    </Button>
+                  {!embedded && (note.status === "sent" || note.status === "blocked") ? (
+                    <p className="improvement-demo__result">
+                      {note.status === "sent" ? copy.noteSent : copy.noteBlocked}
+                    </p>
                   ) : null}
-                </div>
-                {!embedded && note.status === "sent" ? (
-                  <details className="improvement-demo__simulation">
-                    <summary>{copy.perNoteResult}</summary>
-                    <Button
-                      size="small"
-                      variant="secondary"
-                      onClick={() => changeStatus(note, "ready")}
-                    >
-                      {copy.complete}
-                    </Button>
-                    <Button
-                      size="small"
-                      variant="secondary"
-                      onClick={() => changeStatus(note, "blocked")}
-                    >
-                      {copy.block}
-                    </Button>
-                  </details>
-                ) : null}
-                {!embedded ? (
-                  <small className={note.sync === "failed" ? "improvement-demo__sync-error" : ""}>
-                    {copy.sync[note.sync]}
-                  </small>
-                ) : null}
-              </article>
-            ))}
-          </div>
-          {!embedded && activeBatch ? (
-            <Button size="small" variant="secondary" onClick={() => setHandoffOpen(true)}>
-              {copy.batchLabel(batch.length)}
-            </Button>
-          ) : null}
-          {!embedded ? (
-            <footer className="improvement-demo__connection">
-              <label>
-                {copy.syncControls}
-                <select
-                  value={connection}
-                  onChange={(event) => {
-                    const value = event.target.value
-                    if (value !== "offline" && value !== "connected" && value !== "failed") return
-                    setConnection(value)
-                    if (value !== "offline")
-                      setNotes((items) =>
-                        items.map((note) => ({
-                          ...note,
-                          sync: value === "connected" ? "synced" : "failed",
-                        })),
-                      )
-                  }}
-                >
-                  <option value="offline">{copy.offline}</option>
-                  <option value="connected">{copy.connected}</option>
-                  <option value="failed">{copy.syncFailure}</option>
-                </select>
-              </label>
-              {notes.some((note) => note.sync === "failed") ? (
-                <>
-                  <p>{copy.syncFailed}</p>
-                  <Button
-                    size="small"
-                    variant="secondary"
-                    onClick={() => {
-                      setConnection("connected")
-                      setNotes((items) => items.map((note) => ({ ...note, sync: "synced" })))
-                      setMessage(copy.syncSuccess)
+                  <div className="improvement-demo__note-actions">
+                    {embedded && note.status === "sent" ? (
+                      <Button
+                        size="small"
+                        variant="secondary"
+                        onClick={() => void changeStatus(note, "open")}
+                      >
+                        {copy.returnToActive}
+                      </Button>
+                    ) : null}
+                    {note.status === "ready" ? (
+                      <Button
+                        size="small"
+                        variant="secondary"
+                        leadingVisual={<CheckCircleIcon />}
+                        onClick={() => changeStatus(note, "resolved")}
+                      >
+                        {copy.resolve}
+                      </Button>
+                    ) : null}
+                    {note.status === "resolved" ? (
+                      <Button
+                        size="small"
+                        variant="secondary"
+                        onClick={() => changeStatus(note, "open")}
+                      >
+                        {copy.reopen}
+                      </Button>
+                    ) : null}
+                    {note.status === "blocked" ? (
+                      <Button
+                        size="small"
+                        variant="secondary"
+                        onClick={() => changeStatus(note, "open")}
+                      >
+                        {copy.retryFix}
+                      </Button>
+                    ) : null}
+                  </div>
+                  {!embedded && note.status === "sent" ? (
+                    <details className="improvement-demo__simulation">
+                      <summary>{copy.perNoteResult}</summary>
+                      <Button
+                        size="small"
+                        variant="secondary"
+                        onClick={() => changeStatus(note, "ready")}
+                      >
+                        {copy.complete}
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="secondary"
+                        onClick={() => changeStatus(note, "blocked")}
+                      >
+                        {copy.block}
+                      </Button>
+                    </details>
+                  ) : null}
+                  {!embedded ? (
+                    <small className={note.sync === "failed" ? "improvement-demo__sync-error" : ""}>
+                      {copy.sync[note.sync]}
+                    </small>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+            {!embedded && activeBatch ? (
+              <Button size="small" variant="secondary" onClick={() => setHandoffOpen(true)}>
+                {copy.batchLabel(batch.length)}
+              </Button>
+            ) : null}
+            {!embedded ? (
+              <footer className="improvement-demo__connection">
+                <label>
+                  {copy.syncControls}
+                  <select
+                    value={connection}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      if (value !== "offline" && value !== "connected" && value !== "failed") return
+                      setConnection(value)
+                      if (value !== "offline")
+                        setNotes((items) =>
+                          items.map((note) => ({
+                            ...note,
+                            sync: value === "connected" ? "synced" : "failed",
+                          })),
+                        )
                     }}
                   >
-                    {copy.syncRetry}
-                  </Button>
-                </>
-              ) : null}
-            </footer>
-          ) : null}
-        </HubSidebar>
+                    <option value="offline">{copy.offline}</option>
+                    <option value="connected">{copy.connected}</option>
+                    <option value="failed">{copy.syncFailure}</option>
+                  </select>
+                </label>
+                {notes.some((note) => note.sync === "failed") ? (
+                  <>
+                    <p>{copy.syncFailed}</p>
+                    <Button
+                      size="small"
+                      variant="secondary"
+                      onClick={() => {
+                        setConnection("connected")
+                        setNotes((items) => items.map((note) => ({ ...note, sync: "synced" })))
+                        setMessage(copy.syncSuccess)
+                      }}
+                    >
+                      {copy.syncRetry}
+                    </Button>
+                  </>
+                ) : null}
+              </footer>
+            ) : null}
+          </HubSidebar>
+        )}
       </div>
       <p
         className={`improvement-demo__announcement${embedded ? " visually-hidden" : ""}`}

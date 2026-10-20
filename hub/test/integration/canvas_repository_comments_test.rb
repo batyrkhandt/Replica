@@ -311,6 +311,7 @@ class CanvasRepositoryCommentsTest < ActionDispatch::IntegrationTest
       "repository" => @repository.name_with_owner,
       "repositoryId" => @repository.route_id,
       "canPublish" => false,
+      "viewerId" => @viewer.id,
       "viewerLogin" => @viewer.login
     }, JSON.parse(response.body))
 
@@ -479,7 +480,7 @@ class CanvasRepositoryCommentsTest < ActionDispatch::IntegrationTest
     prototype = prototypes.create(repository: @repository)
     path = canvas_api_improvement_notes_path(@repository.route_id, prototype)
     assert_no_difference "ReviewComment.count" do
-      post path, params: "{" * 1_550_001,
+      post path, params: "{" * 1_600_001,
         headers: @headers.merge("CONTENT_TYPE" => "application/json")
       assert_response :content_too_large
     end

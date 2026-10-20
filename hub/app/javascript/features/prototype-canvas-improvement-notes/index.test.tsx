@@ -209,6 +209,9 @@ describe("ImprovementNotesPrototype()", () => {
     const body = within(card).getByText(note.body)
     const status = within(card).getByText(copy.statuses.ready, { selector: "span" })
     expect(status.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(status.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+      body.getBoundingClientRect().top,
+    )
     const metadata = card.querySelector(".improvement-demo__note-meta")
     if (!metadata) throw new Error("Expected the note metadata.")
     expect(metadata.previousElementSibling).toBe(body.parentElement)

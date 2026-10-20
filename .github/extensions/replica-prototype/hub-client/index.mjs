@@ -48,6 +48,18 @@ function registrationReason(value) {
   return value
 }
 
+function connectionViewer(connection) {
+  if (connection.viewerId == null) return {}
+  if (
+    !Number.isSafeInteger(connection.viewerId) ||
+    connection.viewerId < 1 ||
+    typeof connection.viewerLogin !== "string" ||
+    !/^[a-z0-9][a-z0-9-]{0,38}$/i.test(connection.viewerLogin)
+  )
+    throw new Error("Hub returned an invalid connected author.")
+  return { viewerId: connection.viewerId, viewerLogin: connection.viewerLogin }
+}
+
 export function createHubClient(context, options = {}) {
   const origin = new URL(normalizeHubOrigin(options.origin || process.env.REPLICA_HUB_ORIGIN))
   const directory = options.directory || path.join(os.homedir(), ".config", "replica", "canvas")
@@ -339,6 +351,7 @@ export function createHubClient(context, options = {}) {
             state: "undiscovered",
             repositoryAuthorized: true,
             canPublish: connection.canPublish,
+            ...connectionViewer(connection),
             repository: target.repository,
             commitSha: target.commitSha,
             message: "Connected to this repository. Open a named branch for Builds and reviews.",
@@ -360,6 +373,7 @@ export function createHubClient(context, options = {}) {
             state: "undiscovered",
             repositoryAuthorized: true,
             canPublish: connection.canPublish,
+            ...connectionViewer(connection),
             repository: target.repository,
             branch: target.branch,
             commitSha: target.commitSha,

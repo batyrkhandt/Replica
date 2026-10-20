@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 
 import { request } from "@utils/prototype-canvas-request"
+import { copy } from "../en"
 import type { Note } from "../types"
 
 type SavedNotes = {
@@ -9,6 +10,7 @@ type SavedNotes = {
   notes: Note[]
   syncError: string | null
   activeBatch: string | null
+  profileError?: string | null
 }
 
 export function useSavedNotes(token: string | undefined) {
@@ -18,6 +20,7 @@ export function useSavedNotes(token: string | undefined) {
   const [busy, setBusy] = useState(false)
   const current = useRef<SavedNotes | null>(null)
   const pending = useRef(false)
+  const backgroundSync = useRef<Promise<void> | null>(null)
   const mounted = useRef(false)
   const generation = useRef(0)
 
@@ -30,32 +33,35 @@ export function useSavedNotes(token: string | undefined) {
   useEffect(() => {
     if (!token) return
     mounted.current = true
+    let cancelled = false
     let refreshing = false
     let lastSync = 0
     async function refresh() {
       if (pending.current || refreshing) return
       refreshing = true
-      let syncing = false
       const started = generation.current
       try {
         const value = await request<SavedNotes>("/api/improvement-notes", token!)
-        if (pending.current || started !== generation.current || !mounted.current) return
+        if (pending.current || started !== generation.current || cancelled) return
         accept(value)
         if (Date.now() - lastSync > 15_000) {
           lastSync = Date.now()
-          pending.current = true
-          syncing = true
-          setBusy(true)
-          accept(
-            await request<SavedNotes>("/api/improvement-notes/sync", token!, {
-              method: "POST",
-              body: JSON.stringify({ identity: value.identity, revision: value.revision }),
-            }),
-          )
+          const syncing = request<SavedNotes>("/api/improvement-notes/sync", token!, {
+            method: "POST",
+            body: JSON.stringify({ identity: value.identity, revision: value.revision }),
+          }).then((value) => {
+            if (!cancelled) accept(value)
+          })
+          backgroundSync.current = syncing
+          try {
+            await syncing
+          } finally {
+            if (backgroundSync.current === syncing) backgroundSync.current = null
+          }
         }
-        if (mounted.current) setRefreshError("")
+        if (!cancelled) setRefreshError("")
       } catch (problem) {
-        if (mounted.current) {
+        if (!cancelled) {
           if (problem instanceof Error && "statusCode" in problem && problem.statusCode === 403) {
             current.current = null
             setState(null)
@@ -65,27 +71,43 @@ export function useSavedNotes(token: string | undefined) {
         }
       } finally {
         refreshing = false
-        if (syncing) {
-          pending.current = false
-          if (mounted.current) setBusy(false)
-        }
       }
     }
     void refresh()
     const interval = window.setInterval(() => void refresh(), 3000)
     return () => {
       mounted.current = false
+      cancelled = true
       window.clearInterval(interval)
     }
   }, [token])
 
   async function change(operation: string, input: Record<string, unknown> = {}): Promise<boolean> {
     if (!token || !current.current || pending.current) return false
+    const identity = current.current.identity
+    const requestedWork = current.current.notes
+      .filter((note) => note.status === "open")
+      .map((note) => `${note.id}:${note.revision}`)
+      .sort()
+      .join(",")
     pending.current = true
     generation.current++
     setBusy(true)
     setError("")
     try {
+      await backgroundSync.current
+      if (!mounted.current) return false
+      if (!current.current || current.current.identity !== identity)
+        throw new Error(copy.branchChanged)
+      if (
+        operation === "fix" &&
+        current.current.notes
+          .filter((note) => note.status === "open")
+          .map((note) => `${note.id}:${note.revision}`)
+          .sort()
+          .join(",") !== requestedWork
+      )
+        throw new Error(copy.workChanged)
       const value = await request<SavedNotes>(
         operation === "fix" ? "/api/improvement-notes/fix" : "/api/improvement-notes",
         token,
@@ -102,11 +124,11 @@ export function useSavedNotes(token: string | undefined) {
       accept(value)
       return true
     } catch (problem) {
-      setError(problem instanceof Error ? problem.message : String(problem))
+      if (mounted.current) setError(problem instanceof Error ? problem.message : String(problem))
       return false
     } finally {
       pending.current = false
-      setBusy(false)
+      if (mounted.current) setBusy(false)
     }
   }
 

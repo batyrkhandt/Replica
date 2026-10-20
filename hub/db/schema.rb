@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_15_060000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_19_140000) do
   create_table "analytics_deliveries", force: :cascade do |t|
     t.integer "attempts", default: 0, null: false
     t.datetime "created_at", null: false
@@ -468,12 +468,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_060000) do
     t.integer "root_id"
     t.datetime "updated_at", null: false
     t.integer "user_id", null: false
-    t.datetime "learning_removal_due_at"
     t.string "kind", default: "review", null: false
     t.string "local_id"
     t.integer "note_revision"
     t.string "note_status"
     t.text "capture"
+    t.datetime "learning_removal_due_at"
+    t.json "note_thread"
     t.index ["build_id"], name: "index_review_comments_on_build_id"
     t.index ["id", "prototype_id"], name: "index_review_comments_on_id_and_prototype", unique: true
     t.index ["learning_removal_due_at"], name: "index_review_comments_on_learning_removal_due_at", where: "learning_removal_due_at IS NOT NULL"
@@ -492,6 +493,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_060000) do
     t.check_constraint "anchor IS NULL OR length(CAST(anchor AS BLOB)) BETWEEN 2 AND 16384", name: "review_comments_anchor_size"
     t.check_constraint "deleted_at IS NULL OR deleted_at >= created_at", name: "review_comments_deletion_time"
     t.check_constraint "edited_at IS NULL OR (deleted_at IS NULL AND edited_at >= created_at)", name: "review_comments_edit_state"
+    t.check_constraint "note_thread IS NULL OR (kind = 'improvement_note' AND CASE WHEN json_valid(note_thread) THEN json_type(note_thread) = 'object' ELSE 0 END AND length(CAST(note_thread AS BLOB)) BETWEEN 2 AND 32768)", name: "review_comments_note_thread"
     t.check_constraint "root_id IS NULL OR root_id <> id", name: "review_comments_root_not_self"
   end
 

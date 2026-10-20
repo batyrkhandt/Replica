@@ -39,6 +39,8 @@ const ASSET_PATHS = new Map([
     "renderer-rolldown-runtime.js",
     "renderer-improvement-notes-prototype.js",
     "renderer-improvement-notes-vendor.js",
+    "renderer-prototype-canvas-thread-sample.js",
+    "renderer-prototype-canvas-improvement-threads.js",
   ].map((name) => [
     `/assets/${name}`,
     {
