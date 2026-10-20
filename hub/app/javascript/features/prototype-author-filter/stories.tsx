@@ -28,7 +28,14 @@ const meta = {
         listing={{
           ...args.listing,
           author,
-          authorLabel: author === "me" ? "Me" : author === "2" ? `@${mona.login}` : "All authors",
+          authorLabel:
+            author === args.listing.author
+              ? args.listing.authorLabel
+              : author === "me"
+                ? "Me"
+                : author === "2"
+                  ? `@${mona.login}`
+                  : "All authors",
         }}
         onChange={(value) => {
           setAuthor(value)
@@ -50,6 +57,22 @@ export const Single: Story = {}
 
 export const Me: Story = {
   args: { listing: { ...prototypeListing, author: "me", authorLabel: "Me" } },
+}
+
+export const LongAuthor: Story = {
+  args: {
+    listing: {
+      ...prototypeListing,
+      author: "2",
+      authorLabel: `${mona.name} (@${mona.login})`.repeat(5),
+    },
+    onSearch: fn(() =>
+      Promise.resolve({
+        authors: [{ id: "2", ...mona, name: mona.name.repeat(10) }],
+        nextCursor: null,
+      }),
+    ),
+  },
 }
 
 export const Failed: Story = {

@@ -10,7 +10,38 @@
 }
 
 .prototype-author-filter [role="menuitemradio"] {
-  overflow-wrap: anywhere;
+  min-width: 0;
+  grid-template-columns: min-content minmax(0, 1fr);
+}
+
+.prototype-author-filter [aria-haspopup] {
+  justify-content: space-between;
+  text-align: start;
+}
+
+.prototype-author-filter [aria-haspopup] > span:first-child,
+.prototype-author-filter [role="menuitemradio"] > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  flex: 1;
+  width: auto;
+}
+
+.prototype-author-filter [aria-haspopup] > span:first-child > span {
+  min-width: 0;
+  width: 100%;
+  text-align: start;
+}
+
+.prototype-author-filter [role="menuitemradio"] > span:last-child > span {
+  min-width: 0;
+}
+
+.prototype-author-filter__label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .prototype-author-filter__search {

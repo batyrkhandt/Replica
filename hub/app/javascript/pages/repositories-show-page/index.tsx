@@ -1,8 +1,7 @@
 import { useState } from "react"
-import type { MouseEvent } from "react"
 
 import { GearIcon, GitBranchIcon, SearchIcon } from "@primer/octicons-react"
-import { Button, Text } from "@primer/react-brand"
+import { Button, Pagination, Text } from "@primer/react-brand"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubEmptyState } from "@components/hub-empty-state"
@@ -33,6 +32,11 @@ export function RepositoriesShowPage({
   const [view, setView] = useState<PrototypeViewMode>("gallery")
   const filtered = Boolean(data.listing.query || data.listing.author)
   const visiblePrototypes = data.prototypes
+  function pageHref(page: number) {
+    const url = new URL(data.listing.pagePath, window.location.origin)
+    if (page > 1) url.searchParams.set("page", String(page))
+    return `${url.pathname}${url.search}`
+  }
   const managePrototypesLabelIndex = data.managePrototypesLabel
     ? data.emptyLabel.indexOf(data.managePrototypesLabel)
     : -1
@@ -192,19 +196,13 @@ export function RepositoriesShowPage({
             />
           ) : null}
 
-          {(filtered || data.listing.newestPath) && visiblePrototypes.length === 0 ? (
+          {filtered && visiblePrototypes.length === 0 ? (
             <HubEmptyState
               visual={<SearchIcon size={24} />}
               heading={data.noSearchResultsHeading}
               description={data.noSearchResultsDescription}
-              actionLabel={
-                data.listing.newestPath ? data.listing.copy.newest : data.listing.copy.clearFilters
-              }
-              onAction={() =>
-                data.listing.newestPath
-                  ? controls.onNavigate(data.listing.newestPath)
-                  : controls.onClearFilters()
-              }
+              actionLabel={data.listing.copy.clearFilters}
+              onAction={controls.onClearFilters}
             />
           ) : data.prototypes.length === 0 ? (
             data.newPrototypePath ? (
@@ -252,50 +250,34 @@ export function RepositoriesShowPage({
             </table>
           )}
 
-          {data.listing.previousPath || data.listing.nextPath || data.listing.newestPath ? (
-            <nav
+          {data.listing.pageCount > 1 ? (
+            <Pagination
               className="repository-detail__pagination"
               aria-label={data.listing.copy.pagination}
-            >
-              {(
-                [
-                  [data.listing.previousPath, data.listing.copy.previous],
-                  [data.listing.newestPath, data.listing.copy.newest],
-                  [data.listing.nextPath, data.listing.copy.next],
-                ] as const
-              ).map(([path, label]) =>
-                path ? (
-                  <Button
-                    as="a"
-                    variant="secondary"
-                    size="small"
-                    className={
-                      path === data.listing.previousPath
-                        ? "repository-detail__previous-page"
-                        : undefined
-                    }
-                    key={label}
-                    href={path}
-                    data-sg-visit="true"
-                    onClick={(event: MouseEvent<HTMLAnchorElement>) => {
-                      if (
-                        event.button === 0 &&
-                        !event.metaKey &&
-                        !event.ctrlKey &&
-                        !event.shiftKey &&
-                        !event.altKey
-                      ) {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        controls.onNavigate(path)
-                      }
-                    }}
-                  >
-                    {label}
-                  </Button>
-                ) : null,
-              )}
-            </nav>
+              pageCount={data.listing.pageCount}
+              currentPage={data.listing.page}
+              hrefBuilder={pageHref}
+              pageAttributesBuilder={() => ({ "data-sg-visit": "true" })}
+              labels={{
+                prev: data.listing.copy.previous,
+                prevAriaLabel: data.listing.copy.previous,
+                next: data.listing.copy.next,
+                nextAriaLabel: data.listing.copy.next,
+              }}
+              onPageChange={(event, page) => {
+                if (
+                  event.button === 0 &&
+                  !event.metaKey &&
+                  !event.ctrlKey &&
+                  !event.shiftKey &&
+                  !event.altKey
+                ) {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  controls.onNavigate(pageHref(page))
+                }
+              }}
+            />
           ) : null}
         </div>
       </div>

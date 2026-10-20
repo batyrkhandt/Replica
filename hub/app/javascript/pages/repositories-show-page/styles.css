@@ -13,14 +13,7 @@
 }
 
 .repository-detail__pagination {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: var(--hub-space-16);
-}
-
-.repository-detail__previous-page {
-  margin-inline-end: auto;
+  align-self: center;
 }
 
 .repository-detail__count {

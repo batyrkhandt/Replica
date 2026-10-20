@@ -82,7 +82,7 @@ describe("usePrototypeListing()", () => {
     const { result } = renderHook(() => usePrototypeListing(prototypeListing), {
       wrapper: navigation(visit),
     })
-    act(() => result.current.onNavigate("/repositories/2001?cursor=old"))
+    act(() => result.current.onNavigate("/repositories/2001?page=2"))
     await act(async () => {
       result.current.onAuthorChange("me")
       await Promise.resolve()
@@ -178,7 +178,7 @@ describe("usePrototypeListing()", () => {
         initialProps: prototypeListing,
         wrapper: navigation(visit),
       })
-      act(() => result.current.onNavigate("/repositories/2001?cursor=old"))
+      act(() => result.current.onNavigate("/repositories/2001?page=2"))
       act(() => result.current.onQueryChange("unsent old repository search"))
       expect(result.current.pending).toBe(true)
       rerender({

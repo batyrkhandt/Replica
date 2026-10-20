@@ -27,7 +27,7 @@ class RepositoriesController < SuperglueController
       user: Current.user,
       query: params[:q],
       author: params[:author],
-      cursor: params[:cursor]
+      page: params[:page]
     @prototypes = @listing.prototypes
     ActiveRecord::Associations::Preloader.new(records: @prototypes, associations: [ :author, :current_build ]).call
     prototype_ids = @prototypes.map(&:id)

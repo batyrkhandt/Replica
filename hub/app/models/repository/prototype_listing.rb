@@ -7,10 +7,10 @@ class Repository::PrototypeListing < ActiveRecord::AssociatedObject
   QUERY_MAXIMUM_LENGTH = 200
   Page = Data.define \
     :prototypes, :query, :author, :author_user, :matching_count,
-    :previous_cursor, :next_cursor
+    :page, :page_count
 
   # Filters before paging, leaving Build hydration to the selected records.
-  def page(user:, query: nil, author: nil, cursor: nil)
+  def page(user:, query: nil, author: nil, page: nil)
     query = normalized_query(query)
     author = normalized_author(author)
     author_id = author == "me" ? user.id : author.presence&.to_i
@@ -24,25 +24,12 @@ class Repository::PrototypeListing < ActiveRecord::AssociatedObject
         query: "%#{Prototype.sanitize_sql_like(query)}%"
     end
     matching_count = relation.count
-    scope = cursor_scope(user, "prototypes", query:, author:)
-    boundary = read_cursor(cursor, scope)
-    selected = relation
-    if boundary
-      selected = before_boundary(selected, boundary, newer: boundary.fetch("direction") == "previous")
-    end
-    newer = boundary&.fetch("direction") == "previous"
-    rows = selected.order(registered_at: newer ? :asc : :desc, id: newer ? :asc : :desc)
-      .limit(PAGE_SIZE).to_a
-    rows.reverse! if newer
+    raise InvalidQuery if page && (!page.is_a?(String) || !page.match?(/\A[1-9]\d{0,8}\z/))
 
-    previous_cursor = nil
-    next_cursor = nil
-    if rows.any?
-      first = prototype_boundary(rows.first, "previous")
-      last = prototype_boundary(rows.last, "next")
-      previous_cursor = write_cursor(scope, first) if before_boundary(relation, first, newer: true).exists?
-      next_cursor = write_cursor(scope, last) if before_boundary(relation, last, newer: false).exists?
-    end
+    page_count = [ (matching_count.to_f / PAGE_SIZE).ceil, 1 ].max
+    page = [ page ? page.to_i : 1, page_count ].min
+    rows = relation.order(registered_at: :desc, id: :desc)
+      .offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).to_a
 
     Page.new \
       prototypes: rows,
@@ -50,8 +37,8 @@ class Repository::PrototypeListing < ActiveRecord::AssociatedObject
       author:,
       author_user: author_id && User.where(id: base.select(:author_id)).find_by(id: author_id),
       matching_count:,
-      previous_cursor:,
-      next_cursor:
+      page:,
+      page_count:
   end
 
   # Searches all eligible registration authors without enumerating the gallery.
@@ -63,7 +50,7 @@ class Repository::PrototypeListing < ActiveRecord::AssociatedObject
         "login LIKE :query ESCAPE '\\' OR name LIKE :query ESCAPE '\\'",
         query: "%#{User.sanitize_sql_like(query)}%"
     end
-    scope = cursor_scope(user, "authors", query:)
+    scope = { "version" => 1, "repository" => record.id, "user" => user.id, "query" => query }
     boundary = read_cursor(cursor, scope)
     if boundary
       raise InvalidQuery unless boundary["login"].is_a?(String) && boundary["login"].length <= 255
@@ -104,11 +91,6 @@ class Repository::PrototypeListing < ActiveRecord::AssociatedObject
     value
   end
 
-  # Signs the query and viewer as well as the boundary to reject mixed continuations.
-  def cursor_scope(user, kind, query:, author: "")
-    { "version" => 1, "repository" => record.id, "user" => user.id, "kind" => kind, "query" => query, "author" => author }
-  end
-
   # Validates only server-issued boundaries, never treating them as authorization.
   def read_cursor(value, scope)
     return if value.nil?
@@ -121,27 +103,6 @@ class Repository::PrototypeListing < ActiveRecord::AssociatedObject
     end
 
     payload
-  end
-
-  # Keeps full timestamp precision for prototypes registered at the same time.
-  def prototype_boundary(prototype, direction)
-    { "time" => prototype.registered_at.iso8601(6), "id" => prototype.id, "direction" => direction }
-  end
-
-  # Uses strict tuple boundaries so new registrations do not shift later pages.
-  def before_boundary(relation, boundary, newer:)
-    unless boundary["time"].is_a?(String) && %w[previous next].include?(boundary["direction"])
-      raise InvalidQuery
-    end
-
-    time = Time.iso8601(boundary.fetch("time"))
-    operator = newer ? ">" : "<"
-    relation.where \
-      "prototypes.registered_at #{operator} :time " \
-        "OR (prototypes.registered_at = :time AND prototypes.id #{operator} :id)",
-      time:, id: boundary.fetch("id")
-  rescue ArgumentError
-    raise InvalidQuery
   end
 
   # Adds the boundary to the exact source query.

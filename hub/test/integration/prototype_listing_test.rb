@@ -5,7 +5,7 @@ class PrototypeListingTest < ActionDispatch::IntegrationTest
     github_app_configurations.create_installed
   end
 
-  test "filters before paging and preserves stable continuations when a prototype is registered" do
+  test "filters before numbered paging and preserves filters in the page path" do
     repository, user = sign_in_repository
     other = create_author("other-reviewer")
     time = Time.current
@@ -16,27 +16,22 @@ class PrototypeListingTest < ActionDispatch::IntegrationTest
     registered_prototype(repository, author: user, name: "Unrelated", at: time)
     expected = matching.reverse.map { _1.id.to_s }
 
-    first = listing(repository, q: "nEeDlE", author: user.id.to_s)
-    assert_equal expected.first(24), first.fetch("prototypes").pluck("id")
-    assert_equal 49, first.fetch("listing").fetch("matchingCount")
-    assert_nil first.fetch("listing").fetch("previousPath")
-    newest = registered_prototype(repository, author: user, name: "Needle added", at: time + 1.second)
-
-    next_path = first.fetch("listing").fetch("nextPath")
-    assert_filters next_path, q: "nEeDlE", author: user.id.to_s
-    second = listing_at(next_path)
-    assert_equal expected.slice(24, 24), second.fetch("prototypes").pluck("id")
-    assert_equal 50, second.fetch("listing").fetch("matchingCount")
-    assert_filters second.fetch("listing").fetch("newestPath"), q: "nEeDlE", author: user.id.to_s
-    previous_path = second.fetch("listing").fetch("previousPath")
-    assert_filters previous_path, q: "nEeDlE", author: user.id.to_s
-    previous = listing_at(previous_path)
-    assert_equal expected.first(24), previous.fetch("prototypes").pluck("id")
-    third = listing_at(second.fetch("listing").fetch("nextPath"))
-    assert_equal expected.last(1), third.fetch("prototypes").pluck("id")
-    assert_nil third.fetch("listing").fetch("nextPath")
-    assert_equal [ newest.id.to_s, *expected ].first(24),
-      listing_at(third.fetch("listing").fetch("newestPath")).fetch("prototypes").pluck("id")
+    data = listing(repository, q: "nEeDlE", author: user.id.to_s, page: 3)
+    [ 3, 2, 1 ].each do |page|
+      assert_equal expected.slice((page - 1) * 24, 24), data.fetch("prototypes").pluck("id")
+      pagination = data.fetch("listing")
+      assert_equal page, pagination.fetch("page")
+      assert_equal 3, pagination.fetch("pageCount")
+      assert_equal 49, pagination.fetch("matchingCount")
+      assert_equal repository_path(repository.route_id), pagination.fetch("path")
+      assert_equal authors_path(repository), pagination.fetch("authorsPath")
+      page_path = pagination.fetch("pagePath")
+      assert_equal repository_path(repository.route_id), URI.parse(page_path).path
+      assert_filters page_path, q: "nEeDlE", author: user.id.to_s
+      assert_equal %w[author q], Rack::Utils.parse_query(URI.parse(page_path).query).keys.sort
+      %w[previousPath nextPath newestPath].each { assert_not pagination.key?(_1) }
+      data = listing_at(page_path, params: { page: page - 1 }) if page > 1
+    end
   end
 
   test "selects only eligible prototypes and bounds card and Build hydration to 24 results" do
@@ -70,6 +65,7 @@ class PrototypeListingTest < ActionDispatch::IntegrationTest
 
     cards = data.fetch("prototypes")
     assert_equal records.reverse.first(24).map { _1.id.to_s }, cards.pluck("id")
+    assert_equal 1, data.fetch("listing").fetch("page")
     assert_equal 60, data.fetch("listing").fetch("matchingCount")
     cards.each do |card|
       assert_equal "queued", card.fetch("latestBuild").fetch("state")
@@ -143,30 +139,31 @@ class PrototypeListingTest < ActionDispatch::IntegrationTest
     assert_includes named.fetch("listing").fetch("authorLabel"), other.login
   end
 
-  test "a stale valid cursor returns an empty filtered page with a route back to newest" do
+  test "clamps a stale page to the last filtered page after a deletion" do
     repository, user = sign_in_repository
     originals = 25.times.map { registered_prototype(repository, author: user, name: "Needle") }
-    first = listing(repository, q: "Needle", author: "me")
+    second = listing(repository, q: "Needle", author: "me", page: 2)
+    assert_equal [ originals.first.id.to_s ], second.fetch("prototypes").pluck("id")
+    assert_equal 2, second.fetch("listing").fetch("pageCount")
     originals.first.update!(branch_deleted_at: Time.current)
 
-    stale = listing_at(first.fetch("listing").fetch("nextPath"))
+    stale = listing_at(second.fetch("listing").fetch("pagePath"), params: { page: 2 })
 
-    assert_empty stale.fetch("prototypes")
+    assert_equal originals.drop(1).reverse.map { _1.id.to_s }, stale.fetch("prototypes").pluck("id")
+    assert_equal 1, stale.fetch("listing").fetch("page")
+    assert_equal 1, stale.fetch("listing").fetch("pageCount")
     assert_equal 24, stale.fetch("listing").fetch("matchingCount")
-    newest_path = stale.fetch("listing").fetch("newestPath")
-    assert_filters newest_path, q: "Needle", author: "me"
-    newest = listing_at(newest_path)
-    assert_equal 24, newest.fetch("prototypes").size
-    assert_nil newest.fetch("listing").fetch("nextPath")
+    assert_filters stale.fetch("listing").fetch("pagePath"), q: "Needle", author: "me"
   end
 
-  test "rejects malformed filters and cursors instead of silently returning an unfiltered collection" do
+  test "rejects malformed filters and page numbers instead of silently defaulting them" do
     repository, user = sign_in_repository
     registered_prototype(repository, author: user)
 
     [
       { q: "x" * 201 }, { q: [ "query" ] }, { author: "0" },
-      { cursor: "not-a-signed-cursor" }, { cursor: [ "cursor" ] }
+      *[ "", "0", "-1", "1.5", "+1", "1e1", " 1", "1 ", "１", "1000000000",
+        [ "1" ], { value: "1" } ].map { { page: _1 } }
     ].each do |params|
       get repository_path(repository.github_id), params:, headers: json_headers
       assert_response :bad_request, params.inspect
@@ -174,41 +171,33 @@ class PrototypeListingTest < ActionDispatch::IntegrationTest
 
     accepted = listing(repository, q: "x" * 200)
     assert_equal "x" * 200, accepted.fetch("listing").fetch("query")
+    assert_equal 1, accepted.fetch("listing").fetch("page")
+    last = listing(repository, page: "999999999")
+    assert_equal 1, last.fetch("listing").fetch("page")
+    assert_equal 1, last.fetch("listing").fetch("pageCount")
+    assert_equal 1, last.fetch("listing").fetch("matchingCount")
   end
 
-  test "both cursor types reject tampering and changes to repository filter or viewer" do
-    repository, user = sign_in_repository
+  test "author cursors reject tampering and changes to repository query or viewer" do
+    repository, = sign_in_repository
     25.times do |index|
       registered_prototype(repository, author: create_author("needle-#{index}"), name: "Needle")
     end
-    first = listing(repository, q: "Needle")
-    path = first.fetch("listing").fetch("nextPath")
-    params = Rack::Utils.parse_query(URI.parse(path).query)
+    query = { "q" => "needle", "cursor" => author_lookup(repository, q: "needle").fetch("nextCursor") }
+    assert_not_nil query.fetch("cursor")
     other_repository = repositories.create(github_id: 2002, name_with_owner: "github/other")
     stub_github_permissions([ repository_payload(2002, "github/other") ], { 2002 => "pull" })
-    endpoints = [
-      [ repository_path(repository.github_id), repository_path(other_repository.github_id), params ],
-      [ authors_path(repository), authors_path(other_repository),
-        { "q" => "needle", "cursor" => author_lookup(repository, q: "needle").fetch("nextCursor") } ]
-    ]
-
-    endpoints.each do |endpoint, foreign_endpoint, query|
-      [ query.merge("cursor" => "#{query.fetch('cursor')}tampered"),
-        query.merge("q" => "Different") ].each do |invalid|
-        get endpoint, params: invalid, headers: json_headers
-        assert_response :bad_request
-      end
-      get foreign_endpoint, params: query, headers: json_headers
+    [ query.merge("cursor" => "#{query.fetch('cursor')}tampered"),
+      query.merge("q" => "Different") ].each do |invalid|
+      get authors_path(repository), params: invalid, headers: json_headers
       assert_response :bad_request
     end
-    get repository_path(repository.github_id), params: params.merge("author" => user.id.to_s), headers: json_headers
+    get authors_path(other_repository), params: query, headers: json_headers
     assert_response :bad_request
 
     sign_in_as_another_reader
-    endpoints.each do |endpoint, _, query|
-      get endpoint, params: query, headers: json_headers
-      assert_response :bad_request
-    end
+    get authors_path(repository), params: query, headers: json_headers
+    assert_response :bad_request
   end
 
   test "pages distinct registrants outside the loaded page without shifting for new authors" do

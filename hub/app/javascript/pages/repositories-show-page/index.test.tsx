@@ -124,19 +124,21 @@ describe("RepositoriesShowPage()", () => {
             listing: {
               ...prototypeListing,
               matchingCount: 80,
-              nextPath: "/repositories/2001?author=me&cursor=next",
+              pageCount: 4,
+              pagePath: "/repositories/2001?q=design&author=me",
             },
             prototypesCountLabel: "80 prototypes",
           }}
         />
       </div>,
     )
-    const next = screen.getByRole("link", { name: "Next" })
-    expect(next).toHaveAttribute("href", "/repositories/2001?author=me&cursor=next")
+    const next = screen.getByRole("button", { name: "Page 3" })
+    expect(screen.getByRole("button", { name: "Page 1" })).toHaveAttribute("aria-current", "page")
+    expect(next).toHaveAttribute("href", "/repositories/2001?q=design&author=me&page=3")
     expect(screen.getByText("80 prototypes (1 shown)")).toBeInTheDocument()
     fireEvent.click(next)
     expect(controls.onNavigate).toHaveBeenCalledExactlyOnceWith(
-      "/repositories/2001?author=me&cursor=next",
+      "/repositories/2001?q=design&author=me&page=3",
     )
     expect(delegatedClick).not.toHaveBeenCalled()
     fireEvent.click(next, { ctrlKey: true })

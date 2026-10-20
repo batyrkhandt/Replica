@@ -72,18 +72,14 @@ json.listing do
   end
   json.authorLabel author_label
   json.matchingCount @listing.matching_count
-  previous_path = @listing.previous_cursor &&
-    repository_path(@repository.route_id, **listing_params, cursor: @listing.previous_cursor)
-  next_path = @listing.next_cursor &&
-    repository_path(@repository.route_id, **listing_params, cursor: @listing.next_cursor)
-  json.previousPath previous_path
-  json.nextPath next_path
-  json.newestPath(params[:cursor].present? ? repository_path(@repository.route_id, **listing_params) : nil)
+  json.page @listing.page
+  json.pageCount @listing.page_count
+  json.pagePath repository_path(@repository.route_id, **listing_params)
   json.authorsPath repository_prototype_authors_path(@repository.route_id)
   json.path repository_path(@repository.route_id)
   json.copy do
     %w[author me all_authors search_authors more_authors first_authors no_authors loading retry
-      authors_failed results_failed clear_filters previous next newest pagination updating shown].each do |key|
+      authors_failed results_failed clear_filters previous next pagination updating shown].each do |key|
       json.set! key.camelize(:lower), t("repositories.show.filters.#{key}", count: @prototypes.length)
     end
   end

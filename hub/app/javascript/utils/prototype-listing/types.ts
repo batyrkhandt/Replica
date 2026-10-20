@@ -32,9 +32,9 @@ export interface PrototypeListing {
   author: string
   authorLabel: string
   matchingCount: number
-  previousPath: string | null
-  nextPath: string | null
-  newestPath: string | null
+  page: number
+  pageCount: number
+  pagePath: string
   authorsPath: string
   path: string
   copy: {
@@ -52,7 +52,6 @@ export interface PrototypeListing {
     clearFilters: string
     previous: string
     next: string
-    newest: string
     pagination: string
     updating: string
     shown: string

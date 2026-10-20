@@ -62,7 +62,6 @@ en:
         clear_filters: Clear filters
         previous: Previous
         next: Next
-        newest: Newest results
         pagination: Prototype pages
         updating: Updating prototypes
         shown: "%{count} shown"

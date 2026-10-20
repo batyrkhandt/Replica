@@ -26,7 +26,9 @@ export function PrototypeAuthorFilter({
     <div className="prototype-author-filter">
       <ActionMenu size="small" selectionVariant="single" menuAlignment="start" onSelect={onChange}>
         <ActionMenu.Button aria-label={label} variant="secondary">
-          {label}
+          <span className="prototype-author-filter__label" title={label}>
+            {label}
+          </span>
         </ActionMenu.Button>
         <ActionMenu.Overlay aria-label={listing.copy.author}>
           <PrototypeAuthorOptions listing={listing} onSearch={onSearch} />

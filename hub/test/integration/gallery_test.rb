@@ -125,8 +125,11 @@ class GalleryTest < ActionDispatch::IntegrationTest
     data = JSON.parse(response.body).fetch("data")
     assert_empty data.fetch("prototypes")
     assert_equal 0, data.fetch("listing").fetch("matchingCount")
+    assert_equal 1, data.fetch("listing").fetch("page")
+    assert_equal 1, data.fetch("listing").fetch("pageCount")
+    assert_equal repository_path(repository.route_id), data.fetch("listing").fetch("pagePath")
     %w[previousPath nextPath newestPath].each do |key|
-      assert_nil data.fetch("listing").fetch(key)
+      assert_not data.fetch("listing").key?(key)
     end
     assert_equal "No prototypes yet", data.fetch("emptyHeading")
     assert_equal "Build prototype", data.fetch("buildPrototypeLabel")

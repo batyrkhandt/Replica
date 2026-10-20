@@ -133,8 +133,13 @@ export function PrototypeAuthorOptions({
             value={author.id}
             selected={listing.author === author.id}
           >
-            @{author.login}
-            {author.name ? ` (${author.name})` : ""}
+            <span
+              className="prototype-author-filter__label"
+              title={`@${author.login}${author.name ? ` (${author.name})` : ""}`}
+            >
+              @{author.login}
+              {author.name ? ` (${author.name})` : ""}
+            </span>
           </ActionMenu.Item>
         ))
       )}

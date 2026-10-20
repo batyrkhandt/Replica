@@ -236,7 +236,7 @@ export const Paginated: Story = {
       listing: {
         ...prototypeListing,
         matchingCount: 50,
-        nextPath: "/repositories/2001?cursor=next",
+        pageCount: 3,
         copy: { ...prototypeListing.copy, shown: "2 shown" },
       },
       prototypesCountLabel: "50 prototypes",
