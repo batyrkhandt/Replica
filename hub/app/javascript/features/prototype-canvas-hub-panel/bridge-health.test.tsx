@@ -123,6 +123,10 @@ it.each([
       vi.fn((path: string) => {
         if (path === "/api/hub/events")
           return Promise.reject(new Error("Live connection unavailable"))
+        if (path === "/api/hub/status")
+          return Promise.resolve(
+            Response.json({ ...publicationHub, state: "connected", prototype: importedPrototype }),
+          )
         return Promise.resolve(
           new Response(JSON.stringify({ comments: [], hasMore: false, nextCursor: null })),
         )
@@ -168,7 +172,7 @@ it.each([
       await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
     )
     expect(
-      screen.getByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel }),
+      await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel }),
     ).toBeVisible()
 
     respond({ ...ready, protocolVersion: 99 })
@@ -200,6 +204,7 @@ it.each([
       fireEvent.click(
         await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
       )
+      await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
       respond({ type: "replica:canvas:selected", anchor: octocatRootComment.anchor })
     }
     expect(screen.getByRole("textbox", { name: reviewCommentsCopy.composerLabel })).toBeVisible()
@@ -220,6 +225,10 @@ it.each(["area", "element"] as const)(
       vi.fn((path: string) => {
         if (path === "/api/hub/events")
           return Promise.reject(new Error("Live connection unavailable"))
+        if (path === "/api/hub/status")
+          return Promise.resolve(
+            Response.json({ ...publicationHub, state: "connected", prototype: importedPrototype }),
+          )
         return Promise.resolve(
           new Response(JSON.stringify({ comments: [], hasMore: false, nextCursor: null })),
         )
@@ -302,6 +311,7 @@ it.each(["area", "element"] as const)(
     })
     fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
     fireEvent.click(await screen.findByRole("menuitem", { name: selectionLabel }))
+    await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
 
     respond({ type: "replica:canvas:selected", anchor: invalidAnchor }, "https://untrusted.example")
     respond({ type: "replica:canvas:selected", anchor: invalidAnchor, nonce: "stale" })
@@ -331,6 +341,7 @@ it.each(["area", "element"] as const)(
 
     fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
     fireEvent.click(await screen.findByRole("menuitem", { name: selectionLabel }))
+    await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
     respond({ type: "replica:canvas:selected", anchor: validAnchor })
     expect(screen.getByRole("textbox", { name: reviewCommentsCopy.composerLabel })).toBeVisible()

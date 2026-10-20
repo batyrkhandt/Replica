@@ -62,8 +62,7 @@ export const Creating: Story = {
 
 export const SubmissionFailed: Story = {
   args: {
-    submitError:
-      "The local preview revision changed. Refresh and select the target again before commenting.",
+    submitError: "Hub is temporarily unavailable. Your comment is still here. Try saving again.",
     onSubmit: () => Promise.resolve(false),
   },
   play: async ({ canvas, userEvent }) => {

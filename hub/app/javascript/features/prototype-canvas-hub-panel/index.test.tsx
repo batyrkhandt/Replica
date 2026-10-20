@@ -692,8 +692,9 @@ it("offers an explicit local switch with a warning when the selected Hub cannot 
 
 it("creates Hub conversations and supports existing-thread actions", async () => {
   const paths: { path: string; method: string }[] = []
-  const recoveryDetail = "The local preview changed. Refresh comments and select the element again."
-  let staleRevision = true
+  const recoveryDetail = "Hub is temporarily unavailable. Retry saving your comment."
+  let saveUnavailable = true
+  let savedRoot: typeof octocatRootComment | null = null
   let finishReply!: (response: Response) => void
   const nonce = "00000000-0000-4000-8000-000000000000"
   vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
@@ -713,34 +714,48 @@ it("creates Hub conversations and supports existing-thread actions", async () =>
       const path = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
       paths.push({ path, method: options?.method || "GET" })
       if (path === "/api/hub/events") throw new Error("Live connection unavailable")
+      if (path === "/api/hub/status")
+        return Promise.resolve(
+          Response.json({
+            ...publicationHub,
+            state: "connected",
+            repository: "github/prototype",
+            branch: "prototype/welcome",
+            prototype: { ...importedPrototype, repositoryId: 2001 },
+          }),
+        )
       if (path === "/api/hub/comments/1/replies")
         return new Promise<Response>((resolve) => {
           finishReply = resolve
         })
-      if (path === "/api/hub/comments" && options?.method === "POST" && staleRevision)
-        return Promise.resolve(Response.json({ error: recoveryDetail }, { status: 409 }))
-      if (path === "/api/hub/comments" && options?.method === "POST")
+      if (path === "/api/hub/comments" && options?.method === "POST" && saveUnavailable)
+        return Promise.resolve(Response.json({ error: recoveryDetail }, { status: 503 }))
+      if (path === "/api/hub/comments" && options?.method === "POST") {
+        savedRoot = {
+          ...octocatRootComment,
+          id: 2,
+          body: "Please update this heading.",
+          activityVersion: 1,
+        }
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              comments: [
-                {
-                  ...octocatRootComment,
-                  id: 2,
-                  body: "Please update this heading.",
-                  activityVersion: 1,
-                },
-              ],
+              comments: [savedRoot],
             }),
             { status: 201, headers: { "Content-Type": "application/json" } },
           ),
         )
+      }
       return Promise.resolve(
         new Response(
           JSON.stringify(
             path === "/api/hub/comments"
               ? {
-                  comments: [octocatRootComment, resolvedRootComment],
+                  comments: [
+                    octocatRootComment,
+                    resolvedRootComment,
+                    ...(savedRoot ? [savedRoot] : []),
+                  ],
                   hasMore: false,
                   nextCursor: null,
                 }
@@ -964,13 +979,15 @@ it("creates Hub conversations and supports existing-thread actions", async () =>
   fireEvent.click(
     await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
   )
-  expect(postMessage).toHaveBeenLastCalledWith(
-    {
-      type: "replica:canvas:select",
-      nonce,
-      mode: "element",
-    },
-    "http://localhost:4321",
+  await waitFor(() =>
+    expect(postMessage).toHaveBeenLastCalledWith(
+      {
+        type: "replica:canvas:select",
+        nonce,
+        mode: "element",
+      },
+      "http://localhost:4321",
+    ),
   )
   expect(
     screen.getAllByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel }),
@@ -998,7 +1015,7 @@ it("creates Hub conversations and supports existing-thread actions", async () =>
   expect(
     within(composer).getByRole("textbox", { name: reviewCommentsCopy.composerLabel }),
   ).toHaveValue("Please update this heading.")
-  staleRevision = false
+  saveUnavailable = false
   fireEvent.click(within(composer).getByRole("button", { name: reviewCommentsCopy.submitLabel }))
   await waitFor(() => expect(paths).toContainEqual({ path: "/api/hub/comments", method: "POST" }))
   expect(
@@ -1080,6 +1097,9 @@ it.each(["unpublished", "dirty"] as const)(
             commitSha: "a".repeat(40),
             reviewRevision: {
               id: 7,
+              buildNumber: null,
+              hubOrigin: "https://hub.example.com",
+              connectionId: "connection-a",
               treeSha: "c".repeat(40),
               commitSha: "a".repeat(40),
               clean: preview === "unpublished",
@@ -1248,6 +1268,7 @@ it.each(["comments", "error", "loading"] as const)(
     const fetch = vi.fn((input: RequestInfo | URL) => {
       const path = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
       if (path === "/api/hub/events") throw new Error("Live connection unavailable")
+      if (path === "/api/hub/status") return Promise.resolve(Response.json(status))
       if (path.includes("draft_revision_id=11"))
         return new Promise<Response>((resolve) => {
           finishOld = resolve
@@ -1265,6 +1286,9 @@ it.each(["comments", "error", "loading"] as const)(
       prototype: importedPrototype,
       reviewRevision: {
         id: 11,
+        buildNumber: null,
+        hubOrigin: "https://hub.example.com",
+        connectionId: "connection-a",
         treeSha: "b".repeat(40),
         commitSha: "a".repeat(40),
         clean: false,
@@ -1314,6 +1338,7 @@ it.each(["comments", "error", "loading"] as const)(
     fireEvent.click(
       await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
     )
+    await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
     act(() => {
       window.dispatchEvent(
         new MessageEvent("message", {
@@ -1419,6 +1444,243 @@ it.each(["comments", "error", "loading"] as const)(
     expect(screen.getByRole("textbox", { name: reviewCommentsCopy.composerLabel })).toHaveValue(
       "Keep my unsaved comment.",
     )
+    view.unmount()
+  },
+)
+
+it.each(["draft revision", "published Build"] as const)(
+  "saves once to the selected %s after source changes and a preview reload",
+  async (target) => {
+    const nonce = "00000000-0000-4000-8000-000000000022"
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+    const frameRef = createRef<HTMLIFrameElement>()
+    const onFrameLoad = vi.fn()
+    const originalRevision = {
+      id: target === "draft revision" ? 11 : null,
+      buildNumber: target === "published Build" ? 1 : null,
+      hubOrigin: "https://hub.example.com",
+      connectionId: "connection-a",
+      treeSha: "b".repeat(40),
+      commitSha: "a".repeat(40),
+      clean: target === "published Build",
+      prototypeId: importedPrototype.id,
+    }
+    let finishPreparation!: (response: Response) => void
+    let finishSave!: (response: Response) => void
+    let savedRoot: typeof octocatRootComment | null = null
+    const fetch = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+      if (path === "/api/hub/events") throw new Error("Live connection unavailable")
+      if (path === "/api/hub/status")
+        return target === "draft revision"
+          ? new Promise<Response>((resolve) => {
+              finishPreparation = resolve
+            })
+          : Promise.resolve(Response.json(status))
+      if (path === "/api/hub/comments" && options?.method === "POST")
+        return new Promise<Response>((resolve) => {
+          finishSave = resolve
+        })
+      return Promise.resolve(
+        Response.json({
+          comments: savedRoot && target === "published Build" ? [savedRoot] : [],
+          hasMore: false,
+          nextCursor: null,
+        }),
+      )
+    })
+    vi.stubGlobal("fetch", fetch)
+    const onStatusChange = vi.fn<() => Promise<void>>()
+    if (target === "draft revision") {
+      onStatusChange.mockRejectedValue(new Error("Background status refresh is unavailable."))
+    } else {
+      onStatusChange.mockResolvedValue(undefined)
+    }
+    const status: HubStatus = {
+      ...publicationHub,
+      state: "connected",
+      prototype: importedPrototype,
+      reviewRevision: originalRevision,
+    }
+    const props = {
+      config: { name: "Example", prototypeUrl: "http://localhost:4321/", token: "local" },
+      frameRef,
+      onStatusChange,
+      onSelectHub: async () => {},
+      onConnect: () => {},
+      onClose: () => {},
+      open: true,
+    }
+    function panel(current: HubStatus) {
+      return (
+        <ThemeProvider>
+          <iframe ref={frameRef} title="Prototype" src="about:blank" onLoad={onFrameLoad} />
+          <HubPanel {...props} status={current} />
+        </ThemeProvider>
+      )
+    }
+    const view = render(
+      panel({
+        ...status,
+        reviewRevision:
+          target === "draft revision"
+            ? { ...originalRevision, id: 10, treeSha: "e".repeat(40) }
+            : originalRevision,
+      }),
+    )
+    fireEvent.click(await screen.findByRole("button", { name: /^Comments, 0/ }))
+    await waitFor(() => expect(onFrameLoad).toHaveBeenCalled())
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "http://localhost:4321",
+          source: frameRef.current?.contentWindow,
+          data: {
+            type: "replica:canvas:ready",
+            nonce,
+            protocolVersion: 1,
+            route: { pathname: "/", search: "", hash: "" },
+          },
+        }),
+      )
+    })
+    const postMessage = vi.spyOn(frameRef.current!.contentWindow!, "postMessage")
+    fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
+    )
+    if (target === "draft revision") {
+      await waitFor(() => expect(finishPreparation).toBeTypeOf("function"))
+      expect(postMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: "replica:canvas:select" }),
+        "http://localhost:4321",
+      )
+      await act(async () => {
+        finishPreparation(Response.json(status))
+        await Promise.resolve()
+      })
+    }
+    await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "http://localhost:4321",
+          source: frameRef.current?.contentWindow,
+          data: {
+            type: "replica:canvas:selected",
+            nonce,
+            anchor: octocatRootComment.anchor,
+          },
+        }),
+      )
+    })
+    fireEvent.change(screen.getByRole("textbox", { name: reviewCommentsCopy.composerLabel }), {
+      target: { value: "Keep the comment on the source I selected." },
+    })
+    view.rerender(
+      panel({
+        ...status,
+        commitSha: "c".repeat(40),
+        prototype: {
+          ...importedPrototype,
+          build: { ...importedPrototype.build!, number: 2, commitSha: "c".repeat(40) },
+        },
+        reviewRevision: {
+          ...originalRevision,
+          id: 12,
+          buildNumber: null,
+          treeSha: "d".repeat(40),
+          commitSha: "c".repeat(40),
+          clean: false,
+        },
+      }),
+    )
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.some(
+          ([input, options]) =>
+            input === "/api/hub/comments?draft_revision_id=12" && options?.method !== "POST",
+        ),
+      ).toBe(true),
+    )
+    const readsBeforeSave = fetch.mock.calls.filter(
+      ([input, options]) =>
+        typeof input === "string" &&
+        input.startsWith("/api/hub/comments") &&
+        options?.method !== "POST",
+    ).length
+    fireEvent.load(frameRef.current!)
+    expect(screen.getByRole("textbox", { name: reviewCommentsCopy.composerLabel })).toHaveValue(
+      "Keep the comment on the source I selected.",
+    )
+    const submit = screen.getByRole("button", { name: reviewCommentsCopy.submitLabel })
+    fireEvent.click(submit)
+    await waitFor(() => expect(finishSave).toBeTypeOf("function"))
+    fireEvent.click(submit)
+    const saves = fetch.mock.calls.filter(
+      ([input, options]) => input === "/api/hub/comments" && options?.method === "POST",
+    )
+    expect(saves).toHaveLength(1)
+    expect(JSON.parse(saves[0]![1]!.body as string)).toEqual({
+      review_revision: originalRevision,
+      review_comment: {
+        body: "Keep the comment on the source I selected.",
+        anchor: octocatRootComment.anchor,
+      },
+    })
+    savedRoot = {
+      ...octocatRootComment,
+      id: 22,
+      draftRevisionId: originalRevision.id,
+      buildNumber: originalRevision.buildNumber,
+      buildPath: target === "draft revision" ? null : octocatRootComment.buildPath,
+      body: "Keep the comment on the source I selected.",
+    }
+    await act(async () => {
+      finishSave(
+        Response.json(
+          {
+            comments: [savedRoot],
+          },
+          { status: 201 },
+        ),
+      )
+      await Promise.resolve()
+    })
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: reviewCommentsCopy.composerHeading }),
+      ).not.toBeInTheDocument(),
+    )
+    await waitFor(() => expect(onStatusChange).toHaveBeenCalledOnce())
+    if (target === "published Build") {
+      await waitFor(() =>
+        expect(
+          fetch.mock.calls.filter(
+            ([input, options]) =>
+              typeof input === "string" &&
+              input.startsWith("/api/hub/comments") &&
+              options?.method !== "POST",
+          ).length,
+        ).toBeGreaterThan(readsBeforeSave),
+      )
+      const sidebar = screen.getByRole("complementary", { name: reviewCommentsCopy.heading })
+      expect(await within(sidebar).findByText(savedRoot.body!)).toBeVisible()
+    } else {
+      expect(screen.queryByText(savedRoot.body!)).not.toBeInTheDocument()
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: /^Comments, 0/ })).toHaveFocus(),
+      )
+    }
+    expect(
+      screen.queryByRole("textbox", { name: reviewCommentsCopy.composerLabel }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText(reviewCommentsCopy.createErrorLabel)).not.toBeInTheDocument()
+    expect(
+      fetch.mock.calls.filter(
+        ([input, options]) => input === "/api/hub/comments" && options?.method === "POST",
+      ),
+    ).toHaveLength(1)
     view.unmount()
   },
 )

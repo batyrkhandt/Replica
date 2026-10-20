@@ -214,12 +214,23 @@ describe("HubPanel()", () => {
         body: "Please update this heading.",
         viewerLastSeenActivityVersion: 2,
       }
+      let commentCreated = false
       const fetchMock = vi.fn<typeof fetch>().mockImplementation((input, options) => {
         if (input === "/api/hub/events") return Promise.reject(new Error("Offline"))
-        if (input === "/api/hub/comments" && options?.method === "POST")
+        if (input === "/api/hub/status")
+          return Promise.resolve(
+            Response.json({ ...publicationHub, state: "connected", prototype: importedPrototype }),
+          )
+        if (input === "/api/hub/comments" && options?.method === "POST") {
+          commentCreated = true
           return Promise.resolve(Response.json({ comments: [created] }, { status: 201 }))
+        }
         return Promise.resolve(
-          Response.json({ comments: [octocatRootComment], hasMore: false, nextCursor: null }),
+          Response.json({
+            comments: [octocatRootComment, ...(commentCreated ? [created] : [])],
+            hasMore: false,
+            nextCursor: null,
+          }),
         )
       })
       vi.stubGlobal("fetch", fetchMock)
@@ -328,6 +339,7 @@ describe("HubPanel()", () => {
       fireEvent.click(
         await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
       )
+      await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
       expect(toggle).toHaveAttribute("aria-expanded", String(commentsOpen))
       receive({ type: "replica:canvas:selected", anchor: created.anchor })
       fireEvent.change(screen.getByRole("textbox", { name: reviewCommentsCopy.composerLabel }), {

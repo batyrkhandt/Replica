@@ -134,6 +134,9 @@ export type HubStatus = {
     commitSha: string
     clean: boolean
     prototypeId: number
+    buildNumber: number | null
+    hubOrigin: string
+    connectionId: string
   }
   reviewError?: string
   prototype?: HubPrototype

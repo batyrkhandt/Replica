@@ -635,6 +635,9 @@ esac
     const prototypes = new Map()
     const draftBranches = new Set()
     let currentPrototypeId = 4
+    let currentDraftRevisionId = 11
+    let currentBuildNumber = 2
+    let currentBuildCommit = "1".padStart(40, "0")
     let accessToken = "rp_secret"
     let canRegister = true
     let draftOnlyHistory = "fresh"
@@ -676,7 +679,9 @@ esac
           canRegister,
           canManageShareLinks: true,
           published: sharingPublished,
-          build: sharingPublished ? { number: 2 } : null,
+          build: sharingPublished
+            ? { number: currentBuildNumber, commitSha: currentBuildCommit }
+            : null,
           name: prototypes.get(branch)?.name ?? null,
           description: null,
           startPage: null,
@@ -695,7 +700,7 @@ esac
         const revision = JSON.parse(body)
         draftBranches.add(revision.branch)
         result = {
-          id: 11,
+          id: currentDraftRevisionId,
           prototypeId: currentPrototypeId,
           treeSha: revision.tree_sha,
           baseCommitSha: revision.base_commit_sha,
@@ -812,7 +817,8 @@ case "$1:$2" in
   remote:get-url) echo https://github.com/\${TEST_REPOSITORY:-github/replica}.git ;;
   branch:--show-current) echo "\${TEST_BRANCH:-prototype/first}" ;;
   rev-parse:HEAD) printf '%040d\\n' "\${TEST_HEAD:-1}" ;;
-  rev-parse:HEAD^{tree}|write-tree:) printf '%040d\\n' "\${TEST_TREE:-2}" ;;
+  rev-parse:HEAD^{tree}) printf '%040d\\n' "\${TEST_HEAD_TREE:-2}" ;;
+  write-tree:) printf '%040d\\n' "\${TEST_TREE:-2}" ;;
   config:*) exit 1 ;;
 esac
 `,
@@ -1101,19 +1107,76 @@ esac
         ({ path, method }) => path.endsWith("/review_comments") && method === "POST",
       ).length
       process.env.TEST_TREE = "3"
+      currentDraftRevisionId = 12
+      assert.equal((await send("/api/hub/status")).body.reviewRevision.id, 12)
+      for (const source of ["dirty edits", "new commit"]) {
+        if (source === "new commit") {
+          process.env.TEST_HEAD = "2"
+          process.env.TEST_HEAD_TREE = "3"
+        }
+        const preparationsBeforeSave = draftPreparations()
+        const saved = await send("/api/hub/comments", "POST", {
+          review_revision: previousRevision,
+          review_comment: {
+            body: `Comment selected before ${source}`,
+            anchor: { schemaVersion: 1 },
+          },
+        })
+        assert.equal(saved.status, 201)
+        assert.equal(draftPreparations(), preparationsBeforeSave)
+        const attributes = JSON.parse(calls.at(-1).body).review_comment
+        assert.equal(attributes.draft_revision_id, 11)
+        assert.equal(attributes.build_number, undefined)
+      }
+      delete process.env.TEST_HEAD
+      delete process.env.TEST_HEAD_TREE
+      delete process.env.TEST_TREE
+      sharingPublished = true
+      const selectedBuild = (await send("/api/hub/status")).body.reviewRevision
+      assert.equal(selectedBuild.id, null)
+      assert.equal(selectedBuild.buildNumber, 2)
+      process.env.TEST_TREE = "3"
+      for (const source of ["dirty edits", "a newer published Build"]) {
+        if (source === "a newer published Build") {
+          process.env.TEST_HEAD = "2"
+          process.env.TEST_HEAD_TREE = "3"
+          currentBuildNumber = 3
+          currentBuildCommit = "2".padStart(40, "0")
+        }
+        const preparationsBeforeSave = draftPreparations()
+        assert.equal(
+          (
+            await send("/api/hub/comments", "POST", {
+              review_revision: selectedBuild,
+              review_comment: {
+                body: `Build comment after ${source}`,
+                anchor: { schemaVersion: 1 },
+              },
+            })
+          ).status,
+          201,
+        )
+        assert.equal(draftPreparations(), preparationsBeforeSave)
+        const attributes = JSON.parse(calls.at(-1).body).review_comment
+        assert.equal(attributes.build_number, 2)
+        assert.equal(attributes.draft_revision_id, undefined)
+      }
+      sharingPublished = false
+      currentDraftRevisionId = 11
+      currentBuildNumber = 2
+      currentBuildCommit = "1".padStart(40, "0")
+      delete process.env.TEST_HEAD
+      delete process.env.TEST_HEAD_TREE
+      delete process.env.TEST_TREE
       assert.equal(
         (
           await send("/api/hub/comments", "POST", {
-            review_revision: previousRevision,
-            review_comment: {
-              body: "Stale target",
-              anchor: { schemaVersion: 1 },
-            },
+            review_revision: { ...previousRevision, hubOrigin: "https://another-hub.example.com" },
+            review_comment: { body: "Wrong Hub", anchor: { schemaVersion: 1 } },
           })
         ).status,
         409,
       )
-      delete process.env.TEST_TREE
       currentPrototypeId = 9
       assert.equal(
         (
@@ -1131,7 +1194,7 @@ esac
       assert.equal(
         calls.filter(({ path, method }) => path.endsWith("/review_comments") && method === "POST")
           .length,
-        beforeChangedRevision,
+        beforeChangedRevision + 4,
       )
       assert.equal(
         (
@@ -1340,7 +1403,9 @@ esac
       assert.equal((await send("/api/hub/origin", "POST", { origin: otherHub })).status, 200)
       await send("/api/hub/pair", "POST", {})
       await send("/api/hub/poll", "POST", {})
-      assert.equal((await send("/api/hub/status")).body.state, "connected")
+      const otherHubStatus = (await send("/api/hub/status")).body
+      assert.equal(otherHubStatus.state, "connected")
+      const selectedConnection = otherHubStatus.reviewRevision
       assert.equal(draftPreparations(), beforeHubPreparation + 1)
       await send("/api/hub/status")
       assert.equal(draftPreparations(), beforeHubPreparation + 1)
@@ -1348,7 +1413,25 @@ esac
       accessToken = "rp_reconnected"
       await send("/api/hub/pair", "POST", {})
       await send("/api/hub/poll", "POST", {})
-      assert.equal((await send("/api/hub/status")).body.state, "connected")
+      const reconnectedStatus = (await send("/api/hub/status")).body
+      assert.equal(reconnectedStatus.state, "connected")
+      assert.notEqual(
+        reconnectedStatus.reviewRevision.connectionId,
+        selectedConnection.connectionId,
+      )
+      const beforeReconnectedSave = calls.filter(
+        ({ path, method }) => path.endsWith("/review_comments") && method === "POST",
+      ).length
+      const reconnectedSave = await send("/api/hub/comments", "POST", {
+        review_revision: selectedConnection,
+        review_comment: { body: "Old connection", anchor: { schemaVersion: 1 } },
+      })
+      assert.equal(reconnectedSave.status, 409, JSON.stringify(reconnectedSave.body))
+      assert.equal(
+        calls.filter(({ path, method }) => path.endsWith("/review_comments") && method === "POST")
+          .length,
+        beforeReconnectedSave,
+      )
       assert.equal(draftPreparations(), beforeHubPreparation + 2)
       assert.equal((await send("/api/hub/origin", "POST", { origin: originalHub })).status, 200)
       await send("/api/hub/status")
@@ -1412,6 +1495,7 @@ esac
       delete process.env.TEST_BRANCH
       delete process.env.TEST_REPOSITORY
       delete process.env.TEST_HEAD
+      delete process.env.TEST_HEAD_TREE
       delete process.env.TEST_TREE
       if (originalOrigin === undefined) delete process.env.REPLICA_HUB_ORIGIN
       else process.env.REPLICA_HUB_ORIGIN = originalOrigin

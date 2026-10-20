@@ -120,7 +120,7 @@ function ConnectedDemo({
           }),
         )
       }
-      if (path === "/api/hub/discovery") {
+      if (path === "/api/hub/discovery" || path === "/api/hub/status") {
         return Promise.resolve(
           new Response(JSON.stringify(props.status), {
             status: 200,
@@ -604,7 +604,12 @@ export const LocalDraftComments: Story = {
     status: {
       ...publicationHub,
       state: "connected",
-      reviewRevision: { ...publicationHub.reviewRevision!, id: 7, clean: false },
+      reviewRevision: {
+        ...publicationHub.reviewRevision!,
+        id: 7,
+        buildNumber: null,
+        clean: false,
+      },
       prototype: {
         ...importedPrototype,
         registered: false,

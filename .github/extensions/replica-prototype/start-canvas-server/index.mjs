@@ -183,6 +183,8 @@ export async function startCanvasServer(initialContext, session, options = {}) {
       status.registrationReason !== "branch_not_reviewable"
     ) {
       try {
+        const connectionId = await hub.connectionKey(status.repository)
+        if (!connectionId) throw httpError(401, "Connect to Hub before commenting.")
         const snapshot = await captureReviewRevision(context)
         if (snapshot.commitSha !== status.commitSha)
           throw httpError(
@@ -193,7 +195,7 @@ export async function startCanvasServer(initialContext, session, options = {}) {
         if (!snapshot.clean || status.prototype?.build?.commitSha !== snapshot.commitSha) {
           const key = JSON.stringify([
             hub.origin,
-            await hub.connectionKey(status.repository),
+            connectionId,
             status.repository,
             status.branch,
             snapshot.commitSha,
@@ -238,6 +240,9 @@ export async function startCanvasServer(initialContext, session, options = {}) {
             ...snapshot,
             id: revision?.id ?? null,
             prototypeId: status.prototype.id,
+            buildNumber: revision ? null : status.prototype.build.number,
+            hubOrigin: hub.origin,
+            connectionId,
           },
         }
       } catch (error) {
@@ -290,16 +295,20 @@ export async function startCanvasServer(initialContext, session, options = {}) {
         publishPreferences,
       )
     } catch (error) {
-      sendJson(response, error?.statusCode || 500, {
-        error: error instanceof Error ? error.message : String(error),
-        ...(request.url?.startsWith("/api/hub/share-links")
-          ? {
-              code: error.code,
-              deliveryPhase: error.deliveryPhase,
-              authorization: error.authorization,
-            }
-          : {}),
-      })
+      sendJson(
+        response,
+        error?.statusCode || (error?.code === "stale_comment_target" ? 409 : 500),
+        {
+          error: error instanceof Error ? error.message : String(error),
+          ...(request.url?.startsWith("/api/hub/share-links")
+            ? {
+                code: error.code,
+                deliveryPhase: error.deliveryPhase,
+                authorization: error.authorization,
+              }
+            : {}),
+        },
+      )
     }
   })
 
@@ -601,39 +610,32 @@ async function routeRequest(
   if (requestUrl.pathname === "/api/hub/comments" && request.method === "POST") {
     const body = await readJson(request, 32_768)
     const expected = body.review_revision
-    const snapshot = await captureReviewRevision(context)
     const status = await hub.status()
     if (
       !expected ||
-      snapshot.treeSha !== expected.treeSha ||
-      snapshot.commitSha !== expected.commitSha ||
+      expected.hubOrigin !== hub.origin ||
+      typeof expected.connectionId !== "string" ||
+      !expected.connectionId ||
       status.state !== "connected" ||
-      status.prototype.id !== expected.prototypeId ||
-      status.commitSha !== snapshot.commitSha
+      status.prototype?.id !== expected.prototypeId ||
+      expected.connectionId !== (await hub.connectionKey(status.repository))
     )
       throw httpError(
         409,
-        "The local preview revision changed. Refresh and select the target again before commenting.",
+        "The Hub review target changed. Select a target again before commenting.",
       )
     const attributes = {
       body: body.review_comment?.body,
       anchor: body.review_comment?.anchor,
     }
-    if (snapshot.clean && status.prototype.build?.commitSha === snapshot.commitSha) {
-      attributes.build_number = status.prototype.build.number
+    if (expected.id === null) {
+      if (!Number.isSafeInteger(expected.buildNumber) || expected.buildNumber < 1)
+        throw httpError(400, "Select a valid published Build before commenting.")
+      attributes.build_number = expected.buildNumber
     } else {
-      const revision = await hub.request("/api/canvas/draft_revision", {
-        method: "POST",
-        expectedTarget: status,
-        body: {
-          branch: status.branch,
-          tree_sha: snapshot.treeSha,
-          base_commit_sha: snapshot.commitSha,
-        },
-      })
-      if (revision.prototypeId !== status.prototype.id)
-        throw httpError(409, "The Hub prototype changed. Refresh before commenting.")
-      attributes.draft_revision_id = revision.id
+      if (!Number.isSafeInteger(expected.id) || expected.id < 1)
+        throw httpError(400, "Select a valid local revision before commenting.")
+      attributes.draft_revision_id = expected.id
     }
     const base = `/api/canvas/repositories/${status.prototype.repositoryId}/prototypes/${status.prototype.id}/review_comments`
     sendJson(
@@ -643,6 +645,7 @@ async function routeRequest(
         method: "POST",
         interactive: true,
         expectedTarget: status,
+        connectionScope: { identity: expected.connectionId },
         body: { review_comment: attributes },
       }),
     )

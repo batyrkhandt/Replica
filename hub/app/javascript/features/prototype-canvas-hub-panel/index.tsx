@@ -170,6 +170,7 @@ export function HubPanel({
   const [bridgeReady, setBridgeReady] = useState(false)
   const [bridgeProblem, setBridgeProblem] = useState("")
   const [selectionMode, setSelectionMode] = useState<"element" | "area" | null>(null)
+  const [preparingSelection, setPreparingSelection] = useState(false)
   const [selectedAnchor, setSelectedAnchor] = useState<ReviewAnchor | null>(null)
   const [selectionFailure, setSelectionFailure] = useState<
     "element-unavailable" | "area-too-small" | "area-unavailable" | null
@@ -183,7 +184,10 @@ export function HubPanel({
   const commentIdentityRef = useRef("")
   const bridgeNonceRef = useRef("")
   const selectionRevisionRef = useRef<HubStatus["reviewRevision"]>(undefined)
+  const selectionRequestRef = useRef(0)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
+  const commentsButtonRef = useRef<HTMLButtonElement>(null)
+  const restoreReviewFocusRef = useRef(false)
   const identityRef = useRef("")
   const previousOpenRef = useRef(open)
   const refreshTimer = useRef<number | undefined>(undefined)
@@ -307,7 +311,8 @@ export function HubPanel({
   const visibleThreadCount = visibleThreads.length
   const hasUnreadVisibleThreads = visibleThreads.some((thread) => thread.unread)
   const canCreateComment = Boolean(reviewRevision && prototype && !status?.reviewError)
-  const selectionBlocked = selectedAnchor !== null || draftActive || mutation !== null
+  const selectionBlocked =
+    selectedAnchor !== null || draftActive || mutation !== null || preparingSelection
   const hubVisible = open && !commentsOpen
   const reviewControlsTarget =
     typeof document === "undefined" ? null : document.getElementById("canvas-review-controls")
@@ -332,6 +337,8 @@ export function HubPanel({
     : null
   useLayoutEffect(() => {
     identityRef.current = identity
+    selectionRequestRef.current += 1
+    restoreReviewFocusRef.current = false
     return () => window.clearTimeout(refreshTimer.current)
   }, [identity])
   useLayoutEffect(() => {
@@ -341,6 +348,12 @@ export function HubPanel({
   useLayoutEffect(() => {
     if (open) closeButtonRef.current?.focus({ preventScroll: true })
   }, [open])
+  useLayoutEffect(() => {
+    if (!selectedAnchor && !mutation && !draftActive && restoreReviewFocusRef.current) {
+      restoreReviewFocusRef.current = false
+      commentsButtonRef.current?.focus({ preventScroll: true })
+    }
+  }, [selectedAnchor, mutation, draftActive])
   useEffect(() => {
     const wasOpen = previousOpenRef.current
     previousOpenRef.current = open
@@ -463,6 +476,7 @@ export function HubPanel({
       setMarkers(new Map())
       setBridgeReady(false)
       setSelectionMode(null)
+      setPreparingSelection(false)
       setSelectedAnchor(null)
       setSelectionFailure(null)
       setCreateError("")
@@ -543,26 +557,72 @@ export function HubPanel({
   )
 
   const startSelection = useCallback(
-    (mode: "element" | "area") => {
+    async (mode: "element" | "area") => {
       if (!bridgeReady || !canCreateComment || selectionBlocked) return
-      selectionRevisionRef.current = reviewRevision
+      const requestedIdentity = identity
+      const selectionRequest = ++selectionRequestRef.current
+      selectionRevisionRef.current = undefined
+      setPreparingSelection(true)
       setCreateError("")
       setSelected(null)
       setSelectionFailure(null)
       setSelectionMode(mode)
       onClose()
-      sendBridge("replica:canvas:select", { mode })
+      try {
+        const next = await request<HubStatus>("/api/hub/status", config.token)
+        if (
+          identityRef.current !== requestedIdentity ||
+          selectionRequestRef.current !== selectionRequest
+        )
+          return
+        if (
+          next.state !== "connected" ||
+          next.prototype?.id !== prototypeId ||
+          next.hubOrigin !== status?.hubOrigin ||
+          next.repository !== status?.repository ||
+          next.branch !== status?.branch ||
+          !next.reviewRevision
+        )
+          throw new Error(next.reviewError || "Hub could not prepare this comment.")
+        selectionRevisionRef.current = next.reviewRevision
+        sendBridge("replica:canvas:select", { mode })
+      } catch (cause) {
+        if (
+          identityRef.current === requestedIdentity &&
+          selectionRequestRef.current === selectionRequest
+        ) {
+          setSelectionMode(null)
+          setCreateError(cause instanceof Error ? cause.message : String(cause))
+        }
+      } finally {
+        if (selectionRequestRef.current === selectionRequest) setPreparingSelection(false)
+      }
     },
-    [bridgeReady, canCreateComment, onClose, reviewRevision, selectionBlocked, sendBridge],
+    [
+      bridgeReady,
+      canCreateComment,
+      config.token,
+      identity,
+      onClose,
+      prototypeId,
+      selectionBlocked,
+      sendBridge,
+      status,
+    ],
   )
 
   const cancelSelection = useCallback(() => {
     if (!selectionMode) return
+    selectionRequestRef.current += 1
+    selectionRevisionRef.current = undefined
+    setPreparingSelection(false)
     sendBridge("replica:canvas:cancel-selection")
     setSelectionMode(null)
   }, [selectionMode, sendBridge])
 
   const clearSelection = useCallback(() => {
+    selectionRequestRef.current += 1
+    selectionRevisionRef.current = undefined
     sendBridge("replica:canvas:clear-selection")
     setSelectedAnchor(null)
     setSelectionFailure(null)
@@ -729,8 +789,9 @@ export function HubPanel({
       }
     }
     function onFrameLoad() {
+      selectionRequestRef.current += 1
+      setPreparingSelection(false)
       setSelectionMode(null)
-      setSelectedAnchor(null)
       setSelectionFailure(null)
       requestBridgeState()
     }
@@ -850,14 +911,29 @@ export function HubPanel({
       if (identityRef.current !== requestedIdentity) return false
       const root = result.comments.find((comment) => comment.kind === "root")
       if (!root) return false
-      setCommentState((previous) => {
-        if (previous.identity !== requestedCommentIdentity) return previous
-        const merged = new Map(previous.items.map((comment) => [comment.id, comment]))
-        for (const comment of result.comments) merged.set(comment.id, comment)
-        return { identity: requestedCommentIdentity, items: [...merged.values()] }
-      })
+      const visibleHere = root.buildNumber !== null || root.draftRevisionId === draftRevisionId
+      if (visibleHere) {
+        setCommentState((previous) => {
+          if (previous.identity !== requestedCommentIdentity) return previous
+          const merged = new Map(previous.items.map((comment) => [comment.id, comment]))
+          for (const comment of result.comments) merged.set(comment.id, comment)
+          return { identity: requestedCommentIdentity, items: [...merged.values()] }
+        })
+      }
+      const openThread = visibleHere && commentIdentityRef.current === requestedCommentIdentity
+      restoreReviewFocusRef.current = !openThread
       clearSelection()
-      setSelected(root.id)
+      if (openThread) setSelected(root.id)
+      void onStatusChange()
+        .then(() => {
+          if (identityRef.current === requestedIdentity) return loadCommentsRef.current()
+        })
+        .catch((cause: unknown) => {
+          if (identityRef.current === requestedIdentity) {
+            const message = cause instanceof Error ? cause.message : String(cause)
+            setError(`The comment was saved, but Hub could not be refreshed: ${message}`)
+          }
+        })
       return true
     } catch (cause) {
       if (identityRef.current === requestedIdentity) {
@@ -1039,10 +1115,11 @@ export function HubPanel({
                 selectionBlocked={selectionBlocked}
                 selecting={selectionMode !== null}
                 onCancelSelection={cancelSelection}
-                onStartAreaSelection={() => startSelection("area")}
-                onStartElementSelection={() => startSelection("element")}
+                onStartAreaSelection={() => void startSelection("area")}
+                onStartElementSelection={() => void startSelection("element")}
               />
               <Tooltip
+                ref={commentsButtonRef}
                 text={
                   selectionBlocked
                     ? reviewCommentsCopy.selectionBlockedLabel
@@ -1454,7 +1531,9 @@ export function HubPanel({
                 : reviewCommentsCopy.selectionFailedLabel
             : null
         }
-        rateLimitNotice={rateLimitMessage && !hubVisible ? rateLimitMessage : null}
+        rateLimitNotice={
+          !hubVisible ? rateLimitMessage || (!selectedAnchor && createError) || null : null
+        }
         composer={
           selectedAnchor && selectedAnchorPoint
             ? {
