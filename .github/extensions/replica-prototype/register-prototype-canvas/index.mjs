@@ -926,10 +926,9 @@ export async function registerPrototypeCanvas(
             contextOptions.sessionWorkspacePath,
             contextOptions.repositoryPath,
           )
-          const input =
-            ctx.input?.prototypeUrl || existing
-              ? { ...existing?.input, ...ctx.input }
-              : { ...(await connection.read()), ...ctx.input }
+          const input = ctx.input?.prototypeUrl
+            ? ctx.input
+            : { ...(existing?.input ?? (await connection.read())), ...ctx.input }
           let entry = existing
           if (!entry) {
             let devServer

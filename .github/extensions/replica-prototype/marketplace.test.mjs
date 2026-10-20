@@ -16,7 +16,7 @@ it("resolves the marketplace's relative source to the shipped plugin", async () 
   )
   const manifest = JSON.parse(await readFile(new URL(`${plugin.source}/plugin.json`, root)))
   assert.equal(manifest.name, plugin.name)
-  assert.equal(manifest.version, "1.3.1")
+  assert.equal(manifest.version, "1.4.0")
   for (const name of ["replica-publish-prototype", "replica-pick-and-polish"]) {
     const skill = (
       await readFile(new URL(`${plugin.source}/skills/${name}/SKILL.md`, root), "utf8")

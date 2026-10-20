@@ -59,18 +59,6 @@ function checkNote(note, owner) {
         note.syncedRevision < 1 ||
         note.syncedRevision > note.revision)) ||
     !statuses.has(note.status) ||
-    !note.anchor ||
-    note.anchor.schemaVersion !== 1 ||
-    !["element", "area"].includes(note.anchor.kind) ||
-    typeof note.anchor.route?.pathname !== "string" ||
-    !note.anchor.route.pathname.startsWith("/") ||
-    typeof note.anchor.route.search !== "string" ||
-    typeof note.anchor.route.hash !== "string" ||
-    Buffer.byteLength(JSON.stringify(note.anchor)) > 16_384 ||
-    !["x", "y", "width", "height"].every((key) => Number.isFinite(note.anchor.rect?.[key])) ||
-    note.anchor.rect.width <= 0 ||
-    note.anchor.rect.height <= 0 ||
-    (note.anchor.kind === "area" && (note.anchor.rect.width < 8 || note.anchor.rect.height < 8)) ||
     typeof note.capture !== "string" ||
     note.capture.length > maximumCapture ||
     (note.capture !== "" && !/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(note.capture))
@@ -90,6 +78,27 @@ function checkNote(note, owner) {
   if (note.status !== aggregate && !(note.status === "resolved" && aggregate === "ready"))
     fail("The improvement status does not match its requested work.")
   return note
+}
+
+function invalidateBatchRequests(record) {
+  for (const batch of record.batches) {
+    if (!["requested", "delivery_unknown"].includes(batch.state)) continue
+    const invalidated = new Set(batch.invalidatedRequestIds ?? [])
+    for (const captured of batch.notes) {
+      const note = record.notes.find((item) => item.localId === captured.localId && !item.deleted)
+      const sent = note ? requestIds(note, "sent") : []
+      for (const id of captured.requestIds ?? [captured.localId]) {
+        if (!sent.includes(id)) invalidated.add(id)
+      }
+    }
+    if (invalidated.size) batch.invalidatedRequestIds = [...invalidated]
+    if (
+      batch.notes.every((captured) =>
+        (captured.requestIds ?? [captured.localId]).every((id) => invalidated.has(id)),
+      )
+    )
+      batch.state = "cancelled"
+  }
 }
 
 export function createImprovementNotes(getContext, session, getHub, options = {}) {
@@ -147,6 +156,12 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
       !Array.isArray(record.notes) ||
       record.notes.length > maximumNotes ||
       !Array.isArray(record.batches) ||
+      record.batches.some(
+        (batch) =>
+          batch.invalidatedRequestIds !== undefined &&
+          (!Array.isArray(batch.invalidatedRequestIds) ||
+            batch.invalidatedRequestIds.some((id) => typeof id !== "string")),
+      ) ||
       !Number.isSafeInteger(record.nextId) ||
       (record.ownershipClaims !== undefined &&
         (!Array.isArray(record.ownershipClaims) || record.ownershipClaims.length > maximumNotes))
@@ -346,7 +361,7 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
             note.revision++
             note.sync = "local"
             checkNote(note, record.owner)
-            if (requestIds(note, "sent").length) requireAnswerRoom(note)
+            requireAnswerRoom(note)
             changes.push({
               id: note.id,
               localId: note.localId,
@@ -425,7 +440,7 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
             if (profile?.owner) record.owner = profile.owner
             note.thread.version = 2
           }
-          requireAnswerRoom(note, requestIds(note, "sent").length ? 2 : 1)
+          requireAnswerRoom(note)
           note.status = "open"
         } else if (input.operation === "delete") note.deleted = true
         else if (
@@ -448,11 +463,7 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
         note.revision++
         note.sync = "local"
         checkNote(note, record.owner)
-        if (!record.notes.some((item) => !item.deleted && requestIds(item, "sent").length)) {
-          for (const batch of record.batches) {
-            if (["requested", "delivery_unknown"].includes(batch.state)) batch.state = "cancelled"
-          }
-        }
+        invalidateBatchRequests(record)
       })
     },
     async sync(input) {
@@ -497,14 +508,44 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
         record.owner = owner
         record.syncError = null
         try {
-          const remote = await hub.request(base, requestOptions)
-          if (
-            ![1, 2].includes(remote.threadVersion) ||
-            record.notes.some((note) => note.thread.version > remote.threadVersion)
-          )
+          const remote = { notes: [], threadVersion: undefined }
+          const cursors = new Set()
+          let cursor
+          do {
+            const page = await hub.request(
+              cursor === undefined ? base : `${base}?cursor=${encodeURIComponent(cursor)}`,
+              requestOptions,
+            )
+            if (![1, 2].includes(page.threadVersion))
+              fail("Upgrade Hub to synchronize improvement conversations.", 409)
+            if (
+              (remote.threadVersion !== undefined && page.threadVersion !== remote.threadVersion) ||
+              !Array.isArray(page.notes) ||
+              page.notes.length + remote.notes.length > maximumNotes
+            )
+              fail("Hub returned an invalid improvement-note collection.", 502)
+            remote.threadVersion = page.threadVersion
+            remote.notes.push(...page.notes)
+            if (page.hasMore === undefined && page.nextCursor === undefined && cursor === undefined)
+              break
+            if (
+              typeof page.hasMore !== "boolean" ||
+              (page.hasMore
+                ? !page.notes.length ||
+                  typeof page.nextCursor !== "string" ||
+                  !page.nextCursor ||
+                  cursors.has(page.nextCursor)
+                : page.nextCursor !== null)
+            )
+              fail("Hub returned invalid improvement-note pagination.", 502)
+            if (!page.hasMore) break
+            cursor = page.nextCursor
+            cursors.add(cursor)
+          } while (cursor !== undefined)
+          if (new Set(remote.notes.map((note) => note.localId)).size !== remote.notes.length)
+            fail("Hub returned duplicate improvement notes.", 502)
+          if (record.notes.some((note) => note.thread.version > remote.threadVersion))
             fail("Upgrade Hub to synchronize improvement conversations.", 409)
-          if (!Array.isArray(remote.notes) || remote.notes.length > maximumNotes)
-            fail("Hub returned an invalid improvement-note collection.", 502)
           for (const item of remote.notes) {
             if (item.kind !== "improvement_note" || item.author?.login !== owner.login)
               fail("Hub returned another author's improvement note.", 502)
@@ -520,10 +561,7 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
                 id: existing?.id ?? record.nextId++,
                 localId: item.localId,
                 kind: "improvement_note",
-                author:
-                  existing?.author === "local" && !item.thread?.originalAuthor
-                    ? "local"
-                    : owner.login,
+                author: item.thread?.originalAuthor ? owner.login : "local",
                 revision: item.revision,
                 syncedRevision: item.revision,
                 body: item.body ?? existing?.body ?? "Deleted improvement note",
@@ -552,20 +590,7 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
           record.syncError = `Hub sync failed: ${error.message}. Your notes remain saved locally.`
           return
         }
-        for (const batch of record.batches) {
-          if (!["requested", "delivery_unknown"].includes(batch.state)) continue
-          const hasUnchangedSentNote = batch.notes.some((captured) =>
-            record.notes.some(
-              (note) =>
-                note.localId === captured.localId &&
-                !note.deleted &&
-                (captured.requestIds ?? [captured.localId]).some((id) =>
-                  requestIds(note, "sent").includes(id),
-                ),
-            ),
-          )
-          if (!hasUnchangedSentNote) batch.state = "cancelled"
-        }
+        invalidateBatchRequests(record)
         for (const note of record.notes.filter((item) => item.sync !== "synced")) {
           try {
             const result = await hub.request(base, {
@@ -595,7 +620,7 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
           } catch (error) {
             note.sync = "failed"
             record.syncError = `Hub sync failed: ${error.message}. Your notes remain saved locally.`
-            break
+            if (![409, 422].includes(error.statusCode)) break
           }
         }
       })
@@ -716,7 +741,10 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
           if (
             note &&
             !note.deleted &&
-            capturedIds.every((id) => requestIds(note, "sent").includes(id))
+            capturedIds.every(
+              (id) =>
+                !batch.invalidatedRequestIds?.includes(id) && requestIds(note, "sent").includes(id),
+            )
           ) {
             updateRequests(note, capturedIds, result.status)
             note.thread.messages.push({

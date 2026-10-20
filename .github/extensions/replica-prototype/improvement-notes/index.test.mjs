@@ -1,10 +1,9 @@
 import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
-import { createHash } from "node:crypto"
-import fs, { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { createHash, randomUUID } from "node:crypto"
+import fs, { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { syncBuiltinESMExports } from "node:module"
-import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
 import { it, mock } from "node:test"
@@ -27,9 +26,9 @@ async function bundledInstructions() {
 }
 
 async function fixture(run) {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "replica-polish-"))
+  const directory = path.join(process.cwd(), "storage/replica-extension-tests", randomUUID())
   const root = path.join(directory, "checkout")
-  await mkdir(root)
+  await mkdir(root, { recursive: true })
   const exec = promisify(execFile)
   await exec("git", ["init", "-q", "-b", "prototype/demo", root])
   await exec("git", [
@@ -1519,7 +1518,7 @@ it("cancels sent work even after a follow-up reopens the thread and rejects its 
   })
 })
 
-it("reserves bounded room for a Unicode answer and preserves saved history when full", async () => {
+it("reserves escaped answer bytes and preserves saved history when full", async () => {
   await fixture(async ({ create, anchor }) => {
     const store = create()
     let state = await store.save({
@@ -1552,13 +1551,13 @@ it("reserves bounded room for a Unicode answer and preserves saved history when 
       {
         localId: batch.notes[0].localId,
         revision: batch.notes[0].revision,
-        status: "ready",
-        message: "界".repeat(2000),
+        status: "blocked",
+        message: "\0".repeat(2000),
       },
     ]
     await store.results({ batchId: batch.id, results })
     state = await store.load()
-    assert.equal(state.notes[0].status, "ready")
+    assert.equal(state.notes[0].status, "blocked")
     assert.equal(state.notes[0].thread.messages.at(-1).body, results[0].message)
     assert.ok(Buffer.byteLength(JSON.stringify(state.notes[0].thread)) <= 32_768)
     assert.deepEqual(await create().load(), state)
@@ -1699,8 +1698,8 @@ it("reserves both the in-flight answer and the next explicit batch answer when a
         {
           localId: first.notes[0].localId,
           revision: first.notes[0].revision,
-          status: "ready",
-          message: "界".repeat(2000),
+          status: "blocked",
+          message: "\0".repeat(2000),
         },
       ],
     })
@@ -1714,13 +1713,13 @@ it("reserves both the in-flight answer and the next explicit batch answer when a
         {
           localId: second.notes[0].localId,
           revision: second.notes[0].revision,
-          status: "ready",
-          message: "界".repeat(2000),
+          status: "blocked",
+          message: "\0".repeat(2000),
         },
       ],
     })
     state = await store.load()
-    assert.equal(state.notes[0].status, "ready")
+    assert.equal(state.notes[0].status, "blocked")
     assert.equal(
       state.notes[0].thread.messages.filter((message) => message.role === "copilot").length,
       2,
@@ -1753,3 +1752,375 @@ it("rejects an oversized serialized thread before persisting or dispatching a ba
     assert.deepEqual(await store.load(), state)
   })
 })
+
+for (const status of ["open", "sent"]) {
+  it(`rejects an ownership claim atomically when snapshots consume reserved ${status} answer space`, async () => {
+    await fixture(async ({ create, anchor, directory }) => {
+      const offline = create()
+      let state = await offline.load()
+      for (const body of ["Small original", "Full conversation"])
+        state = await offline.save({ ...state, operation: "create", body, anchor })
+      for (;;) {
+        try {
+          state = await offline.save({
+            ...state,
+            operation: "follow-up",
+            id: 2,
+            expectedNoteRevision: state.notes[1].revision,
+            body: "x".repeat(300),
+          })
+        } catch (error) {
+          assert.match(error.message, /conversation is full/)
+          break
+        }
+      }
+      if (status === "sent") await offline.fix(state)
+      const hub = {
+        origin: "https://hub.example.com",
+        status: async () => ({
+          state: "connected",
+          repository: "example/prototype",
+          branch: "prototype/demo",
+          prototype: { viewerId: 7, viewerLogin: "mona" },
+        }),
+      }
+      const connected = create(async () => hub)
+      state = await connected.load()
+      const file = path.join(directory, "notes", `${state.identity}.json`)
+      const before = await readFile(file, "utf8")
+      await assert.rejects(
+        connected.save({
+          ...state,
+          operation: "claim",
+          noteIds: [1, 2],
+          expectedOwner: { origin: hub.origin, id: 7, login: "mona" },
+        }),
+        (error) => error.statusCode === 422 && /conversation is full/.test(error.message),
+      )
+      assert.equal(await readFile(file, "utf8"), before)
+      assert.deepEqual(await connected.load(), state)
+    })
+  })
+}
+
+it("saves and pulls the canonical validator's zero-size elements and narrow areas", async () => {
+  await fixture(async ({ create, anchor, directory }) => {
+    const remote = []
+    const hub = {
+      origin: "https://hub.example.com",
+      status: async () => ({
+        state: "connected",
+        repository: "example/prototype",
+        branch: "prototype/demo",
+        prototype: { id: 7, repositoryId: 9, viewerLogin: "octocat", viewerId: 1 },
+      }),
+      request: async (_url, options) => {
+        if (options.method !== "POST") return { threadVersion: 2, notes: remote }
+        const input = options.body
+        remote.push({
+          ...input,
+          localId: input.local_id,
+          kind: "improvement_note",
+          author: { login: "octocat" },
+        })
+        return { localId: input.local_id, revision: input.revision, thread: input.thread }
+      },
+    }
+    const store = create(async () => hub)
+    const element = { ...anchor, rect: { ...anchor.rect, width: 0, height: 0 } }
+    const area = {
+      schemaVersion: 1,
+      kind: "area",
+      route: anchor.route,
+      viewport: anchor.viewport,
+      rect: { x: 20, y: 30, width: 4, height: 20 },
+      path: [
+        { x: 0, y: 0 },
+        { x: 1, y: 1 },
+      ],
+      elements: [],
+    }
+    let state = await store.load()
+    for (const target of [element, area])
+      state = await store.save({
+        ...state,
+        operation: "create",
+        body: "Improve this target",
+        anchor: target,
+      })
+    state = await store.sync(state)
+    assert.equal(state.syncError, null)
+    const clone = create(async () => hub, { directory: path.join(directory, "clone") })
+    const pulled = await clone.sync(await clone.load())
+    assert.equal(pulled.syncError, null)
+    assert.deepEqual(
+      pulled.notes.map(({ anchor }) => anchor),
+      [element, area],
+    )
+  })
+})
+
+it("keeps a freshly pulled original unattributed until explicitly claimed despite attributed follow-ups", async () => {
+  await fixture(async ({ create, anchor }) => {
+    const author = { id: 1, login: "octocat", avatarUrl: null }
+    const hub = {
+      origin: "https://hub.example.com",
+      status: async () => ({
+        state: "connected",
+        repository: "example/prototype",
+        branch: "prototype/demo",
+        prototype: { id: 7, repositoryId: 9, viewerLogin: author.login, viewerId: author.id },
+      }),
+      request: async () => ({
+        threadVersion: 2,
+        notes: [
+          {
+            localId: randomUUID(),
+            kind: "improvement_note",
+            revision: 1,
+            body: "Unattributed original",
+            status: "open",
+            anchor,
+            author: { login: author.login },
+            thread: {
+              version: 2,
+              originalStatus: "ready",
+              messages: [
+                {
+                  id: randomUUID(),
+                  role: "author",
+                  body: "Owned follow-up",
+                  status: "open",
+                  author,
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    }
+    const store = create(async () => hub)
+    let state = await store.sync(await store.load())
+    assert.equal(state.syncError, null)
+    assert.equal(state.notes[0].author, "local")
+    assert.equal(state.notes[0].authorProfile, undefined)
+    assert.equal(state.notes[0].thread.originalAuthor, undefined)
+    assert.deepEqual(state.notes[0].thread.messages[0].author, author)
+    state = await create(async () => hub).load()
+    assert.equal(state.notes[0].author, "local")
+    state = await store.save({
+      ...state,
+      operation: "claim",
+      noteIds: [1],
+      expectedOwner: { origin: hub.origin, id: author.id, login: author.login },
+    })
+    assert.deepEqual(state.notes[0].thread.originalAuthor, author)
+  })
+})
+
+for (const statusCode of [409, 422, undefined, 401, 403, 429, 500]) {
+  it(`${[409, 422].includes(statusCode) ? "continues independent uploads after" : "stops uploads after"} ${statusCode ?? "a connection failure"} without clearing its error`, async () => {
+    await fixture(async ({ create, anchor }) => {
+      const uploaded = []
+      const hub = {
+        origin: "https://hub.example.com",
+        status: async () => ({
+          state: "connected",
+          repository: "example/prototype",
+          branch: "prototype/demo",
+          prototype: { id: 7, repositoryId: 9, viewerLogin: "octocat", viewerId: 1 },
+        }),
+        request: async (_url, options) => {
+          if (options.method !== "POST") return { threadVersion: 2, notes: [] }
+          uploaded.push(options.body.local_id)
+          if (uploaded.length === 1)
+            throw Object.assign(new Error("First upload rejected"), { statusCode })
+          return {
+            localId: options.body.local_id,
+            revision: options.body.revision,
+            thread: options.body.thread,
+          }
+        },
+      }
+      const store = create(async () => hub)
+      let state = await store.load()
+      for (const body of ["First", "Second"])
+        state = await store.save({ ...state, operation: "create", body, anchor })
+      state = await store.sync(state)
+      const continues = [409, 422].includes(statusCode)
+      assert.deepEqual(
+        uploaded,
+        state.notes.slice(0, continues ? 2 : 1).map(({ localId }) => localId),
+      )
+      assert.equal(state.notes[0].sync, "failed")
+      assert.equal(state.notes[1].sync, continues ? "synced" : "local")
+      assert.match(state.syncError, /First upload rejected/)
+      assert.equal((await store.load()).syncError, state.syncError)
+    })
+  })
+}
+
+it("ignores an old batch's reopened request after a remote resend while another note keeps the batch alive", async () => {
+  await fixture(async ({ create, anchor }) => {
+    const remote = []
+    const hub = {
+      origin: "https://hub.example.com",
+      status: async () => ({
+        state: "connected",
+        repository: "example/prototype",
+        branch: "prototype/demo",
+        prototype: { id: 7, repositoryId: 9, viewerLogin: "octocat", viewerId: 1 },
+      }),
+      request: async (_url, options) => {
+        if (options.method !== "POST") return { threadVersion: 2, notes: structuredClone(remote) }
+        const input = options.body
+        const note = {
+          ...input,
+          localId: input.local_id,
+          kind: "improvement_note",
+          author: { login: "octocat" },
+          thread: structuredClone(input.thread),
+        }
+        const index = remote.findIndex(({ localId }) => localId === note.localId)
+        if (index < 0) remote.push(note)
+        else remote[index] = note
+        return { localId: note.localId, revision: note.revision, thread: note.thread }
+      },
+    }
+    const store = create(async () => hub)
+    let state = await store.load()
+    for (const body of ["Reopened elsewhere", "Still in this batch"])
+      state = await store.save({ ...state, operation: "create", body, anchor })
+    state = await store.fix(state)
+    const batch = await store.batch({ batchId: state.activeBatch })
+    state = await store.sync(state)
+    for (const status of ["open", "sent"]) {
+      remote[0].revision++
+      remote[0].status = status
+      remote[0].thread.originalStatus = status
+      state = await store.sync(state)
+      assert.equal(state.activeBatch, batch.id)
+    }
+    const restarted = create(async () => hub)
+    await restarted.results({
+      batchId: batch.id,
+      results: batch.notes.map(({ localId, revision }) => ({
+        localId,
+        revision,
+        status: "ready",
+        message: "Old attempt completed",
+      })),
+    })
+    state = await restarted.load()
+    assert.equal(state.notes[0].status, "sent")
+    assert.equal(state.notes[0].thread.messages.length, 0)
+    assert.equal(state.notes[1].status, "ready")
+    assert.equal(state.notes[1].thread.messages.at(-1).body, "Old attempt completed")
+  })
+})
+
+for (const scenario of [
+  "complete",
+  "second page fails",
+  "repeated cursor",
+  "invalid cursor",
+  "inconsistent final cursor",
+  "inconsistent version",
+  "partial legacy page",
+]) {
+  it(`${scenario === "complete" ? "collects every page before applying remote notes or uploading" : `preserves every local note and skips uploads after ${scenario}`}`, async () => {
+    await fixture(async ({ create, anchor }) => {
+      let paging = false
+      let pageReads = 0
+      const uploaded = []
+      const remote = []
+      const cursor = "opaque page?two/"
+      const calls = []
+      const hub = {
+        origin: "https://hub.example.com",
+        status: async () => ({
+          state: "connected",
+          repository: "example/prototype",
+          branch: "prototype/demo",
+          prototype: { id: 7, repositoryId: 9, viewerLogin: "octocat", viewerId: 1 },
+        }),
+        request: async (url, options) => {
+          if (options.method === "POST") {
+            uploaded.push(options.body.local_id)
+            if (paging) calls.push("upload")
+            return {
+              localId: options.body.local_id,
+              revision: options.body.revision,
+              thread: options.body.thread,
+            }
+          }
+          if (!paging) return { threadVersion: 2, notes: [] }
+          assert.ok(++pageReads <= 2, "a repeated cursor must not trigger another request")
+          const requestedCursor = new URL(url, hub.origin).searchParams.get("cursor")
+          calls.push(requestedCursor === null ? "first page" : "second page")
+          if (requestedCursor === null) {
+            return {
+              threadVersion: 2,
+              notes: [remote[0]],
+              hasMore: true,
+              nextCursor: scenario === "invalid cursor" ? 42 : cursor,
+            }
+          }
+          assert.equal(requestedCursor, cursor)
+          if (scenario === "second page fails") throw new Error("Later page unavailable")
+          if (scenario === "partial legacy page") return { threadVersion: 2, notes: [remote[1]] }
+          return {
+            threadVersion: scenario === "inconsistent version" ? 1 : 2,
+            notes: [remote[1]],
+            hasMore: scenario === "repeated cursor",
+            nextCursor: ["repeated cursor", "inconsistent final cursor"].includes(scenario)
+              ? cursor
+              : null,
+          }
+        },
+      }
+      const store = create(async () => hub)
+      let state = await store.load()
+      for (const body of ["First remote note", "Second remote note"])
+        state = await store.save({ ...state, operation: "create", body, anchor })
+      state = await store.sync(state)
+      assert.equal(state.syncError, null)
+      for (const note of state.notes) {
+        remote.push({
+          ...structuredClone(note),
+          revision: note.revision + 1,
+          status: "ready",
+          author: { login: "octocat" },
+          thread: { ...structuredClone(note.thread), originalStatus: "ready" },
+        })
+      }
+      state = await store.save({
+        ...state,
+        operation: "create",
+        body: "Pending local upload",
+        anchor,
+      })
+      const before = structuredClone(state.notes)
+      uploaded.length = 0
+      paging = true
+      state = await store.sync(state)
+      if (scenario === "complete") {
+        assert.equal(state.syncError, null)
+        assert.deepEqual(calls, ["first page", "second page", "upload"])
+        assert.deepEqual(
+          state.notes.map(({ status }) => status),
+          ["ready", "ready", "open"],
+        )
+        assert.deepEqual(uploaded, [state.notes[2].localId])
+      } else {
+        assert.match(
+          state.syncError,
+          scenario === "second page fails" ? /Later page unavailable/ : /Hub sync failed/,
+        )
+        assert.deepEqual(state.notes, before)
+        assert.deepEqual(uploaded, [])
+        assert.deepEqual((await store.load()).notes, before)
+      }
+    })
+  })
+}

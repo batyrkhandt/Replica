@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto"
 
 export const maximumThreadBytes = 32_768
-export const answerReserveBytes = 11_000
 const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/
 const workStatuses = new Set(["open", "sent", "ready", "blocked"])
 
@@ -131,11 +130,24 @@ export function updateRequests(note, ids, status) {
     ["open", "sent", "blocked"].find((value) => requestIds(note, value).length) ?? "ready"
 }
 
-export function requireAnswerRoom(note, answers = 1) {
+export function requireAnswerRoom(note) {
+  const pending = structuredClone(note)
+  const groups = ["sent", "open"]
+    .map((status) => requestIds(pending, status))
+    .filter((ids) => ids.length)
+  for (const ids of groups) {
+    updateRequests(pending, ids, "blocked")
+    pending.thread.messages.push({
+      id: "ffffffff-ffff-ffff-ffff-ffffffffffff",
+      role: "copilot",
+      body: "\u0000".repeat(2000),
+      status: "blocked",
+      requestIds: ids,
+    })
+  }
   if (
-    note.thread.messages.length + answers > 100 ||
-    Buffer.byteLength(JSON.stringify(note.thread)) >
-      maximumThreadBytes - answerReserveBytes * answers
+    pending.thread.messages.length > 100 ||
+    Buffer.byteLength(JSON.stringify(pending.thread)) > maximumThreadBytes
   )
     throw Object.assign(
       new Error("This conversation is full. Add a new improvement to request further changes."),

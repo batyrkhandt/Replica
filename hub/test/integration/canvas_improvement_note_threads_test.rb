@@ -234,7 +234,241 @@ class CanvasImprovementNoteThreadsTest < ActionDispatch::IntegrationTest
     assert_nil response.parsed_body.fetch("notes").sole.fetch("thread")
   end
 
+  test "all note collections paginate complete captures within the serialized response budget" do
+    notes = 4.times.map do |index|
+      create_note(capture: "data:image/png;base64,#{"A" * 1_400_000}#{index}")
+    end
+    expected = notes.index_by(&:id)
+    collections = [
+      [ @path, "notes", {} ],
+      *[ @comments_path, canvas_api_repository_review_comments_path(@repository.route_id) ].flat_map do |path|
+        %w[include only].map { [ path, "comments", { improvement_notes: _1 } ] }
+      end
+    ]
+
+    collections.each do |path, key, filters|
+      received = []
+      cursor = nil
+      completed = false
+      (notes.length + 1).times do
+        batches = []
+        subscriber = ->(event) do
+          batches << event.payload.fetch(:record_count) if event.payload[:class_name] == "ReviewComment"
+        end
+        ActiveSupport::Notifications.subscribed(subscriber, "instantiation.active_record") do
+          get path, params: filters.merge(cursor:).compact, headers: @headers
+        end
+        assert_response :success
+        assert_operator response.body.bytesize, :<=, 2 * 1024 * 1024
+        assert_operator batches.max || 0, :<=, 2, "must not load every large capture before selecting a page"
+        page = response.parsed_body
+        records = page.fetch(key)
+        assert_not_empty records
+        records.each do |record|
+          original = expected.fetch(record.fetch("id"))
+          assert_equal original.capture, record.fetch("capture")
+          assert_equal original.body, record.fetch("body")
+          assert_equal original.anchor, record.fetch("anchor")
+          assert_equal original.note_thread, record.fetch("thread")
+        end
+        received.concat(records.pluck("id"))
+        unless page.fetch("hasMore")
+          assert_nil page.fetch("nextCursor")
+          completed = true
+          break
+        end
+
+        next_cursor = page.fetch("nextCursor")
+        assert next_cursor.is_a?(String) && next_cursor.present?
+        assert_not_equal cursor, next_cursor
+        cursor = next_cursor
+      end
+      assert completed, "note pagination must terminate"
+      assert_equal expected.keys.sort, received.sort
+      assert_equal received.uniq, received, "note pages must not repeat records"
+    end
+  end
+
+  test "small creator collections remain complete through the default 200 notes including tombstones" do
+    notes = 200.times.map { create_note }
+    notes.last.update!(body: nil, deleted_at: Time.current)
+    create_note(user: users.create(github_id: 1002, login: "mona"))
+
+    get @path, headers: @headers
+
+    assert_response :success
+    page = response.parsed_body
+    assert_equal notes.map(&:id).sort, page.fetch("notes").pluck("id").sort
+    tombstone = page.fetch("notes").find { _1.fetch("id") == notes.last.id }
+    assert_not_nil tombstone.fetch("deletedAt")
+    assert_nil tombstone.fetch("body")
+    assert_nil tombstone.fetch("thread")
+    assert_equal false, page.fetch("hasMore")
+    assert_nil page.fetch("nextCursor")
+  end
+
+  test "creator continuation cursors cannot cross viewers prototypes or list and filter contexts" do
+    2.times { create_note }
+    get @path, params: { pageSize: 1 }, headers: @headers
+    assert_response :success
+    cursor = response.parsed_body.fetch("nextCursor")
+    assert_not_nil cursor
+    other_prototype = prototypes.create(repository: @repository, branch_name: "prototype/other")
+    other_path = canvas_api_improvement_notes_path(@repository.route_id, other_prototype)
+    get other_path, params: { cursor: }, headers: @headers
+    assert_response :bad_request
+
+    [ @comments_path, canvas_api_repository_review_comments_path(@repository.route_id) ].each do |path|
+      %w[exclude include only].each do |filter|
+        get path, params: { cursor:, improvement_notes: filter }, headers: @headers
+        assert_response :bad_request
+      end
+      get path, params: { pageSize: 1, improvement_notes: "only" }, headers: @headers
+      assert_response :success
+      list_cursor = response.parsed_body.fetch("nextCursor")
+      assert_not_nil list_cursor
+      get @path, params: { cursor: list_cursor }, headers: @headers
+      assert_response :bad_request
+    end
+
+    other = users.create(github_id: 1002, login: "mona")
+    token = "rp_#{SecureRandom.urlsafe_base64(32)}"
+    CanvasGrant.create! \
+      repository: @repository, user: other,
+      token_digest: Digest::SHA256.hexdigest(token), expires_at: 7.days.from_now
+    stub_github_permissions([ repository_payload(2001, "github/prototype") ], { 2001 => "push" },
+      github_id: other.github_id, login: other.login)
+    get @path, params: { cursor: }, headers: { "Authorization" => "Bearer #{token}" }
+    assert_response :bad_request
+  end
+
+  test "malformed scalar fields are rejected before existing notes can be selected or changed" do
+    input = note_input
+    post_note(input)
+    assert_response :success
+    saved = @prototype.improvement_notes.sole
+    original = saved.attributes
+    invalid = %i[local_id body status capture].flat_map do |field|
+      [ 42, true, [], {} ].map { [ field, _1 ] }
+    end
+    invalid << [ :local_id, [ input[:local_id] ] ]
+
+    assert_no_difference "ReviewComment.count" do
+      invalid.each do |field, value|
+        post_note(next_revision(input).merge(field => value))
+        assert_response :bad_request, "#{field} must reject #{value.inspect}"
+        assert_equal original, saved.reload.attributes
+      end
+    end
+  end
+
+  test "note mutation capabilities require both ownership and repository write access" do
+    own = create_note
+    deleted = create_note
+    deleted.update!(body: nil, deleted_at: Time.current)
+    create_note(user: users.create(github_id: 1002, login: "mona"))
+    collections = [
+      [ @path, "notes", {} ],
+      [ @comments_path, "comments", { improvement_notes: "include" } ],
+      [ canvas_api_repository_review_comments_path(@repository.route_id), "comments", { improvement_notes: "only" } ]
+    ]
+    [ [ 0, true ], [ 2.minutes, false ] ].each do |elapsed, can_write|
+      stub_github_permissions([ repository_payload(2001, "github/prototype") ], { 2001 => can_write ? "push" : "pull" })
+      travel elapsed do
+        collections.each do |path, key, filters|
+          get path, params: filters, headers: @headers
+          assert_response :success
+          records = response.parsed_body.fetch(key)
+          assert_includes records.pluck("id"), own.id
+          assert_includes records.pluck("id"), deleted.id
+          records.each do |record|
+            allowed = can_write && record.fetch("id") == own.id
+            assert_equal allowed, record.fetch("viewerCanEdit")
+            assert_equal allowed, record.fetch("viewerCanDelete")
+          end
+        end
+      end
+    end
+  end
+
+  test "first uploads retain historical owner logins after a rename and freeze both author snapshots" do
+    input = note_input
+    author = { "id" => @viewer.id, "login" => @viewer.login, "avatarUrl" => nil }
+    input[:thread].merge!("version" => 2, "originalAuthor" => author)
+    input[:thread]["messages"] << author_message.merge("author" => author.deep_dup)
+    @viewer.update!(login: "renamed-owner")
+    stub_github_permissions([ repository_payload(2001, "github/prototype") ], { 2001 => "push" },
+      github_id: @viewer.github_id, login: @viewer.login)
+
+    post_note(input)
+
+    assert_response :success
+    assert_equal input[:thread], response.parsed_body.fetch("thread")
+    saved = @prototype.improvement_notes.sole
+    assert_equal author, saved.note_thread.fetch("originalAuthor")
+    assert_equal author, saved.note_thread.fetch("messages").sole.fetch("author")
+    [
+      ->(thread) { thread["originalAuthor"]["login"] = @viewer.login },
+      ->(thread) { thread["messages"].first["author"]["login"] = @viewer.login },
+      ->(thread) { thread["originalAuthor"]["id"] = @viewer.id + 1 }
+    ].each do |change|
+      updated = next_revision(input)
+      change.call(updated[:thread])
+      post_note(updated)
+      assert_response :unprocessable_entity
+      assert_equal input[:thread], saved.reload.note_thread
+    end
+  end
+
+  test "renamed owners can delete version two snapshots and retry without restoring conversation text" do
+    input = note_input
+    author = { "id" => @viewer.id, "login" => @viewer.login, "avatarUrl" => nil }
+    input[:thread].merge!("version" => 2, "originalAuthor" => author)
+    input[:thread]["messages"] << author_message.merge("author" => author.deep_dup)
+    post_note(input)
+    assert_response :success
+    saved = @prototype.improvement_notes.sole
+    @viewer.update!(login: "renamed-owner")
+    stub_github_permissions([ repository_payload(2001, "github/prototype") ], { 2001 => "push" },
+      github_id: @viewer.github_id, login: @viewer.login)
+    deleted = next_revision(input).merge(deleted: true)
+    changed_history = deleted.deep_dup
+    changed_history[:thread]["messages"].first["body"] = "Rewritten history"
+    post_note(changed_history)
+    assert_response :unprocessable_entity
+    assert_equal input[:thread], saved.reload.note_thread
+
+    2.times do
+      post_note(deleted)
+      assert_response :success
+      assert_nil response.parsed_body.fetch("body")
+      assert_nil response.parsed_body.fetch("thread")
+      assert_nil saved.reload.body
+      assert_nil saved.note_thread
+    end
+
+    [
+      author.merge("id" => @viewer.id + 1),
+      author.merge("login" => "not a valid login"),
+      author.merge("extra" => true)
+    ].each do |invalid_author|
+      retry_input = deleted.deep_dup
+      retry_input[:thread]["originalAuthor"] = invalid_author
+      post_note(retry_input)
+      assert_response :unprocessable_entity
+      assert_nil saved.reload.body
+      assert_nil saved.note_thread
+    end
+  end
+
   private
+
+  def create_note(**attributes)
+    input = note_input
+    @prototype.improvement_notes.create! \
+      user: @viewer, local_id: input[:local_id], body: input[:body], note_revision: 1,
+      note_status: "open", anchor: input[:anchor], note_thread: input[:thread], **attributes
+  end
 
   def post_note(input)
     post @path, params: input, headers: @headers, as: :json
