@@ -107,6 +107,38 @@ export const publicationExamples: Record<
     },
     hub: publicationHub,
   },
+  "Waiting for Copilot": {
+    state: {
+      ...publicationState,
+      stats: {
+        ...publicationState.stats,
+        remoteBranch: { ...publicationState.stats.remoteBranch!, remoteSha: "b".repeat(40) },
+      },
+      publishRequest: {
+        state: "requested",
+        requestedAt: new Date().toISOString(),
+        commitSha: sha,
+      },
+    },
+    hub: publicationHub,
+  },
+  "Publish blocked": {
+    state: {
+      ...publicationState,
+      stats: {
+        ...publicationState.stats,
+        remoteBranch: { ...publicationState.stats.remoteBranch!, remoteSha: "b".repeat(40) },
+      },
+      publishRequest: {
+        state: "failed",
+        requestedAt: null,
+        commitSha: sha,
+        error:
+          "Copilot stopped before pushing because publishing was blocked. The branch cannot fast-forward origin.",
+      },
+    },
+    hub: publicationHub,
+  },
   "Awaiting build": { state: publicationState, hub: publicationHub },
   "Build queued": {
     state: {
