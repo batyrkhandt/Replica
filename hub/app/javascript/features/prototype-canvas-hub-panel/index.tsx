@@ -273,8 +273,7 @@ export function HubPanel({
     }
     return resolutions
   }, [bridgeReady, markers, previewRoute, threads])
-  const active =
-    status?.state === "connected" ? threads.find((thread) => thread.root.id === selected) : null
+  const active = threads.find((thread) => thread.root.id === selected)
   const prototype = status?.state === "connected" ? status.prototype : null
   const needsConnection =
     status?.state === "disconnected" ||
@@ -293,24 +292,28 @@ export function HubPanel({
   const canManage = prototype?.canEdit && prototype.registered
   const prototypeId = prototype?.id
   const currentBuild = prototype?.build ?? null
+  const viewerLogin = prototype?.viewerLogin || status?.viewerLogin
   const visibleThreads = useMemo(
     () =>
-      prototype
+      viewerLogin
         ? threads.filter((thread) =>
             reviewThreadMatchesFilters(thread, {
               filters,
-              viewerLogin: prototype.viewerLogin,
+              viewerLogin,
               selectedBuildNumber: draftRevisionId ? null : currentBuild?.number,
               selectedDraftRevisionId: draftRevisionId,
               route: previewRoute,
             }),
           )
         : threads,
-    [currentBuild?.number, draftRevisionId, filters, previewRoute, prototype, threads],
+    [currentBuild?.number, draftRevisionId, filters, previewRoute, viewerLogin, threads],
   )
   const visibleThreadCount = visibleThreads.length
   const hasUnreadVisibleThreads = visibleThreads.some((thread) => thread.unread)
-  const canCreateComment = Boolean(reviewRevision && prototype && !status?.reviewError)
+  const canCreateComment = Boolean(reviewRevision && !status?.reviewError)
+  const canLoadComments =
+    Boolean(status?.repositoryAuthorized && status.branch && status.viewerLogin) ||
+    Boolean(prototype)
   const selectionBlocked =
     selectedAnchor !== null || draftActive || mutation !== null || preparingSelection
   const hubVisible = open && !commentsOpen
@@ -391,7 +394,7 @@ export function HubPanel({
 
   const loadComments = useCallback(async () => {
     if (
-      !prototypeId ||
+      !canLoadComments ||
       commentMutationPendingRef.current ||
       commentIdentityRef.current !== commentIdentity
     )
@@ -411,7 +414,7 @@ export function HubPanel({
               nextCursor || draftRevisionId
                 ? `?${new URLSearchParams({
                     ...(nextCursor ? { cursor: nextCursor } : {}),
-                    ...(draftRevisionId ? { draft_revision_id: String(draftRevisionId) } : {}),
+                    ...(draftRevisionId ? { local_revision_id: String(draftRevisionId) } : {}),
                   })}`
                 : ""
             }`,
@@ -450,7 +453,7 @@ export function HubPanel({
         setLoading(false)
       }
     }
-  }, [config.token, draftRevisionId, prototypeId, commentIdentity])
+  }, [config.token, draftRevisionId, canLoadComments, commentIdentity])
   const loadCommentsRef = useRef(loadComments)
   useLayoutEffect(() => {
     loadCommentsRef.current = loadComments
@@ -487,16 +490,16 @@ export function HubPanel({
   }, [identity])
 
   useEffect(() => {
-    if (!prototypeId) return
+    if (!canLoadComments) return
     const initial = window.setTimeout(() => void loadComments(), 0)
     return () => window.clearTimeout(initial)
-  }, [prototypeId, loadComments])
+  }, [canLoadComments, loadComments])
 
   useEffect(() => {
-    if (!prototypeId) return
+    if (!canLoadComments) return
     const interval = window.setInterval(() => void loadComments(), 30_000)
     return () => window.clearInterval(interval)
-  }, [prototypeId, loadComments])
+  }, [canLoadComments, loadComments])
 
   useEffect(() => {
     if (!prototypeId) return
@@ -576,7 +579,7 @@ export function HubPanel({
         )
           return
         if (
-          next.state !== "connected" ||
+          (!next.repositoryAuthorized && next.state !== "connected") ||
           next.prototype?.id !== prototypeId ||
           next.hubOrigin !== status?.hubOrigin ||
           next.repository !== status?.repository ||
@@ -1102,7 +1105,7 @@ export function HubPanel({
   return (
     <MentionProvider source={mentionSource}>
       {commentingRecovery.visible ? <CommentingRecovery {...commentingRecovery} /> : null}
-      {prototype && reviewControlsTarget
+      {canLoadComments && reviewControlsTarget
         ? createPortal(
             <div
               className="canvas-review-controls review-shell__comment-actions"
@@ -1150,7 +1153,7 @@ export function HubPanel({
             reviewControlsTarget,
           )
         : null}
-      {showPins && visibleThreads.length && bridgeReady ? (
+      {showPins && visibleThreads.length && bridgeReady && !selectionMode ? (
         <div className="canvas-marker-layer">
           <ReviewCommentMarkers
             threads={visibleThreads}
@@ -1475,7 +1478,7 @@ export function HubPanel({
           <PublishSettings preference={publishPreference} disabled={publicationBusy} />
         ) : null}
       </HubSidebar>
-      {prototype ? (
+      {canLoadComments ? (
         <ReviewCommentsSidebar
           frame={{
             open: commentsOpen,
@@ -1497,7 +1500,7 @@ export function HubPanel({
           loading={loading}
           loadFailed={commentsLoadFailed}
           notice={
-            liveError || status?.reviewError || draftRevisionId ? (
+            liveError || status?.reviewError || status?.localCommentsError || draftRevisionId ? (
               <div className="canvas-comments-live-notices">
                 {liveError ? (
                   <p className="canvas-comments-live-status" role="status">
@@ -1506,6 +1509,11 @@ export function HubPanel({
                 ) : null}
                 {status?.reviewError ? (
                   <p className="canvas-comments-live-status">{status.reviewError}</p>
+                ) : null}
+                {status?.localCommentsError ? (
+                  <p className="canvas-comments-live-status" role="alert">
+                    {status.localCommentsError}
+                  </p>
                 ) : null}
                 {draftRevisionId ? (
                   <p className="canvas-comments-live-status">{copy.localCommentsSaved}</p>

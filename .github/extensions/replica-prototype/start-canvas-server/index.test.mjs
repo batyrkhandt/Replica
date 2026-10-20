@@ -779,7 +779,6 @@ esac
     const prototypes = new Map()
     const draftBranches = new Set()
     let currentPrototypeId = 4
-    let currentDraftRevisionId = 11
     let currentBuildNumber = 2
     let currentBuildCommit = "1".padStart(40, "0")
     let accessToken = "rp_secret"
@@ -809,7 +808,12 @@ esac
         const branch = new URL(request.url, "http://localhost").searchParams.get("branch")
         if (branch === "prototype/second" && !draftBranches.has(branch)) {
           response.writeHead(404, { "Content-Type": "application/json" })
-          response.end(JSON.stringify({ error: "Hub has not discovered this branch." }))
+          response.end(
+            JSON.stringify({
+              error: "Hub has not discovered this branch.",
+              registrationReason: "remote_branch_missing",
+            }),
+          )
           return
         }
         result = {
@@ -824,7 +828,11 @@ esac
           canManageShareLinks: true,
           published: sharingPublished,
           build: sharingPublished
-            ? { number: currentBuildNumber, commitSha: currentBuildCommit }
+            ? {
+                number: currentBuildNumber,
+                commitSha: currentBuildCommit,
+                publishedAt: "2099-01-01T00:00:00Z",
+              }
             : null,
           name: prototypes.get(branch)?.name ?? null,
           description: null,
@@ -839,16 +847,6 @@ esac
                 ...(draftOnlyHistory === "built" ? { build: { number: 2 } } : {}),
               }
             : {}),
-        }
-      } else if (request.url === "/api/canvas/draft_revision" && request.method === "POST") {
-        const revision = JSON.parse(body)
-        draftBranches.add(revision.branch)
-        result = {
-          id: currentDraftRevisionId,
-          prototypeId: currentPrototypeId,
-          treeSha: revision.tree_sha,
-          baseCommitSha: revision.base_commit_sha,
-          buildNumber: null,
         }
       } else if (request.url === "/api/canvas/prototype" && request.method === "PATCH") {
         if (registrationError) {
@@ -943,7 +941,24 @@ esac
           nextCursor: null,
         }
       } else if (request.url?.includes("/review_comments")) {
-        result = { comments: [], hasMore: false, nextCursor: null }
+        const attributes = body ? JSON.parse(body).review_comment : null
+        result = {
+          comments:
+            request.method === "POST" && request.url.endsWith("/review_comments")
+              ? [
+                  {
+                    id: 9,
+                    kind: "root",
+                    body: attributes.body,
+                    anchor: attributes.anchor,
+                    author: { login: "octocat" },
+                    buildNumber: attributes.build_number,
+                  },
+                ]
+              : [],
+          hasMore: false,
+          nextCursor: null,
+        }
       } else {
         result = { name: "Updated" }
       }
@@ -962,6 +977,7 @@ case "$1:$2" in
   branch:--show-current) echo "\${TEST_BRANCH:-prototype/first}" ;;
   rev-parse:HEAD) printf '%040d\\n' "\${TEST_HEAD:-1}" ;;
   rev-parse:HEAD^{tree}) printf '%040d\\n' "\${TEST_HEAD_TREE:-2}" ;;
+  rev-parse:*^{tree}) printf '%040d\\n' "\${TEST_HEAD_TREE:-2}" ;;
   write-tree:) printf '%040d\\n' "\${TEST_TREE:-2}" ;;
   config:*) exit 1 ;;
 esac
@@ -978,27 +994,33 @@ esac
         sessionWorkspacePath: workspace,
         repositoryPath: workspace,
       })
-      canvas = await startCanvasServer(
-        context,
-        {
-          send(message) {
-            publishPrompts.push({
-              prompt: message.prompt,
-              registrations: calls.filter(
-                ({ path, method }) => path === "/api/canvas/prototype" && method === "PATCH",
-              ).length,
-            })
-            return "message"
+      function startCanvas() {
+        return startCanvasServer(
+          context,
+          {
+            send(message) {
+              publishPrompts.push({
+                prompt: message.prompt,
+                registrations: calls.filter(
+                  ({ path, method }) => path === "/api/canvas/prototype" && method === "PATCH",
+                ).length,
+              })
+              return "message"
+            },
           },
-        },
-        {
-          hubOptions: { directory: path.join(workspace, "credentials") },
-          openBrowser: async (url) => {
-            browserUrls.push(url)
-            return browserUnavailable ? { ok: false, error: "No browser available." } : { ok: true }
+          {
+            localCommentsDirectory: path.join(workspace, "local-comments"),
+            hubOptions: { directory: path.join(workspace, "credentials") },
+            openBrowser: async (url) => {
+              browserUrls.push(url)
+              return browserUnavailable
+                ? { ok: false, error: "No browser available." }
+                : { ok: true }
+            },
           },
-        },
-      )
+        )
+      }
+      canvas = await startCanvas()
       const page = await (await fetch(canvas.url)).text()
       let token = JSON.parse(page.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1]).token
       assert.equal((await fetch(new URL("/api/hub/status", canvas.url))).status, 403)
@@ -1147,17 +1169,18 @@ esac
           ({ path, method }) => path === "/api/canvas/draft_revision" && method === "POST",
         ).length
       }
-      const prepared = draftPreparations()
       await send("/api/hub/status")
       await send("/api/hub/status")
-      assert.equal(draftPreparations(), prepared)
+      assert.equal(draftPreparations(), 0)
+      assert.ok(Number.isSafeInteger(status.reviewRevision.id) && status.reviewRevision.id > 0)
       process.env.TEST_TREE = "4"
       const editedSource = (await send("/api/hub/status")).body
       assert.equal(editedSource.reviewRevision.treeSha, "4".padStart(40, "0"))
-      assert.equal(draftPreparations(), prepared + 1)
+      assert.notEqual(editedSource.reviewRevision.id, status.reviewRevision.id)
+      assert.equal(draftPreparations(), 0)
       delete process.env.TEST_TREE
-      await send("/api/hub/status")
-      assert.equal(draftPreparations(), prepared + 2)
+      assert.equal((await send("/api/hub/status")).body.reviewRevision.id, status.reviewRevision.id)
+      assert.equal(draftPreparations(), 0)
       await writeFile(path.join(workspace, ".prototype"), "{invalid")
       assert.match((await send("/api/hub/status")).body.localStartPageError, /Could not read/)
       startPageSet = true
@@ -1228,31 +1251,30 @@ esac
         (await send("/api/hub/mention-candidates?repositoryId=5&prototypeId=99")).status,
         409,
       )
-      assert.equal(
-        (
-          await send("/api/hub/comments", "POST", {
-            review_revision: (await send("/api/hub/status")).body.reviewRevision,
-            review_comment: {
-              body: "New thread",
-              anchor: { schemaVersion: 1 },
-            },
-          })
-        ).status,
-        201,
-      )
-      const posted = JSON.parse(
-        calls.findLast(({ path, method }) => path.endsWith("/review_comments") && method === "POST")
-          .body,
-      )
-      assert.equal(posted.review_comment.draft_revision_id, 11)
-      assert.equal(posted.review_comment.build_number, undefined)
       const previousRevision = (await send("/api/hub/status")).body.reviewRevision
       const beforeChangedRevision = calls.filter(
         ({ path, method }) => path.endsWith("/review_comments") && method === "POST",
       ).length
+      const posted = await send("/api/hub/comments", "POST", {
+        review_revision: previousRevision,
+        review_comment: {
+          body: "New thread",
+          anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
+        },
+      })
+      assert.equal(posted.status, 201)
+      const localRoots = (await send("/api/hub/comments")).body.comments
+      assert.equal(localRoots.length, 1)
+      assert.equal(localRoots[0].body, "New thread")
+      assert.equal(localRoots[0].draftRevisionId, previousRevision.id)
+      assert.equal(localRoots[0].buildNumber, null)
       process.env.TEST_TREE = "3"
-      currentDraftRevisionId = 12
-      assert.equal((await send("/api/hub/status")).body.reviewRevision.id, 12)
+      assert.notEqual((await send("/api/hub/status")).body.reviewRevision.id, previousRevision.id)
+      await canvas.close()
+      canvas = await startCanvas()
+      const reloadedPage = await (await fetch(canvas.url)).text()
+      token = JSON.parse(reloadedPage.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1]).token
+      assert.deepEqual((await send("/api/hub/comments")).body.comments, localRoots)
       for (const source of ["dirty edits", "new commit"]) {
         if (source === "new commit") {
           process.env.TEST_HEAD = "2"
@@ -1263,14 +1285,21 @@ esac
           review_revision: previousRevision,
           review_comment: {
             body: `Comment selected before ${source}`,
-            anchor: { schemaVersion: 1 },
+            anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
           },
         })
         assert.equal(saved.status, 201)
         assert.equal(draftPreparations(), preparationsBeforeSave)
-        const attributes = JSON.parse(calls.at(-1).body).review_comment
-        assert.equal(attributes.draft_revision_id, 11)
-        assert.equal(attributes.build_number, undefined)
+        const roots = (await send("/api/hub/comments")).body.comments
+        const savedRoot = roots.find(({ body }) => body === `Comment selected before ${source}`)
+        assert.ok(savedRoot)
+        assert.equal(savedRoot.draftRevisionId, previousRevision.id)
+        assert.equal(savedRoot.buildNumber, null)
+        assert.equal(
+          calls.filter(({ path, method }) => path.endsWith("/review_comments") && method === "POST")
+            .length,
+          beforeChangedRevision,
+        )
       }
       delete process.env.TEST_HEAD
       delete process.env.TEST_HEAD_TREE
@@ -1306,7 +1335,6 @@ esac
         assert.equal(attributes.draft_revision_id, undefined)
       }
       sharingPublished = false
-      currentDraftRevisionId = 11
       currentBuildNumber = 2
       currentBuildCommit = "1".padStart(40, "0")
       delete process.env.TEST_HEAD
@@ -1338,7 +1366,7 @@ esac
       assert.equal(
         calls.filter(({ path, method }) => path.endsWith("/review_comments") && method === "POST")
           .length,
-        beforeChangedRevision + 4,
+        beforeChangedRevision + 5,
       )
       assert.equal(
         (
@@ -1473,17 +1501,36 @@ esac
       const unpublishedRepositoryPage = await canvas.reviewAction("list_repository_comments", {})
       assert.equal(unpublishedRepositoryPage.scanComplete, true)
       assert.equal(unpublishedRepositoryPage.target.branch, "prototype/second")
-      const beforeBranchPreparation = draftPreparations()
       const draftOnly = (await send("/api/hub/status")).body
-      assert.equal(draftPreparations(), beforeBranchPreparation + 1)
-      assert.equal(draftOnly.prototype.registered, false)
-      assert.equal(draftOnly.prototype.build, null)
-      assert.equal(draftOnly.prototype.currentBuild ?? null, null)
+      assert.equal(draftPreparations(), 0)
+      assert.equal(draftOnly.state, "undiscovered")
+      assert.equal(draftOnly.prototype, undefined)
+      assert.equal(draftOnly.reviewRevision.prototypeId, null)
+      assert.equal(draftOnly.reviewRevision.buildNumber, null)
       assert.equal(draftOnly.registrationReason, "remote_branch_missing")
       assert.ok(draftOnly.reviewRevision.id)
+      const beforeUnpublishedSave = calls.length
+      assert.equal(
+        (
+          await send("/api/hub/comments", "POST", {
+            review_revision: draftOnly.reviewRevision,
+            review_comment: {
+              body: "Review before Hub discovers the branch",
+              anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
+            },
+          })
+        ).status,
+        201,
+      )
+      assert.equal((await send("/api/hub/comments")).body.comments[0].buildNumber, null)
+      assert.ok(
+        calls.slice(beforeUnpublishedSave).every(({ method }) => method === "GET"),
+        "Saving unpublished feedback must not create any Hub records.",
+      )
       assert.equal((await send("/api/publish", "POST", {})).status, 202)
       assert.equal(publishData(publishPrompts.at(-1).prompt).branch, "prototype/second")
       assert.equal(publishPrompts.at(-1).registrations, previousRegistrations)
+      draftBranches.add("prototype/second")
       const pushFirstPrompts = publishPrompts.length
       for (const history of ["built", "retired"]) {
         draftOnlyHistory = history
@@ -1540,16 +1587,15 @@ esac
 
       const originalHub = process.env.REPLICA_HUB_ORIGIN
       const otherHub = `http://localhost:${hub.address().port}`
-      const beforeHubPreparation = draftPreparations()
       assert.equal((await send("/api/hub/origin", "POST", { origin: otherHub })).status, 200)
       await send("/api/hub/pair", "POST", {})
       await send("/api/hub/poll", "POST", {})
       const otherHubStatus = (await send("/api/hub/status")).body
       assert.equal(otherHubStatus.state, "connected")
       const selectedConnection = otherHubStatus.reviewRevision
-      assert.equal(draftPreparations(), beforeHubPreparation + 1)
+      assert.equal(draftPreparations(), 0)
       await send("/api/hub/status")
-      assert.equal(draftPreparations(), beforeHubPreparation + 1)
+      assert.equal(draftPreparations(), 0)
       await send("/api/hub/disconnect", "POST", {})
       accessToken = "rp_reconnected"
       await send("/api/hub/pair", "POST", {})
@@ -1573,7 +1619,7 @@ esac
           .length,
         beforeReconnectedSave,
       )
-      assert.equal(draftPreparations(), beforeHubPreparation + 2)
+      assert.equal(draftPreparations(), 0)
       assert.equal((await send("/api/hub/origin", "POST", { origin: originalHub })).status, 200)
       await send("/api/hub/status")
       const invalid = await send("/api/hub/origin", "POST", {
@@ -1619,7 +1665,10 @@ esac
       canvas = await startCanvasServer(
         context,
         { send() {} },
-        { hubOptions: { directory: path.join(workspace, "credentials") } },
+        {
+          hubOptions: { directory: path.join(workspace, "credentials") },
+          localCommentsDirectory: path.join(workspace, "local-comments"),
+        },
       )
       const reopenedPage = await (await fetch(canvas.url)).text()
       token = JSON.parse(reopenedPage.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1]).token

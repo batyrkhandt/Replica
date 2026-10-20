@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { createServer } from "node:http"
 
@@ -24,6 +24,7 @@ import { createCommentStore } from "../comment-store/index.mjs"
 import { createShareLinks } from "../share-links/index.mjs"
 import { startPreviewProxy } from "../start-preview-proxy/index.mjs"
 import { captureReviewRevision } from "../capture-review-revision/index.mjs"
+import { createLocalReviewComments } from "../local-review-comments/index.mjs"
 
 const ASSET_PATHS = new Map([
   [
@@ -59,7 +60,21 @@ export async function startCanvasServer(initialContext, session, options = {}) {
   const source = await readFile(new URL("../assets/canvas-bridge.js", import.meta.url), "utf8")
   const hubConnection = createHubConnection(() => context, options.hubOptions)
   const { hubClient, refreshDiscovery, selectHubOrigin, discoveries } = hubConnection
-  let reviewPreparation
+  const localComments = createLocalReviewComments(initialContext, {
+    directory: options.localCommentsDirectory,
+  })
+  async function localScope(hub, status) {
+    const connectionId = await hub.connectionKey(status.repository)
+    if (!connectionId || connectionId !== status.reviewConnectionId)
+      throw httpError(409, "The Hub connection changed. Refresh before using local comments.")
+    return {
+      hubOrigin: hub.origin,
+      repository: status.repository,
+      branch: status.branch,
+      viewerLogin: status.prototype?.viewerLogin || status.viewerLogin,
+      connectionId,
+    }
+  }
   async function updateMetadata({ name, description, startPage }, expectedTarget) {
     const hub = await hubClient()
     if (!hub) throw httpError(409, "Enter a Hub URL before connecting.")
@@ -134,14 +149,6 @@ export async function startCanvasServer(initialContext, session, options = {}) {
         buildNumber: status.prototype.build?.number ?? 0,
       }
     }
-    if (
-      status.prototype.draftOnly === true &&
-      status.prototype.canEdit &&
-      !status.prototype.build &&
-      !status.prototype.currentBuild &&
-      status.registrationReason === "remote_branch_missing"
-    )
-      return { state: "undiscovered", buildNumber: 0 }
     if (!status.prototype.canRegister) {
       throw httpError(403, "This branch is not eligible for registration in Hub.")
     }
@@ -191,66 +198,54 @@ export async function startCanvasServer(initialContext, session, options = {}) {
             409,
             "The checkout changed while preparing local comments. Refresh again.",
           )
-        let revision
-        if (!snapshot.clean || status.prototype?.build?.commitSha !== snapshot.commitSha) {
-          const key = JSON.stringify([
-            hub.origin,
-            connectionId,
-            status.repository,
-            status.branch,
-            snapshot.commitSha,
-            snapshot.treeSha,
-          ])
-          if (
-            reviewPreparation?.key !== key ||
-            (status.prototype &&
-              reviewPreparation.prototypeId != null &&
-              reviewPreparation.prototypeId !== status.prototype.id)
-          ) {
-            reviewPreparation = {
-              key,
-              prototypeId: status.prototype?.id,
-              pending: hub.request("/api/canvas/draft_revision", {
-                method: "POST",
-                expectedTarget: status,
-                body: {
-                  branch: status.branch,
-                  tree_sha: snapshot.treeSha,
-                  base_commit_sha: snapshot.commitSha,
-                },
-              }),
+        const scope = await localScope(hub, status)
+        if (scope.connectionId !== connectionId)
+          throw httpError(409, "The Hub connection changed while preparing local comments.")
+        if (!scope.viewerLogin) throw new Error("Hub did not identify the connected reviewer.")
+        if (status.prototype?.build) {
+          try {
+            await localComments.sync(
+              scope,
+              {
+                ...status.prototype.build,
+                repositoryId: status.prototype.repositoryId,
+                prototypeId: status.prototype.id,
+              },
+              hub,
+            )
+          } catch (error) {
+            status = {
+              ...status,
+              localCommentsError: `Local comments not synced: ${error.message}`,
             }
           }
-          const preparation = reviewPreparation
-          revision = await preparation.pending
-          if (
-            !Number.isSafeInteger(revision.id) ||
-            revision.id < 1 ||
-            revision.treeSha !== snapshot.treeSha
-          )
-            throw new Error("Hub returned an invalid local review revision.")
-          if (status.state !== "connected") status = await hub.status()
-          if (revision.prototypeId !== status.prototype?.id)
-            throw httpError(409, "The Hub prototype changed while preparing local comments.")
-          preparation.prototypeId = revision.prototypeId
         }
+        const published =
+          snapshot.clean && status.prototype?.build?.commitSha === snapshot.commitSha
         status = {
           ...status,
           reviewRevision: {
             ...snapshot,
-            id: revision?.id ?? null,
-            prototypeId: status.prototype.id,
-            buildNumber: revision ? null : status.prototype.build.number,
+            id: published
+              ? null
+              : Number.parseInt(
+                  createHash("sha256").update(snapshot.treeSha).digest("hex").slice(0, 12),
+                  16,
+                ) + 1,
+            prototypeId: status.prototype?.id ?? null,
+            repository: status.repository,
+            branch: status.branch,
+            buildNumber: published ? status.prototype.build.number : null,
             hubOrigin: hub.origin,
             connectionId,
           },
         }
       } catch (error) {
-        reviewPreparation = undefined
-        status = { ...status, reviewError: `Local comments unavailable: ${error.message}` }
+        status = {
+          ...status,
+          reviewError: `Local comments unavailable: ${error.message}`,
+        }
       }
-    } else {
-      reviewPreparation = undefined
     }
     const ownsStartPage =
       status.state === "connected" &&
@@ -293,6 +288,8 @@ export async function startCanvasServer(initialContext, session, options = {}) {
         options.agentCommands,
         shareLinks,
         publishPreferences,
+        localComments,
+        localScope,
       )
     } catch (error) {
       sendJson(
@@ -402,6 +399,8 @@ async function routeRequest(
   agentCommands,
   shareLinks,
   publishPreferences,
+  localComments,
+  localScope,
 ) {
   const requestUrl = new URL(request.url || "/", "http://127.0.0.1")
 
@@ -586,13 +585,25 @@ async function routeRequest(
     return
   }
   if (requestUrl.pathname === "/api/hub/comments" && request.method === "GET") {
-    const base = await reviewPath(hub)
+    const status = await hub.status()
+    if (!status.repositoryAuthorized) throw httpError(403, "Connect to Hub before commenting.")
+    const scope = await localScope(hub, status)
     const cursor = requestUrl.searchParams.get("cursor")
-    const query = new URLSearchParams()
-    if (cursor) query.set("cursor", cursor)
-    const revision = requestUrl.searchParams.get("draft_revision_id")
-    if (revision) query.set("draft_revision_id", revision)
-    sendJson(response, 200, await hub.request(`${base}${query.size ? `?${query}` : ""}`))
+    const page = status.prototype
+      ? await hub.request(
+          `${await reviewPath(hub)}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+        )
+      : { comments: [], hasMore: false, nextCursor: null }
+    const revision = requestUrl.searchParams.get("local_revision_id")
+    const drafts = cursor
+      ? []
+      : (await localComments.list(scope)).filter(
+          (comment) => !revision || comment.draftRevisionId === Number(revision),
+        )
+    sendJson(response, 200, {
+      ...page,
+      comments: [...page.comments, ...drafts],
+    })
     return
   }
   if (requestUrl.pathname === "/api/hub/mention-candidates" && request.method === "GET") {
@@ -616,8 +627,10 @@ async function routeRequest(
       expected.hubOrigin !== hub.origin ||
       typeof expected.connectionId !== "string" ||
       !expected.connectionId ||
-      status.state !== "connected" ||
-      status.prototype?.id !== expected.prototypeId ||
+      !status.repositoryAuthorized ||
+      (status.prototype?.id ?? null) !== expected.prototypeId ||
+      status.repository !== expected.repository ||
+      status.branch !== expected.branch ||
       expected.connectionId !== (await hub.connectionKey(status.repository))
     )
       throw httpError(
@@ -635,7 +648,12 @@ async function routeRequest(
     } else {
       if (!Number.isSafeInteger(expected.id) || expected.id < 1)
         throw httpError(400, "Select a valid local revision before commenting.")
-      attributes.draft_revision_id = expected.id
+      const scope = await localScope(hub, status)
+      if (scope.connectionId !== expected.connectionId)
+        throw httpError(409, "The Hub connection changed. Select a target again.")
+      const comment = await localComments.create(scope, expected, attributes)
+      sendJson(response, 201, { comments: [comment] })
+      return
     }
     const base = `/api/canvas/repositories/${status.prototype.repositoryId}/prototypes/${status.prototype.id}/review_comments`
     sendJson(
@@ -701,6 +719,22 @@ async function routeRequest(
       operation === "reactions"
         ? await readJson(request)
         : undefined
+    const status = await hub.status()
+    if (!status.repositoryAuthorized) throw httpError(403, "Connect to Hub before commenting.")
+    const scope = await localScope(hub, status)
+    if ((await localComments.list(scope)).some((comment) => comment.id === Number(id))) {
+      if (operation === "read" && method === "POST") {
+        sendJson(response, 200, {})
+        return
+      }
+      if (operation) throw httpError(409, "Publish this comment before starting a conversation.")
+      const comment =
+        method === "PATCH"
+          ? await localComments.update(scope, id, body?.review_comment?.body)
+          : await localComments.remove(scope, id)
+      sendJson(response, 200, { comments: [comment] })
+      return
+    }
     const suffix = operation ? `/${operation}${content ? `/${content}` : ""}` : ""
     sendJson(
       response,

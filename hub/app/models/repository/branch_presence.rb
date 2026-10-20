@@ -85,7 +85,6 @@ class Repository::BranchPresence < ActiveRecord::AssociatedObject
 
       prototype = record.reviewable_prototypes.active.find_by(branch_name:)
       return if prototype.nil? || prototype.id != observed.id
-      return if prototype.draft_only?
 
       prototype.with_lock do
         return if prototype.head_observation_revision != observed.head_observation_revision

@@ -340,6 +340,9 @@ describe("HubPanel()", () => {
         await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
       )
       await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
+      expect(
+        screen.queryByRole("button", { name: "Unread thread started by @octocat" }),
+      ).not.toBeInTheDocument()
       expect(toggle).toHaveAttribute("aria-expanded", String(commentsOpen))
       receive({ type: "replica:canvas:selected", anchor: created.anchor })
       fireEvent.change(screen.getByRole("textbox", { name: reviewCommentsCopy.composerLabel }), {

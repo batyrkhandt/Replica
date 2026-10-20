@@ -46,6 +46,8 @@ export const publicationHub: HubStatus = {
     commitSha: sha,
     clean: true,
     prototypeId: 1,
+    repository: "github/example",
+    branch: "prototype/welcome",
     buildNumber: 1,
     hubOrigin: "https://hub.example.com",
     connectionId: "fixture-review-connection",

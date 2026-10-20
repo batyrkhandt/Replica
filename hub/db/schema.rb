@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_20_080000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_15_060000) do
   create_table "analytics_deliveries", force: :cascade do |t|
     t.integer "attempts", default: 0, null: false
     t.datetime "created_at", null: false
@@ -216,21 +216,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_20_080000) do
     t.index ["user_id"], name: "index_copilot_connections_on_user_id"
     t.check_constraint "length(token_digest) = 64 AND token_digest NOT GLOB '*[^0-9a-f]*'", name: "copilot_connections_token_digest"
     t.check_constraint "singleton_key = 1", name: "copilot_connections_singleton"
-  end
-
-  create_table "draft_review_revisions", force: :cascade do |t|
-    t.integer "prototype_id", null: false
-    t.integer "build_id"
-    t.string "tree_sha", null: false
-    t.string "base_commit_sha", null: false
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-    t.index ["build_id"], name: "index_draft_review_revisions_on_build_id"
-    t.index ["id", "prototype_id"], name: "index_draft_review_revisions_on_id_and_prototype_id", unique: true
-    t.index ["prototype_id", "tree_sha", "base_commit_sha"], name: "index_draft_reviews_on_source", unique: true
-    t.index ["prototype_id"], name: "index_draft_review_revisions_on_prototype_id"
-    t.check_constraint "length(base_commit_sha) = 40 AND base_commit_sha NOT GLOB '*[^0-9a-f]*'", name: "draft_review_revisions_base_commit_sha"
-    t.check_constraint "length(tree_sha) = 40 AND tree_sha NOT GLOB '*[^0-9a-f]*'", name: "draft_review_revisions_tree_sha"
   end
 
   create_table "fresh_authorizations", force: :cascade do |t|
@@ -487,18 +472,16 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_20_080000) do
     t.datetime "updated_at", null: false
     t.integer "user_id", null: false
     t.datetime "learning_removal_due_at"
-    t.integer "draft_review_revision_id"
     t.index ["build_id"], name: "index_review_comments_on_build_id"
-    t.index ["draft_review_revision_id"], name: "index_review_comments_on_draft_review_revision_id"
     t.index ["id", "prototype_id"], name: "index_review_comments_on_id_and_prototype", unique: true
     t.index ["learning_removal_due_at"], name: "index_review_comments_on_learning_removal_due_at", where: "learning_removal_due_at IS NOT NULL"
     t.index ["prototype_id", "created_at", "id"], name: "index_review_comments_on_prototype_and_created_at", order: { created_at: :desc, id: :desc }
     t.index ["resolved_by_id"], name: "index_review_comments_on_resolved_by_id"
     t.index ["root_id"], name: "index_review_comments_on_root_id"
     t.index ["user_id"], name: "index_review_comments_on_user_id"
-    t.check_constraint "((root_id IS NULL AND (build_id IS NOT NULL OR draft_review_revision_id IS NOT NULL) AND anchor IS NOT NULL) OR (root_id IS NOT NULL AND build_id IS NULL AND draft_review_revision_id IS NULL AND anchor IS NULL))", name: "review_comments_thread_shape"
     t.check_constraint "(resolved_at IS NULL AND resolved_by_id IS NULL) OR (root_id IS NULL AND resolved_at IS NOT NULL AND resolved_by_id IS NOT NULL)", name: "review_comments_resolution"
     t.check_constraint "(root_id IS NULL AND activity_version IS NOT NULL AND activity_version > 0) OR (root_id IS NOT NULL AND activity_version IS NULL)", name: "review_comments_activity_version"
+    t.check_constraint "(root_id IS NULL AND build_id IS NOT NULL AND anchor IS NOT NULL) OR (root_id IS NOT NULL AND build_id IS NULL AND anchor IS NULL)", name: "review_comments_thread_shape"
     t.check_constraint "CASE WHEN deleted_at IS NULL THEN body IS NOT NULL AND length(trim(body)) > 0 AND length(CAST(body AS BLOB)) <= 10000 ELSE body IS NULL END", name: "review_comments_body"
     t.check_constraint "anchor IS NULL OR json_type(anchor) = 'object'", name: "review_comments_anchor_object"
     t.check_constraint "anchor IS NULL OR json_valid(anchor)", name: "review_comments_anchor_json"
@@ -722,9 +705,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_20_080000) do
   add_foreign_key "comment_mentions", "github_identities", on_delete: :restrict
   add_foreign_key "comment_mentions", "review_comments", on_delete: :cascade
   add_foreign_key "copilot_connections", "users", on_delete: :cascade
-  add_foreign_key "draft_review_revisions", "builds", column: ["build_id", "prototype_id"], primary_key: ["id", "prototype_id"], on_delete: :restrict
-  add_foreign_key "draft_review_revisions", "builds", on_delete: :restrict
-  add_foreign_key "draft_review_revisions", "prototypes", on_delete: :restrict
   add_foreign_key "fresh_authorizations", "repositories", on_delete: :nullify
   add_foreign_key "fresh_authorizations", "users", on_delete: :cascade
   add_foreign_key "learning_runs", "repositories", on_delete: :cascade
@@ -743,7 +723,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_20_080000) do
   add_foreign_key "review_comment_reactions", "review_comments", on_delete: :cascade
   add_foreign_key "review_comment_reactions", "users", on_delete: :restrict
   add_foreign_key "review_comments", "builds", column: ["build_id", "prototype_id"], primary_key: ["id", "prototype_id"], on_delete: :restrict
-  add_foreign_key "review_comments", "draft_review_revisions", column: ["draft_review_revision_id", "prototype_id"], primary_key: ["id", "prototype_id"], on_delete: :restrict
   add_foreign_key "review_comments", "prototypes", on_delete: :restrict
   add_foreign_key "review_comments", "review_comments", column: ["root_id", "prototype_id"], primary_key: ["id", "prototype_id"], on_delete: :restrict
   add_foreign_key "review_comments", "users", column: "resolved_by_id", on_delete: :restrict

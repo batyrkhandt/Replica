@@ -2,8 +2,6 @@
 
 Repository readers can discuss specific elements or highlighted regions inside a Prototype preview. Hub keeps those conversations with the Prototype branch so they remain available across Builds.
 
-The [Copilot canvas](prototype-canvas.md#pairing-and-review) also saves comments on unpublished local source revisions directly in Hub. These conversations remain outside published reviews, repository-wide comment feeds, notifications and learnings until that exact source becomes a successful Build. Source edits while composing do not block saving: the comment remains attached to the revision or Build selected when commenting began, and the canvas refreshes in the background. Existing published conversations retain their normal behavior. Local draft activity does not create historical notifications after association.
-
 ## Conversations
 
 The starting comment records where the conversation began. Every reply stays directly under it.

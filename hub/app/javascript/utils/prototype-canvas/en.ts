@@ -1,6 +1,6 @@
 export const copy = {
   localCommentsSaved:
-    "Local comments are saved in Hub. They appear in Build reviews after matching content is published.",
+    "Comments stay on this device until a Build with matching content is published and the canvas syncs them to Hub.",
   mentionSuggestions: "Mention suggestions",
   mentionSuggestionsError: "Mention suggestions are unavailable. Try again.",
   mentionSuggestionsLoading: "Loading people...",

@@ -344,7 +344,9 @@ export function createHubClient(context, options = {}) {
           return {
             state: "undiscovered",
             repositoryAuthorized: true,
+            reviewConnectionId: connectionIdentity(credential),
             canPublish: connection.canPublish,
+            viewerLogin: connection.viewerLogin,
             repository: target.repository,
             commitSha: target.commitSha,
             message: "Connected to this repository. Open a named branch for Builds and reviews.",
@@ -371,7 +373,9 @@ export function createHubClient(context, options = {}) {
           return {
             state: "undiscovered",
             repositoryAuthorized: true,
+            reviewConnectionId: connectionIdentity(credential),
             canPublish: connection.canPublish,
+            viewerLogin: connection.viewerLogin,
             repository: target.repository,
             branch: target.branch,
             commitSha: target.commitSha,
@@ -422,6 +426,7 @@ export function createHubClient(context, options = {}) {
         return {
           state: "connected",
           repositoryAuthorized: true,
+          reviewConnectionId: connectionIdentity(credential),
           repository: target.repository,
           branch: target.branch,
           commitSha: target.commitSha,

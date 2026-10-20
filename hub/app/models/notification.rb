@@ -78,8 +78,6 @@ class Notification < ApplicationRecord
   # Creates a mention notification and its primary and context resources atomically.
   def self.record_mention!(mention)
     comment = mention.review_comment
-    return unless comment.published?
-
     record! \
       comment:,
       actor: comment.user,
@@ -91,8 +89,6 @@ class Notification < ApplicationRecord
 
   # Notifies the prototype owner of a new conversation unless directly mentioned.
   def self.record_comment!(comment)
-    return unless comment.published?
-
     return if comment.prototype.repository.local?
 
     owner = comment.prototype.author
@@ -106,8 +102,6 @@ class Notification < ApplicationRecord
 
   # Sends one reply update to participants not already notified by a direct mention.
   def self.record_reply!(reply)
-    return unless reply.published?
-
     return if reply.prototype.repository.local?
 
     mentioned_ids = reply.comment_mentions.pluck(:github_identity_id)
@@ -122,8 +116,6 @@ class Notification < ApplicationRecord
   # Sends a new reaction only to the message author, never to the reacting user.
   def self.record_reaction!(reaction)
     comment = reaction.review_comment
-    return unless comment.published?
-
     return if comment.prototype.repository.local? || comment.user.github_id == reaction.user.github_id
 
     recipient = identity_for(comment.user)
@@ -132,8 +124,6 @@ class Notification < ApplicationRecord
 
   # Identifies a genuine resolution transition by its locked thread version.
   def self.record_resolution!(root, actor:, kind:)
-    return unless root.published?
-
     return if root.prototype.repository.local?
 
     participants(root, actor:).each do |recipient|

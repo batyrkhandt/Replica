@@ -65,6 +65,7 @@ function ConnectedDemo({
           buildNumber: null,
           buildPath: null,
           draftRevisionId: props.status.reviewRevision.id,
+          viewerLastSeenActivityVersion: octocatRootComment.activityVersion,
         }
       : octocatRootComment
     let comments = [startingComment]
@@ -619,6 +620,39 @@ export const LocalDraftComments: Story = {
         buildState: null,
         versionCount: 0,
       },
+    },
+  },
+  play: async ({ canvas }) => {
+    await canvas.findByRole("button", { name: "Thread started by @octocat" })
+  },
+}
+
+export const LocalCommentsBeforeFirstPublish: Story = {
+  ...LocalDraftComments,
+  args: {
+    ...LocalDraftComments.args,
+    status: {
+      ...LocalDraftComments.args!.status!,
+      state: "undiscovered",
+      repositoryAuthorized: true,
+      viewerLogin: "octocat",
+      prototype: undefined,
+      reviewRevision: {
+        ...LocalDraftComments.args!.status!.reviewRevision!,
+        prototypeId: null,
+      },
+    },
+  },
+}
+
+export const LocalCommentUploadFailed: Story = {
+  ...LocalDraftComments,
+  args: {
+    ...LocalDraftComments.args,
+    status: {
+      ...LocalDraftComments.args!.status!,
+      localCommentsError:
+        "Local comments not synced: Hub is unavailable. Your drafts are kept on this device.",
     },
   },
 }

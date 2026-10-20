@@ -64,7 +64,6 @@ class Prototype < ApplicationRecord
   has_many :branch_banner_dismissals, dependent: :delete_all
   has_many :prototype_introductions, dependent: :delete_all
   has_many :review_comments, dependent: :restrict_with_exception
-  has_many :draft_review_revisions, dependent: :restrict_with_exception
   has_many :share_links, dependent: :restrict_with_exception
 
   validates :branch_name, presence: true, length: { maximum: 255 }
@@ -82,12 +81,6 @@ class Prototype < ApplicationRecord
   validate :start_page_is_local
   validate :first_publication_is_unchanged, on: :update
   validates :registered_at, absence: true, if: :replica?
-
-  # Distinguishes local-only review storage from a branch previously discovered by Hub.
-  def draft_only?
-    branch_deleted_at.nil? && !registered? && current_build_id.nil? &&
-      head_observation_revision.zero? && builds.none? && draft_review_revisions.exists?
-  end
 
   # Registers a branch, or edits its metadata unless registration-only intent was supplied.
   def register!(name: self.name, description: self.description, start_page: UNCHANGED_START_PAGE, author: nil,

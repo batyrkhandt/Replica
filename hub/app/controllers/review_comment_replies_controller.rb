@@ -7,7 +7,7 @@ class ReviewCommentRepliesController < ApplicationController
 
   # @route POST /repositories/:repository_github_id/prototypes/:prototype_id/review_comments/:review_comment_id/replies (repository_prototype_review_comment_replies)
   def create
-    root = review_comments.roots.find(params[:review_comment_id])
+    root = @prototype.review_comments.roots.find(params[:review_comment_id])
     reply = root.thread.create_reply! \
       user: Current.user,
       body: comment_body

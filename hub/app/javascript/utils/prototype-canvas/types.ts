@@ -82,7 +82,6 @@ export type HubPrototype = {
   startPageImportError?: string | null
   viewerLogin: string
   registered: boolean
-  draftOnly?: boolean
   canEdit: boolean
   canManageShareLinks?: boolean
   publicSharingEnabled?: boolean
@@ -104,6 +103,7 @@ export type HubPrototype = {
 
 export type HubStatus = {
   repositoryAuthorized?: boolean
+  viewerLogin?: string
   canPublish?: boolean
   localStartPage?: string | null
   localStartPageError?: string
@@ -133,12 +133,15 @@ export type HubStatus = {
     treeSha: string
     commitSha: string
     clean: boolean
-    prototypeId: number
+    prototypeId: number | null
+    repository?: string
+    branch?: string
     buildNumber: number | null
     hubOrigin: string
     connectionId: string
   }
   reviewError?: string
+  localCommentsError?: string
   prototype?: HubPrototype
   registrationError?: string
   registrationReason?: string

@@ -8,7 +8,7 @@ class ReviewCommentReactionsController < ApplicationController
   # @route POST /repositories/:repository_github_id/prototypes/:prototype_id/review_comments/:review_comment_id/reactions (repository_prototype_review_comment_reactions)
   def create
     attributes = reaction_attributes
-    comment = review_comments.not_deleted.find(params[:review_comment_id])
+    comment = @prototype.review_comments.not_deleted.find(params[:review_comment_id])
     comment.thread.add_reaction! \
       user: Current.user,
       content: attributes[:content],
@@ -20,7 +20,7 @@ class ReviewCommentReactionsController < ApplicationController
   # @route DELETE /repositories/:repository_github_id/prototypes/:prototype_id/review_comments/:review_comment_id/reactions/:content (repository_prototype_review_comment_reaction)
   def destroy
     attributes = reaction_attributes
-    comment = review_comments.find(params[:review_comment_id])
+    comment = @prototype.review_comments.find(params[:review_comment_id])
     comment.thread.remove_reaction! \
       user: Current.user,
       content: params[:content],

@@ -1269,11 +1269,11 @@ it.each(["comments", "error", "loading"] as const)(
       const path = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
       if (path === "/api/hub/events") throw new Error("Live connection unavailable")
       if (path === "/api/hub/status") return Promise.resolve(Response.json(status))
-      if (path.includes("draft_revision_id=11"))
+      if (path.includes("local_revision_id=11"))
         return new Promise<Response>((resolve) => {
           finishOld = resolve
         })
-      if (path.includes("draft_revision_id=12"))
+      if (path.includes("local_revision_id=12"))
         return new Promise<Response>((resolve) => {
           finishCurrent = resolve
         })
@@ -1448,6 +1448,98 @@ it.each(["comments", "error", "loading"] as const)(
   },
 )
 
+it.each([true, false])(
+  "opens local feedback before discovery when source capture is available: %s",
+  async (sourceAvailable) => {
+    const local = {
+      ...octocatRootComment,
+      body: "Local feedback before the first publish.",
+      buildNumber: null,
+      buildPath: null,
+      draftRevisionId: 11,
+      viewerLastSeenActivityVersion: octocatRootComment.activityVersion,
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(Response.json({ comments: [local], hasMore: false, nextCursor: null })),
+      ),
+    )
+    const view = render(
+      <ThemeProvider>
+        <HubPanel
+          config={{ name: "Example", prototypeUrl: "http://localhost:4321/", token: "local" }}
+          frameRef={createRef<HTMLIFrameElement>()}
+          status={{
+            ...publicationHub,
+            state: "undiscovered",
+            repositoryAuthorized: true,
+            viewerLogin: "octocat",
+            prototype: undefined,
+            reviewError: sourceAvailable
+              ? undefined
+              : "Commit or discard submodule changes before commenting.",
+            reviewRevision: sourceAvailable
+              ? {
+                  ...publicationHub.reviewRevision!,
+                  id: 11,
+                  prototypeId: null,
+                  buildNumber: null,
+                  clean: false,
+                }
+              : undefined,
+          }}
+          onStatusChange={async () => {}}
+          onSelectHub={async () => {}}
+          onConnect={() => {}}
+          onClose={() => {}}
+          open
+        />
+      </ThemeProvider>,
+    )
+    fireEvent.click(await screen.findByRole("button", { name: /^Comments, 1/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Local feedback before/ }))
+    const conversation = await screen.findByRole("dialog", {
+      name: reviewCommentsCopy.threadHeading,
+    })
+    expect(within(conversation).queryByRole("textbox")).not.toBeInTheDocument()
+    expect(
+      within(conversation).queryByRole("button", { name: reviewCommentsCopy.resolveLabel }),
+    ).not.toBeInTheDocument()
+    expect(
+      within(conversation).queryByRole("button", { name: reviewCommentsCopy.addReactionLabel }),
+    ).not.toBeInTheDocument()
+    fireEvent.click(
+      within(conversation).getByRole("button", {
+        name: reviewCommentsCopy.commentActionsLabel.replace("%{author}", "@octocat"),
+      }),
+    )
+    expect(
+      await screen.findByRole("menuitem", { name: reviewCommentsCopy.editLabel }),
+    ).toBeEnabled()
+    expect(screen.getByRole("menuitem", { name: reviewCommentsCopy.deleteLabel })).toBeEnabled()
+    expect(
+      screen.queryByRole("menuitem", { name: reviewCommentsCopy.markUnreadLabel }),
+    ).not.toBeInTheDocument()
+    expect(within(conversation).queryByRole("link", { name: /build/i })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("menuitem", { name: reviewCommentsCopy.editLabel }))
+    fireEvent.change(screen.getByRole("textbox", { name: reviewCommentsCopy.editCommentLabel }), {
+      target: { value: "Keep this unsaved local edit." },
+    })
+    fireEvent.click(
+      within(conversation).getByRole("button", { name: reviewCommentsCopy.backToCommentsLabel }),
+    )
+    expect(await screen.findByRole("button", { name: reviewCommentsCopy.keepLabel })).toBeEnabled()
+    fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.discardButtonLabel }))
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: reviewCommentsCopy.threadHeading }),
+      ).not.toBeInTheDocument(),
+    )
+    view.unmount()
+  },
+)
+
 it.each(["draft revision", "published Build"] as const)(
   "saves once to the selected %s after source changes and a preview reload",
   async (target) => {
@@ -1599,7 +1691,7 @@ it.each(["draft revision", "published Build"] as const)(
       expect(
         fetch.mock.calls.some(
           ([input, options]) =>
-            input === "/api/hub/comments?draft_revision_id=12" && options?.method !== "POST",
+            input === "/api/hub/comments?local_revision_id=12" && options?.method !== "POST",
         ),
       ).toBe(true),
     )
