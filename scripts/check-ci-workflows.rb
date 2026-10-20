@@ -2,6 +2,7 @@ require "yaml"
 require "open3"
 require "tmpdir"
 require "fileutils"
+require "json"
 
 def check(condition, message)
   abort(message) unless condition
@@ -16,7 +17,7 @@ workflows = %w[hub-ci actions-ci].to_h do |name|
   [name, YAML.safe_load(File.read(File.join(root, ".github/workflows/#{name}.yml"))).fetch("jobs")]
 end
 expected_gates = {
-  ["hub-ci", "frontend_test_shard"] => ["Frontend tests shard ${{ matrix.shard }}/4", ["changes"]],
+  ["hub-ci", "frontend_test_shard"] => ["Frontend tests shard ${{ matrix.shard }}/4${{ matrix.node == 26 && ' (Node 26)' || '' }}", ["changes"]],
   ["hub-ci", "frontend_test"] => ["Frontend tests", %w[changes frontend_test_shard frontend_integration_test]],
   ["hub-ci", "production_image"] => ["Production image", %w[changes production_image_platform]],
   ["actions-ci", "result"] => ["Replica action tests", %w[changes test]]
@@ -83,7 +84,7 @@ check(image_platform.dig("strategy", "matrix") == { "include" => native_matrix }
 check(expression(image_platform["runs-on"]) == "matrix.runner", "Production image platform must use its native matrix runner")
 check(image_platform.fetch("steps").none? { |step| step["uses"].to_s.start_with?("docker/setup-qemu-action@") }, "Production image checks must not use QEMU")
 check(image_platform.dig("strategy", "fail-fast") == false, "Production image platform must not cancel other architectures on failure")
-check(workflows.fetch("actions-ci").fetch("test")["name"] == "Build action suite", "Build action suite name changed")
+check(workflows.fetch("actions-ci").fetch("test")["name"] == "Build action suite${{ matrix.node == 26 && ' (Node 26)' || '' }}", "Build action suite name changed")
 
 states = %w[success failure cancelled skipped] + [""]
 checks = 0
@@ -116,6 +117,38 @@ gates.each do |(workflow, id), script|
   end
 end
 puts "CI workflow guards and wiring passed (#{checks} shell cases)."
+
+projects = %w[hub starter actions/build packages/learning]
+projects.each do |project|
+  manifest = JSON.parse(File.read(File.join(root, project, "package.json")))
+  lock = JSON.parse(File.read(File.join(root, project, "package-lock.json")))
+  check(manifest.dig("engines", "node") == "^24.15.0 || ^26.0.0", "#{project}: supported Node versions changed")
+  check(lock.dig("packages", "", "engines") == manifest.fetch("engines"), "#{project}: locked Node engines differ from the manifest")
+end
+{
+  "hub-ci" => %w[rails_test typecheck frontend_lint frontend_test_shard frontend_integration_test frontend_build storybook_build],
+  "actions-ci" => ["test"],
+  "starter-ci" => ["test"],
+  "learning-ci" => ["test"]
+}.each do |workflow, job_ids|
+  jobs = YAML.safe_load(File.read(File.join(root, ".github/workflows/#{workflow}.yml"))).fetch("jobs")
+  job_ids.each do |id|
+    job = jobs.fetch(id)
+    label = "#{workflow}/#{id}"
+    check(job.dig("strategy", "matrix", "node") == [24, 26], "#{label}: existing checks must cover Node 24 and 26")
+    check(job.dig("strategy", "fail-fast") == false, "#{label}: failures must not cancel other versions")
+    check(job.fetch("name").end_with?("${{ matrix.node == 26 && ' (Node 26)' || '' }}"), "#{label}: preserve Node 24 check names and distinguish Node 26")
+    setup_node = job.fetch("steps").find { |step| step["uses"].to_s.start_with?("actions/setup-node@") }
+    check(setup_node && expression(setup_node.dig("with", "node-version")) == "matrix.node", "#{label}: execute the selected Node version")
+    installs = job.fetch("steps").select { |step| step["run"].to_s.start_with?("npm ci") }
+    check(!installs.empty? && installs.all? { |step| step.fetch("run").split.include?("--engine-strict") }, "#{label}: enforce dependency engines")
+  end
+end
+action_steps = workflows.fetch("actions-ci").fetch("test").fetch("steps")
+fixture = action_steps.find { |step| step["name"] == "Prepare composite action fixture" }
+composite = action_steps.find { |step| step["uses"] == "./actions/build" }
+check(fixture && composite && [fixture, composite].all? { |step| expression(step["if"]) == "matrix.node == 24" }, "The Node 24 composite smoke test must run only once to avoid duplicate artifact uploads")
+puts "Node support ranges, lockfiles and existing CI matrices passed."
 
 release = YAML.safe_load(File.read(File.join(root, ".github/workflows/hub-release.yml"))).fetch("jobs")
 prepare = release.fetch("prepare")

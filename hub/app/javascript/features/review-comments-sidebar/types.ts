@@ -15,6 +15,7 @@ export interface ReviewCommentsSidebarProps {
   }
   threads: ReviewThread[]
   currentBuildNumber: number
+  buildLinkOrigin?: string
   totalCount: number
   hasThreads: boolean
   filters: ReviewCommentFilters

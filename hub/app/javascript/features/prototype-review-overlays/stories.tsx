@@ -47,6 +47,7 @@ const meta = {
       onAddReaction: unchanged,
       onRemoveReaction: unchanged,
       onMarkRead: unchanged,
+      onMarkUnread: unchanged,
     },
   },
 } satisfies Meta<typeof CanvasReviewOverlays>

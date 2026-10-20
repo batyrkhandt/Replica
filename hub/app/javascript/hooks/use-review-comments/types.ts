@@ -12,6 +12,7 @@ export type ReviewCommentMutation =
   | { kind: "delete"; commentId: number }
   | { kind: "resolve"; commentId: number }
   | { kind: "reopen"; commentId: number }
+  | { kind: "mark-unread"; commentId: number }
   | { kind: "add-reaction"; commentId: number; content: ReviewReactionContent }
   | { kind: "remove-reaction"; commentId: number; content: ReviewReactionContent }
 
@@ -38,4 +39,5 @@ export interface ReviewCommentsState {
     content: ReviewReactionContent,
   ) => Promise<ReviewComment | null>
   markThreadRead: (rootId: number, activityVersion: number) => Promise<ReviewRootComment | null>
+  markThreadUnread: (rootId: number) => Promise<ReviewRootComment | null>
 }

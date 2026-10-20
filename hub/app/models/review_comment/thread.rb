@@ -133,6 +133,14 @@ class ReviewComment::Thread < ActiveRecord::AssociatedObject
     end
   end
 
+  # Marks only this reviewer's thread unread without changing thread activity.
+  def record_unread_by!(actor)
+    root = thread_root
+    root.with_lock do
+      root.thread_reads.where(user: actor).destroy_all
+    end
+  end
+
   private
 
   # Uses the locked thread version to identify each real resolution transition.

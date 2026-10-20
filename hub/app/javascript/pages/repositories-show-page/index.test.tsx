@@ -7,6 +7,7 @@ import type { RepositoriesShowPageData } from "./types"
 const PAGE_DATA: RepositoriesShowPageData = {
   accountMenuLabel: "Account menu for @octocat",
   darkThemeLabel: "Dark",
+  feedbackLabel: "Feedback",
   lightThemeLabel: "Light",
   systemThemeLabel: "System",
   alert: null,

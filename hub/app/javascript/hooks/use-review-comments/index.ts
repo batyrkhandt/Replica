@@ -149,6 +149,14 @@ export function useReviewComments(path: string, authenticityToken: string): Revi
     return root?.kind === "root" ? root : null
   }
 
+  async function markThreadUnread(rootId: number): Promise<ReviewRootComment | null> {
+    const root = await saveComment(`${path}/${rootId}/read`, "DELETE", {
+      kind: "mark-unread",
+      commentId: rootId,
+    })
+    return root?.kind === "root" ? root : null
+  }
+
   return {
     comments: reviewState.comments,
     loading: reviewState.loading,
@@ -165,5 +173,6 @@ export function useReviewComments(path: string, authenticityToken: string): Revi
     addReaction,
     removeReaction,
     markThreadRead,
+    markThreadUnread,
   }
 }

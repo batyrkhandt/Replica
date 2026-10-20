@@ -27,6 +27,8 @@ technology and on hover.
 
 Hub tracks whether each reviewer has seen the latest activity. When someone takes an action in a conversation, Hub treats the current state as read for that person. Only a new conversation or reply changes the order of the list.
 
+In Hub and the Copilot canvas, **Mark as unread** is the first action in the starting comment's menu, including for readers who cannot edit or delete it. **Delete** is separated from the other actions by a divider. Marking unread changes only the current reviewer's conversation read state, not other reviewers or inbox notifications. The conversation and any draft stay open; simply leaving it open does not mark it read again. Closing and reopening marks the displayed activity read. Replying, editing, reacting, or changing resolution retains the existing mark-as-read behavior. A failed unread change shows an error and can be retried from the menu.
+
 ## Mentions and inbox
 
 In Hub and the Copilot canvas, type `@` in a new comment, reply, or edit to choose a GitHub repository collaborator. People do not need a Hub account to appear. For repositories where GitHub cannot enumerate every reader, type a login directly; Hub verifies that account's current repository access when saving. Unrecognized or ineligible logins remain plain text. Valid mentions are highlighted, while the saved body remains plain text.
