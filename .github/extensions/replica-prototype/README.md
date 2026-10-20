@@ -16,7 +16,7 @@ After a live action times out, `get_action_diagnostics` reads bounded request an
 
 ## Install
 
-Choose either the current main branch or your organization's approved release. Both use [the same catalog](../../plugin/marketplace.json) and install the plugin with its bundled renderer and publish skill. If the `replica` marketplace is already registered, follow [Update or switch source](#update-or-switch-source) instead of adding it again.
+Choose either the current main branch or your organization's approved release. Both use [the same catalog](../../plugin/marketplace.json) and install the plugin with its bundled renderer, publish skill, and Pick & polish skill. If the `replica` marketplace is already registered, follow [Update or switch source](#update-or-switch-source) instead of adding it again.
 
 To follow the repository's default branch:
 
@@ -67,6 +67,10 @@ Plugin/Hub compatibility uses the supported Canvas interface, not matching relea
 ## Contributor setup
 
 Contributors can load uncommitted changes from a local Replica checkout with `copilot --plugin-dir` instead of editing an installed copy. See the [contributor workflow](../../../hub/docs/prototype-canvas.md#contributor-workflow) for local setup and asset build commands.
+
+## Pick & polish
+
+**Fix all** invokes the bundled, model-discoverable [`/replica-pick-and-polish` skill](skills/replica-pick-and-polish/SKILL.md) with the verified checkout, branch, batch ID, and thread count. Notes, conversation history, and images are retrieved separately from the immutable batch. When the skill is missing or disabled, or the runtime has no skill catalog, the request includes the same bundled procedure inline. Catalog or fallback-file errors stop preparation without sending work or leaving a batch awaiting results. See the [Pick & polish guide](../../../hub/docs/prototype-canvas.md#pick--polish) for saved-note and recovery behavior.
 
 ## Learnings
 
