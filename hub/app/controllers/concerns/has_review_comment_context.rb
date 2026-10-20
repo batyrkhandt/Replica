@@ -16,13 +16,20 @@ module HasReviewCommentContext
 
   # Uses the same page shape for browser and paired extension readers.
   def render_review_comment_page
+    filter = is_a?(CanvasApi::BaseController) ? improvement_notes_filter : "exclude"
     page = ReviewComment.page_for \
       @prototype,
       cursor: pagination_cursor,
       page_size: page_size,
-      improvement_notes: is_a?(CanvasApi::BaseController) ? improvement_notes_filter : "exclude"
+      improvement_notes: filter do |candidate|
+        filter == "exclude" || review_comment_page_json(candidate).to_json.bytesize <= ReviewComment::NOTE_PAGE_MAXIMUM_BYTES
+      end
+    render json: review_comment_page_json(page)
+  end
+
+  def review_comment_page_json(page)
     prepare_viewer_thread_reads(page.records)
-    render json: {
+    {
       comments: page.records.map { review_comment_json(_1) },
       nextCursor: page.next_cursor,
       hasMore: page.has_more

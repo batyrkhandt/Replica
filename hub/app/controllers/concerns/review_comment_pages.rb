@@ -4,6 +4,7 @@ module ReviewCommentPages
 
   included do
     rescue_from ReviewComment::InvalidPagination, with: :invalid_pagination
+    rescue_from ReviewComment::ResponseTooLarge, with: -> { head :content_too_large }
   end
 
   private
@@ -39,6 +40,8 @@ module ReviewCommentPages
 
   def review_comment_json(comment)
     if comment.improvement_note?
+      can_write = comment.editable_by?(Current.user) &&
+        @repository.authorization.sufficient?(@repository_permission, minimum: :write)
       return {
         id: comment.id, kind: "improvement_note", localId: comment.local_id,
         revision: comment.note_revision, status: comment.note_status,
@@ -47,8 +50,8 @@ module ReviewCommentPages
         deletedAt: comment.deleted_at&.iso8601(6),
         createdAt: comment.created_at.iso8601(6), updatedAt: comment.updated_at.iso8601(6),
         author: author_json(comment.user),
-        viewerCanEdit: comment.editable_by?(Current.user),
-        viewerCanDelete: comment.editable_by?(Current.user)
+        viewerCanEdit: can_write,
+        viewerCanDelete: can_write
       }
     end
     payload = {

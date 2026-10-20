@@ -8,10 +8,18 @@ class CanvasApi::ImprovementNotesController < CanvasApi::BaseController
 
   # @route GET /api/canvas/repositories/:repository_github_id/prototypes/:prototype_id/improvement_notes (canvas_api_improvement_notes)
   def index
-    notes = @prototype.improvement_notes.where(user: Current.user).includes(:user).order(:id).limit(201)
-    return render json: { error: "Too many improvement notes." }, status: :conflict if notes.size > 200
+    if @prototype.improvement_notes.where(user: Current.user).limit(201).count > 200
+      return render json: { error: "Too many improvement notes." }, status: :conflict
+    end
 
-    render json: { threadVersion: ReviewComment::NoteThreadContract::VERSION, notes: notes.map { review_comment_json(_1) } }
+    page = ReviewComment.improvement_note_page_for \
+      @prototype,
+      viewer: Current.user,
+      cursor: pagination_cursor,
+      page_size: page_size do |candidate|
+        note_page_json(candidate).to_json.bytesize <= ReviewComment::NOTE_PAGE_MAXIMUM_BYTES
+      end
+    render json: note_page_json(page)
   end
 
   # @route POST /api/canvas/repositories/:repository_github_id/prototypes/:prototype_id/improvement_notes (canvas_api_improvement_notes)
@@ -24,6 +32,7 @@ class CanvasApi::ImprovementNotesController < CanvasApi::BaseController
     return head :bad_request unless params[:anchor].is_a?(ActionController::Parameters)
     return head :bad_request if params.key?(:thread) && !params[:thread].is_a?(ActionController::Parameters)
     return head :bad_request if params.key?(:note_thread)
+    return head :bad_request if %i[local_id body status capture].any? { !params[_1].nil? && !params[_1].is_a?(String) }
 
     thread = params[:thread]&.to_unsafe_h
 
@@ -81,6 +90,15 @@ class CanvasApi::ImprovementNotesController < CanvasApi::BaseController
   end
 
   private
+
+  def note_page_json(page)
+    {
+      threadVersion: ReviewComment::NoteThreadContract::VERSION,
+      notes: page.records.map { review_comment_json(_1) },
+      nextCursor: page.next_cursor,
+      hasMore: page.has_more
+    }
+  end
 
   def load_prototype
     @prototype = @repository.reviewable_prototypes.find(params[:prototype_id])

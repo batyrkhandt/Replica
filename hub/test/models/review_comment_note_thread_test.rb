@@ -40,6 +40,31 @@ class ReviewCommentNoteThreadTest < ActiveSupport::TestCase
     assert_not foreign.valid?
   end
 
+  test "version two snapshots accept Enterprise Managed User logins but reject foreign identities" do
+    owner = users.create(login: "mona_enterprise")
+    note = build_note(user: owner)
+    author = { "id" => owner.id, "login" => owner.login, "avatarUrl" => nil }
+    note.note_thread = thread_payload(messages: [ author_message.merge("author" => author.deep_dup) ])
+      .merge("version" => 2, "originalAuthor" => author)
+    note.save!
+    assert_equal author, note.reload.note_thread.fetch("originalAuthor")
+    assert_equal author, note.note_thread.fetch("messages").sole.fetch("author")
+
+    [ "original", "followup" ].each do |position|
+      candidate = build_note(user: owner, prototype: note.prototype)
+      candidate.note_thread = thread_payload(messages: [ author_message.merge("author" => author.deep_dup) ])
+        .merge("version" => 2, "originalAuthor" => author.deep_dup)
+      invalid_author = author.merge("id" => owner.id + 1)
+      if position == "original"
+        candidate.note_thread["originalAuthor"] = invalid_author
+      else
+        candidate.note_thread["messages"].first["author"] = invalid_author
+      end
+      assert_not candidate.valid?, "#{position} must reject #{invalid_author.inspect}"
+      assert_not_empty candidate.errors[:note_thread]
+    end
+  end
+
   test "legacy notes stay standalone while threaded notes derive status from all requests" do
     note = build_note
     assert note.valid?

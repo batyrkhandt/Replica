@@ -81,6 +81,7 @@ class ReviewComment < ApplicationRecord
   VIEWPORT_DIMENSION_MAXIMUM = 100_000
   DEFAULT_PAGE_SIZE = 200
   MAXIMUM_PAGE_SIZE = 200
+  NOTE_PAGE_MAXIMUM_BYTES = 2 * 1024 * 1024
   # How long Hub waits, after a deletion or after the removal job last started, before it queues the
   # removal of a deleted comment's text from the learning store again. It is longer than any wait
   # between the job's own retries, so Hub never adds a second job while the first still tries.
@@ -202,21 +203,36 @@ class ReviewComment < ApplicationRecord
 
   class << self
     # Returns comments newest first with a signed token for the next page.
-    def page_for(prototype, cursor:, page_size:, improvement_notes: "exclude")
+    def page_for(prototype, cursor:, page_size:, improvement_notes: "exclude", &fits)
       paginate \
         filtered_notes(improvement_notes).where(prototype:).includes(:build, :user, :resolved_by, :reactions, comment_mentions: :github_identity),
         purpose: "prototype/#{prototype.id}/#{improvement_notes}",
         cursor:,
-        page_size:
+        page_size:,
+        maximum_payload_bytes: improvement_notes == "exclude" ? nil : NOTE_PAGE_MAXIMUM_BYTES,
+        &fits
     end
 
     # Returns one bounded stream across every reviewable branch in the repository.
-    def page_for_repository(repository, viewer:, cursor:, page_size:, improvement_notes: "exclude")
+    def page_for_repository(repository, viewer:, cursor:, page_size:, improvement_notes: "exclude", &fits)
       paginate \
         filtered_notes(improvement_notes).where(prototype: repository.reviewable_prototypes).includes(:prototype, :build, :user, :resolved_by, :reactions, comment_mentions: :github_identity),
         purpose: "repository/#{repository.id}/viewer/#{viewer.id}/#{improvement_notes}",
         cursor:,
-        page_size:
+        page_size:,
+        maximum_payload_bytes: improvement_notes == "exclude" ? nil : NOTE_PAGE_MAXIMUM_BYTES,
+        &fits
+    end
+
+    # Reads one creator's notes without materializing a whole collection of captures.
+    def improvement_note_page_for(prototype, viewer:, cursor:, page_size:, &fits)
+      paginate \
+        improvement_notes.where(prototype:, user: viewer).includes(:user),
+        purpose: "prototype/#{prototype.id}/improvement-notes/viewer/#{viewer.id}",
+        cursor:,
+        page_size:,
+        maximum_payload_bytes: NOTE_PAGE_MAXIMUM_BYTES,
+        &fits
     end
 
     # Reads only visible starting comments, with filters bound into the cursor.
@@ -260,13 +276,18 @@ class ReviewComment < ApplicationRecord
     end
 
     # Uses the same signed keyset pagination for prototype and repository readers.
-    def paginate(relation, purpose:, cursor:, page_size:, direction: :desc, activity_version: nil, &fits)
+    def paginate(relation, purpose:, cursor:, page_size:, direction: :desc, activity_version: nil, maximum_payload_bytes: nil, &fits)
       raise InvalidPagination if !page_size.is_a?(Integer) || !(1..MAXIMUM_PAGE_SIZE).cover?(page_size)
 
       relation = before_cursor(relation, purpose, cursor, direction:, activity_version:) if cursor.present?
-      records = relation.reorder(created_at: direction, id: direction).limit(page_size + 1).to_a
-      has_more = records.length > page_size
-      records = records.first(page_size)
+      relation = relation.reorder(created_at: direction, id: direction)
+      if maximum_payload_bytes
+        records, has_more = payload_bounded_records(relation, page_size:, maximum_payload_bytes:)
+      else
+        records = relation.limit(page_size + 1).to_a
+        has_more = records.length > page_size
+        records = records.first(page_size)
+      end
       make_page = lambda do |count|
         more = has_more || count < records.length
         next_cursor = encode_cursor(purpose, records[count - 1], activity_version:) if more && count.positive?
@@ -291,6 +312,24 @@ class ReviewComment < ApplicationRecord
       raise ResponseTooLarge if best.nil?
 
       best
+    end
+
+    # Measures payloads in SQLite before loading captures, using one snapshot for both reads.
+    def payload_bounded_records(relation, page_size:, maximum_payload_bytes:)
+      transaction do
+        lengths = %w[body anchor capture note_thread].map do |column|
+          "COALESCE(length(CAST(review_comments.#{column} AS BLOB)), 0)"
+        end
+        sizes = relation.except(:includes).limit(page_size + 1).pluck(Arel.sql(lengths.join(" + ")))
+        bytes = 0
+        count = sizes.first(page_size).take_while do |size|
+          bytes += size
+          bytes <= maximum_payload_bytes
+        end.length
+        raise ResponseTooLarge if count.zero? && sizes.any?
+
+        [ relation.limit(count).to_a, sizes.length > count ]
+      end
     end
 
     # Continues past the signed page position in the requested order.
