@@ -15,7 +15,7 @@ Publish only the checkout, branch, and commit identified by the canvas request. 
 
 ## Apply the selected mode
 
-For `commit-changes`, select and commit only changes related to the current task. Preserve unrelated staged, unstaged, and untracked files. Do not blanket-stage files or include unrelated staged changes. Ask the user before committing if task-related changes cannot be separated confidently. Stop and report if there are no task-related changes or a commit fails; never publish an older commit as a fallback.
+For `commit-changes`, select and commit only changes related to the current task. Preserve unrelated staged, unstaged, and untracked files, including local agent skills under `.github/skills/`, `.agents/skills/`, or `.claude/skills/` unless the task changed them. Do not blanket-stage files or include unrelated staged changes. Ask the user before committing if task-related changes cannot be separated confidently. If there are no task-related changes, make no commit and publish the verified captured `commitSha`. Stop and report if a commit fails or the target drifts; never fall back to an older commit.
 
 For `committed-only`, publish only the captured `commitSha`. Do not create or amend commits, stage or unstage files, stash, discard, or otherwise modify staged, unstaged, or untracked files. Local edits are excluded, so the Build may differ from the preview. Stop if HEAD changes.
 
