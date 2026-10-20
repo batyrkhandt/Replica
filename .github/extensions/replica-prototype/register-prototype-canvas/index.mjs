@@ -477,12 +477,13 @@ export async function registerPrototypeCanvas(
             },
             improvementNotesDemo: {
               type: "boolean",
-              description: "Legacy input retained for compatibility with Pick & polish clients.",
+              description:
+                "Legacy input retained for compatibility. Pick & polish is now available by default with durable notes and explicit Copilot handoff.",
             },
             improvementThreadsSample: {
               type: "boolean",
               description:
-                "Compatibility flag for clients with an isolated, in-memory follow-up conversation surface. The runtime transports this flag without saving, syncing or dispatching sample actions.",
+                "Show an isolated, in-memory follow-up conversation experiment instead of saved Pick & polish notes. Sample actions never save, sync or dispatch work.",
             },
             repository: {
               type: "string",

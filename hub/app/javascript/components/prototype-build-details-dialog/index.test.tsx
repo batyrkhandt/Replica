@@ -44,6 +44,9 @@ describe("BuildDetailsDialog()", () => {
     expect(screen.getByRole("button", { name: "Close build details" })).toHaveClass(
       "hub-icon-button",
     )
+    expect(screen.getByRole("button", { name: "Close build details" })).not.toHaveClass(
+      "hub-icon-button--invisible",
+    )
     const branch = screen.getByText("prototype/welcome")
     expect(branch).toBeInTheDocument()
     expect(branch.closest("dd")?.querySelector(".octicon-git-branch")).toBeInTheDocument()
