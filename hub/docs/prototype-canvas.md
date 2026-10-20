@@ -1,5 +1,19 @@
 # Prototype canvas
 
+## Improvement-note persistence
+
+Hub provides a persistence API for author-owned Pick & polish notes on a reviewable Prototype branch, without requiring a Build. This server contract does not enable a new canvas interface or local synchronization workflow.
+
+Paired clients read and save their own notes at `GET` and `POST /api/canvas/repositories/:repository_github_id/prototypes/:prototype_id/improvement_notes`. Every request requires repository read access; writes freshly check write access and share the ordinary comment rate limit. Prototype metadata includes the authenticated `viewerId` so clients can identify the note owner. The creator collection includes deletion tombstones and never returns another creator's notes.
+
+Each save supplies a stable `local_id`, a positive `revision`, the last synchronized `previous_revision`, `body`, `status`, `deleted`, an `anchor`, and an optional PNG `capture`. Exact retries are idempotent. Conflicting content at the same revision, a stale previous revision, a changed target, or resurrection of a deleted note is rejected. A creator can retain at most 200 notes, including tombstones.
+
+The collection advertises `threadVersion: 2`. Notes may retain a nullable `thread` for older clients, or use version 1 or 2 conversation payloads. Threads keep the original body immutable, append author requests and Copilot answers in order, and allow only request-status changes to saved messages. Version 2 supports owner identity snapshots; saved snapshots cannot change or disappear. Answers reference only preceding requests. A note stays open while any request is open and can resolve only after every request is ready.
+
+Threads are limited to 100 messages and 32,768 UTF-8 bytes. Author requests share the ordinary 10,000-byte body limit; Copilot answers allow 2,000 UTF-16 code units. Clients must preserve existing threads when saving or deleting; older clients receive an upgrade conflict rather than silently dropping history. Deletion clears the body and thread while retaining the tombstone and revision.
+
+Ordinary review interfaces, summaries, unread state, notifications, analytics, and learning exclude these notes. Paired Prototype and repository comment lists can explicitly opt in with `improvement_notes=include` or `only`; ordinary comment mutation endpoints cannot edit notes or accept thread payloads. See [Review collaboration](review-collaboration.md) for ordinary conversations.
+
 ## Local prototype controls
 
 The source canvas lets prototype authors change ordinary app state without editing files. The sliders icon in the toolbar opens a slim, canvas-owned panel over the left of the preview, separate from Hub review UI. It supports boolean, number, select, radio, segmented, slider, checkboxGroup, text, textarea, color and button fields, plus one-level groups. Conditions are declarative JSON; neither schemas nor host messages select arbitrary components or executable URLs.

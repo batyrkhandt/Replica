@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_15_060000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_19_140000) do
   create_table "analytics_deliveries", force: :cascade do |t|
     t.integer "attempts", default: 0, null: false
     t.datetime "created_at", null: false
@@ -472,22 +472,31 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_060000) do
     t.datetime "updated_at", null: false
     t.integer "user_id", null: false
     t.datetime "learning_removal_due_at"
+    t.string "kind", default: "review", null: false
+    t.string "local_id"
+    t.integer "note_revision"
+    t.string "note_status"
+    t.text "capture"
+    t.json "note_thread"
     t.index ["build_id"], name: "index_review_comments_on_build_id"
     t.index ["id", "prototype_id"], name: "index_review_comments_on_id_and_prototype", unique: true
     t.index ["learning_removal_due_at"], name: "index_review_comments_on_learning_removal_due_at", where: "learning_removal_due_at IS NOT NULL"
     t.index ["prototype_id", "created_at", "id"], name: "index_review_comments_on_prototype_and_created_at", order: { created_at: :desc, id: :desc }
+    t.index ["prototype_id", "user_id", "local_id"], name: "index_review_comments_on_prototype_id_and_user_id_and_local_id", unique: true
     t.index ["resolved_by_id"], name: "index_review_comments_on_resolved_by_id"
     t.index ["root_id"], name: "index_review_comments_on_root_id"
     t.index ["user_id"], name: "index_review_comments_on_user_id"
+    t.check_constraint "(kind = 'review' AND local_id IS NULL AND note_revision IS NULL AND note_status IS NULL AND capture IS NULL) OR (kind = 'improvement_note' AND root_id IS NULL AND build_id IS NULL AND local_id IS NOT NULL AND length(local_id) = 36 AND note_revision IS NOT NULL AND note_revision > 0 AND note_status IS NOT NULL AND note_status IN ('open', 'sent', 'ready', 'resolved', 'blocked') AND (capture IS NULL OR length(CAST(capture AS BLOB)) <= 1500000))", name: "review_comments_kind"
     t.check_constraint "(resolved_at IS NULL AND resolved_by_id IS NULL) OR (root_id IS NULL AND resolved_at IS NOT NULL AND resolved_by_id IS NOT NULL)", name: "review_comments_resolution"
     t.check_constraint "(root_id IS NULL AND activity_version IS NOT NULL AND activity_version > 0) OR (root_id IS NOT NULL AND activity_version IS NULL)", name: "review_comments_activity_version"
-    t.check_constraint "(root_id IS NULL AND build_id IS NOT NULL AND anchor IS NOT NULL) OR (root_id IS NOT NULL AND build_id IS NULL AND anchor IS NULL)", name: "review_comments_thread_shape"
+    t.check_constraint "(root_id IS NULL AND anchor IS NOT NULL AND (build_id IS NOT NULL OR kind = 'improvement_note')) OR (kind = 'review' AND root_id IS NOT NULL AND build_id IS NULL AND anchor IS NULL)", name: "review_comments_thread_shape"
     t.check_constraint "CASE WHEN deleted_at IS NULL THEN body IS NOT NULL AND length(trim(body)) > 0 AND length(CAST(body AS BLOB)) <= 10000 ELSE body IS NULL END", name: "review_comments_body"
     t.check_constraint "anchor IS NULL OR json_type(anchor) = 'object'", name: "review_comments_anchor_object"
     t.check_constraint "anchor IS NULL OR json_valid(anchor)", name: "review_comments_anchor_json"
     t.check_constraint "anchor IS NULL OR length(CAST(anchor AS BLOB)) BETWEEN 2 AND 16384", name: "review_comments_anchor_size"
     t.check_constraint "deleted_at IS NULL OR deleted_at >= created_at", name: "review_comments_deletion_time"
     t.check_constraint "edited_at IS NULL OR (deleted_at IS NULL AND edited_at >= created_at)", name: "review_comments_edit_state"
+    t.check_constraint "note_thread IS NULL OR (kind = 'improvement_note' AND CASE WHEN json_valid(note_thread) THEN json_type(note_thread) = 'object' ELSE 0 END AND length(CAST(note_thread AS BLOB)) BETWEEN 2 AND 32768)", name: "review_comments_note_thread"
     t.check_constraint "root_id IS NULL OR root_id <> id", name: "review_comments_root_not_self"
   end
 

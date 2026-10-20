@@ -56,6 +56,7 @@ module ReviewCommentActions
   private
 
   def review_comment_params
+    reject_note_thread_parameters!
     params.require(:review_comment).permit(:build_number, :body, anchor: {})
   end
 
