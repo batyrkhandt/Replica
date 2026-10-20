@@ -724,8 +724,16 @@ async function routeRequest(
     const preparation = await preparePublish(publishContext, publishPreferences)
     if (input.target && !samePublishTarget(input.target, preparation.target))
       throw httpError(409, "The checkout changed while preparing to publish. Try again.")
-    if (input.workingTree !== undefined && !["clean", "changed"].includes(input.workingTree))
+    if (
+      input.workingTree !== undefined &&
+      !["clean", "changed", "unavailable"].includes(input.workingTree)
+    )
       throw httpError(422, "Invalid working tree state.")
+    if (preparation.workingTree === "unavailable" && input.mode !== "committed-only")
+      throw httpError(
+        409,
+        `Could not check local changes. Retry the check or choose Publish committed version only. ${preparation.workingTreeError}`,
+      )
     if (input.workingTree === "clean" && preparation.workingTree === "changed")
       throw httpError(409, "Uncommitted changes appeared while preparing to publish. Try again.")
     const mode =

@@ -143,9 +143,12 @@ describe("requestPublish()", () => {
     )
     assert.match(
       publishInstructions,
-      /Stop and report if there are no task-related changes or a commit fails/,
+      /If there are no task-related changes, make no commit and publish the verified captured `commitSha`/,
     )
-    assert.match(publishInstructions, /never publish an older commit as a fallback/)
+    assert.match(
+      publishInstructions,
+      /Stop and report if a commit fails or the target drifts; never fall back to an older commit/,
+    )
     assert.match(
       publishInstructions,
       /Immediately before pushing, recheck the repository, branch, origin fingerprints, and HEAD/,

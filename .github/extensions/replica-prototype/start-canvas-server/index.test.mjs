@@ -21,6 +21,141 @@ function publishData(prompt) {
 }
 
 describe("startCanvasServer()", () => {
+  it("requires an explicit committed-only choice after a failed check even with saved commit permission", async () => {
+    await withContext(async (context) => {
+      const directory = path.join(context.sessionWorkspacePath, "publish-settings")
+      await writeFile(
+        path.join(context.repositoryPath, ".git/info/exclude"),
+        "replica-prototype/\npublish-settings/\n",
+      )
+      const prompts = []
+      const canvas = await startCanvasServer(
+        context,
+        { send: ({ prompt }) => prompts.push(prompt) },
+        {
+          publishPreferencesDirectory: directory,
+          hubOptions: {
+            directory: path.join(context.sessionWorkspacePath, "replica-prototype", "credentials"),
+          },
+        },
+      )
+      try {
+        const html = await (await fetch(canvas.url)).text()
+        const { token } = JSON.parse(html.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
+        async function send(route, body = {}) {
+          const response = await fetch(new URL(route, canvas.url), {
+            method: "POST",
+            headers: { "X-Replica-Canvas-Token": token },
+            body: JSON.stringify(body),
+          })
+          return { status: response.status, body: await response.json() }
+        }
+        const initial = await send("/api/publish/prepare")
+        const preferences = createPublishPreferences(directory)
+        const index = path.join(context.repositoryPath, ".git/index")
+        await writeFile(index, "invalid Git index")
+        const failed = await send("/api/publish/prepare")
+        assert.equal(failed.status, 200)
+        assert.deepEqual(failed.body.target, initial.body.target)
+        assert.equal(failed.body.workingTree, "unavailable")
+        assert.ok(failed.body.workingTreeError)
+        assert.equal("changes" in failed.body, false)
+        const unchecked = {
+          target: failed.body.target,
+          workingTree: "unavailable",
+        }
+        for (const remember of [false, true]) {
+          await preferences.write(initial.body.target, remember)
+          assert.equal((await send("/api/publish", unchecked)).status, 409)
+          assert.equal(
+            (
+              await send("/api/publish", {
+                ...unchecked,
+                mode: "commit-changes",
+                remember: true,
+              })
+            ).status,
+            409,
+          )
+          assert.equal(await preferences.read(initial.body.target), remember)
+        }
+        assert.equal((await send("/api/publish")).status, 409)
+        assert.equal(
+          (
+            await send("/api/publish", {
+              ...unchecked,
+              workingTree: "clean",
+              mode: "commit-changes",
+            })
+          ).status,
+          409,
+        )
+        for (const field of [
+          "commitSha",
+          "branch",
+          "repository",
+          "originFingerprint",
+          "pushFingerprint",
+        ]) {
+          assert.equal(
+            (
+              await send("/api/publish", {
+                ...unchecked,
+                target: { ...unchecked.target, [field]: "stale" },
+                mode: "committed-only",
+              })
+            ).status,
+            409,
+          )
+        }
+        assert.equal(
+          (
+            await send("/api/publish", {
+              ...unchecked,
+              mode: "committed-only",
+              remember: true,
+            })
+          ).status,
+          422,
+        )
+        assert.equal(prompts.length, 0)
+        await preferences.write(initial.body.target, false)
+        assert.equal(
+          (await send("/api/publish", { ...unchecked, mode: "committed-only" })).status,
+          202,
+        )
+        assert.equal(prompts.length, 1)
+        assert.deepEqual(
+          {
+            repository: publishData(prompts[0]).repository,
+            branch: publishData(prompts[0]).branch,
+            commitSha: publishData(prompts[0]).commitSha,
+            mode: publishData(prompts[0]).mode,
+          },
+          {
+            repository: initial.body.target.repository,
+            branch: initial.body.target.branch,
+            commitSha: initial.body.target.commitSha,
+            mode: "committed-only",
+          },
+        )
+        assert.equal(await preferences.read(initial.body.target), false)
+        assert.equal(await readFile(index, "utf8"), "invalid Git index")
+        assert.equal(
+          execFileSync("git", ["rev-parse", "HEAD"], {
+            cwd: context.repositoryPath,
+            encoding: "utf8",
+          }).trim(),
+          initial.body.target.commitSha,
+        )
+        await rm(index)
+        assert.equal((await send("/api/publish/prepare")).body.workingTree, "clean")
+      } finally {
+        await canvas.close()
+      }
+    })
+  })
+
   it("checks changes on click, requires a publish choice, saves branch permission and rejects stale targets", async () => {
     await withContext(async (context) => {
       const directory = path.join(context.sessionWorkspacePath, "publish-settings")
