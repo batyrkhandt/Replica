@@ -304,6 +304,51 @@ class CanvasRepositoryCommentsTest < ActionDispatch::IntegrationTest
     assert_nil @grant.reload.last_active_at
   end
 
+  test "canvas readers can persist their own unread state through the shared thread endpoint" do
+    prototype = prototypes.create(repository: @repository)
+    root = create_comment(prototype, 1)
+    root.thread.record_read_by!(@viewer, activity_version: 1)
+    author_read = root.thread.record_read_by!(@author, activity_version: 1)
+    base = canvas_api_review_comments_path(@repository.route_id, prototype)
+
+    delete "#{base}/#{root.id}/read", headers: @headers
+
+    assert_response :success
+    changed = JSON.parse(response.body).fetch("comments").sole
+    assert_equal root.id, changed.fetch("id")
+    assert_nil changed.fetch("viewerLastSeenActivityVersion")
+    assert_equal false, changed.fetch("viewerCanEdit")
+    assert_not ReviewThreadRead.exists?(root:, user: @viewer)
+    assert_equal 1, author_read.reload.last_seen_activity_version
+    get @path, headers: @headers
+    assert_response :success
+    assert_nil JSON.parse(response.body).fetch("comments").sole.fetch("viewerLastSeenActivityVersion")
+  end
+
+  test "canvas unread changes require an active grant and its authorized repository and prototype" do
+    prototype = prototypes.create(repository: @repository)
+    root = create_comment(prototype, 1)
+    read = root.thread.record_read_by!(@viewer, activity_version: 1)
+    base = canvas_api_review_comments_path(@repository.route_id, prototype)
+    other = prototypes.create(repository: @repository, branch_name: "prototype/other")
+    other_base = canvas_api_review_comments_path(@repository.route_id, other)
+
+    delete "#{base}/#{root.id}/read"
+    assert_response :unauthorized
+    delete "#{other_base}/#{root.id}/read", headers: @headers
+    assert_response :not_found
+    other_repository_base = canvas_api_review_comments_path(@repository.route_id + 1, prototype)
+    delete "#{other_repository_base}/#{root.id}/read", headers: @headers
+    assert_response :not_found
+    stub_github_permissions([ repository_payload(2001, "github/prototype") ], { 2001 => nil })
+    delete "#{base}/#{root.id}/read", headers: @headers
+    assert_response :forbidden
+    @grant.revoke!
+    delete "#{base}/#{root.id}/read", headers: @headers
+    assert_response :unauthorized
+    assert_equal 1, read.reload.last_seen_activity_version
+  end
+
   test "bootstraps repository identity without any prototype and returns a complete empty page" do
     get canvas_api_connection_path, headers: @headers
     assert_response :success

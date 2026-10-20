@@ -13,6 +13,13 @@ import { readState } from "../read-state/index.mjs"
 import { writeState } from "../write-state/index.mjs"
 import { createPublishPreferences } from "../publish-preferences/index.mjs"
 
+function publishData(prompt) {
+  assert.match(prompt, /\/replica-publish-prototype\b/)
+  const data = prompt.split("\n\n").find((paragraph) => paragraph.startsWith('{"repository":'))
+  assert.ok(data, "The publishing request includes its verified target.")
+  return JSON.parse(data)
+}
+
 describe("startCanvasServer()", () => {
   it("protects saved notes with the canvas token and restores them after reopening", async () => {
     await withContext(async (context) => {
@@ -157,7 +164,8 @@ describe("startCanvasServer()", () => {
           ).status,
           202,
         )
-        assert.match(prompts[0], /Publish only the captured commitSha/)
+        assert.equal(publishData(prompts[0]).mode, "committed-only")
+        assert.equal(publishData(prompts[0]).commitSha, initialHead.trim())
         assert.equal(
           execFileSync("git", ["rev-parse", "HEAD"], {
             cwd: context.repositoryPath,
@@ -182,7 +190,8 @@ describe("startCanvasServer()", () => {
           ).status,
           202,
         )
-        assert.match(prompts[1], /The user chose Commit changes & publish/)
+        assert.equal(publishData(prompts[1]).mode, "commit-changes")
+        assert.equal(publishData(prompts[1]).branch, changed.body.target.branch)
         assert.equal((await send("/api/publish/prepare")).body.remember, true)
         assert.equal((await send("/api/publish", { target: changed.body.target })).status, 202)
         assert.equal(prompts.length, 2)
@@ -1040,9 +1049,9 @@ esac
         false,
       )
       assert.equal(publishPrompts.length, 1)
-      assert.match(publishPrompts[0].prompt, /Push the verified non-default branch/)
-      assert.match(publishPrompts[0].prompt, /or modify staged, unstaged or untracked files/)
-      assert.doesNotMatch(publishPrompts[0].prompt, /approval|authoriz|confirmation|ask before/i)
+      assert.equal(publishData(publishPrompts[0].prompt).mode, "committed-only")
+      assert.equal(publishData(publishPrompts[0].prompt).branch, "prototype/first")
+      assert.equal(publishData(publishPrompts[0].prompt).repository, "github/replica")
       canRegister = false
       process.env.TEST_BRANCH = "prototype/third"
       assert.equal((await send("/api/publish", "POST", {})).status, 403)
@@ -1122,6 +1131,20 @@ esac
           .every(({ activity }) => activity === undefined),
       )
       assert.equal((await send("/api/hub/comments/9/resolution", "POST")).status, 200)
+      assert.equal(
+        (
+          await send("/api/hub/comments/9/read", "POST", {
+            review_thread_read: { activity_version: 1 },
+          })
+        ).status,
+        200,
+      )
+      assert.equal(calls.at(-1).activity, undefined)
+      assert.equal((await send("/api/hub/comments/9/read", "DELETE")).status, 200)
+      assert.ok(calls.at(-1).path.endsWith("/review_comments/9/read"))
+      assert.equal(calls.at(-1).method, "DELETE")
+      assert.equal(calls.at(-1).body, "")
+      assert.equal(calls.at(-1).activity, "interactive")
       assert.equal(
         (
           await send("/api/hub/comments/9/reactions/%2B1", "DELETE", {
@@ -1222,16 +1245,13 @@ esac
       assert.equal(unpublishedRepositoryPage.scanComplete, true)
       assert.equal(unpublishedRepositoryPage.target.branch, "prototype/second")
       assert.equal((await send("/api/publish", "POST", {})).status, 202)
-      assert.match(
-        publishPrompts.at(-1).prompt,
-        /If unregistered after discovery, call update_metadata/,
-      )
+      assert.equal(publishData(publishPrompts.at(-1).prompt).branch, "prototype/second")
       assert.equal(publishPrompts.at(-1).registrations, previousRegistrations)
       process.env.TEST_BRANCH = "prototype/third"
       assert.equal((await send("/api/publish", "POST", {})).status, 202)
       assert.equal(prototypes.get("prototype/third")?.name, "third")
       assert.equal(publishPrompts.at(-1).registrations, previousRegistrations + 1)
-      assert.match(publishPrompts.at(-1).prompt, /Never ask for a Register prototype click/)
+      assert.equal(publishData(publishPrompts.at(-1).prompt).branch, "prototype/third")
       process.env.TEST_BRANCH = "prototype/first"
       assert.equal((await send("/api/state")).body.publishRequest.state, "requested")
 

@@ -34,9 +34,28 @@ type Story = StoryObj<typeof meta>
 
 export const Single: Story = {}
 
+export const Read: Story = {
+  args: { thread: { ...singleReviewThread, unread: false } },
+}
+
 export const MultipleMessages: Story = {
   args: {
     thread: repliedReviewThread,
+    currentBuildNumber: 2,
+    buildHref: `https://hub.example.com${repliedReviewThread.root.buildPath}`,
+  },
+}
+
+export const LongAuthor: Story = {
+  args: {
+    thread: {
+      ...repliedReviewThread,
+      root: {
+        ...repliedReviewThread.root,
+        author: { ...repliedReviewThread.root.author, name: "The Octocat with a long name" },
+      },
+    },
+    currentBuildNumber: 2,
   },
 }
 

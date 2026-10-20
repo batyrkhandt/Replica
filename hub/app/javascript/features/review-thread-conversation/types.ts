@@ -22,4 +22,5 @@ export interface ReviewThreadConversationProps {
   onAddReaction: (commentId: number, content: ReviewReactionContent) => Promise<boolean>
   onRemoveReaction: (commentId: number, content: ReviewReactionContent) => Promise<boolean>
   onMarkRead: (activityVersion: number) => Promise<boolean>
+  onMarkUnread: () => Promise<boolean>
 }

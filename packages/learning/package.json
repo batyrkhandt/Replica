@@ -28,7 +28,7 @@
     "demo:agent-memory-repo": "node examples/agent-memory-repo/demo.mjs"
   },
   "engines": {
-    "node": ">=24 <25"
+    "node": "^24.15.0 || ^26.0.0"
   },
   "devDependencies": {
     "ajv": "8.20.0"

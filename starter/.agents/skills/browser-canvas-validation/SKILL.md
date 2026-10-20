@@ -27,17 +27,16 @@ If a required companion or sibling skill is missing, stop and name its path
 before checks. Do not auto-install dependencies.
 
 Select the first existing root, `.agents/context/`, then `.github/contexts/`.
-Read `PRODUCT-DESIGN.md`, `REPOSITORY.md` and `BROWSER-VALIDATION.md`
-directly there. Read `DESIGN-SYSTEM.md` for component-specific assertions.
-No manifest or canvas-specific pack file is required. Never mix roots.
+Read the applicable `BROWSER-VALIDATION.md` sections and owner topics for target/readiness, canvas identifiers, safe state and recovery. In the shared template, these are `Target and readiness`, `Canvas host and identifiers`, `Sessions, safe state and artifacts`, and `Recovery and cleanup`. Read `Configured Playwright MCP fallback` or `Existing CLI adapter` only when that fallback is needed.
+
+Read the applicable `REPOSITORY.md` section for the target (`Where UI lives` in the shared template), `Commands` when a command is needed, and `Constraints` for relevant permissions or lifecycle. Follow applicable owner links. If a consumer uses different headings, select the equivalent sections by owner rather than reading the entire file.
+
+Read `PRODUCT-DESIGN.md` when expected product behavior is unresolved, when assessing scenario behavior or fidelity, or when checking forms, persistence, destructive actions or externally visible changes. A fully specified, read-only route or menu check can use the request as its expected outcome. Read `DESIGN-SYSTEM.md` for component-specific assertions, `ACCESSIBILITY.md` for accessibility checks and `RESPONSIVE-DESIGN.md` for responsive checks. No manifest or canvas-specific pack file is required. Never mix roots.
 
 Missing required context stops validation. Report the selected root/file and
 offer `setup-skills` to author or refresh context under the shared
 resolution rules. Do not invoke it
-automatically. Never read drafts as active context. Follow relevant owner links
-and evidence anchors, preserve `proposed-default` labels and disclose conflicts.
-Read current owner guidance on every run. Product context owns scenarios and
-state policy. Browser context owns target URL, server, routes and recovery.
+automatically. Never read drafts as active context. Follow relevant owner links and evidence anchors, preserve `proposed-default` labels and disclose conflicts. Read the complete applicable owner sections, not unrelated sections or topics. Product context owns scenarios and state policy. Browser context owns target URL, server, routes and recovery.
 
 Use only permitted sources. Do not research remotely or broaden exclusions
 during validation. Request explicit refresh if required documentation is stale
@@ -45,12 +44,9 @@ or missing. A document with gaps does not prove runtime capabilities.
 
 ## Runtime contract
 
-Discover the available canvas types. If `browser` or the necessary canvas tools
-are absent, report the missing runtime and stop this path, not a pass or a silent
-backend substitution. Use the explicit configured MCP handoff in
-[WORKFLOW.md](./WORKFLOW.md) if available. Call `list_canvas_capabilities` for the actual browser
-type before opening or acting. Use its advertised open input and action schemas.
-No frozen action list in this skill overrides the runtime.
+Do not discover canvas capabilities for source-only tasks. For rendered checks, identify the browser canvas and inspect its actual schemas before the first required operation. Reuse a schema already discovered for the same provider in this session. Rediscover only after provider reload/reconnect, a schema mismatch or an explicit request to check for changed capabilities; a timeout alone does not invalidate it. Never carry schemas across providers or sessions.
+
+If the browser canvas or required tools are absent, report the blocker and use only the explicit configured MCP handoff in [WORKFLOW.md](./WORKFLOW.md) when applicable. Use the advertised open input and action schemas; no frozen action list overrides the runtime.
 
 Keep the canvas type and caller-chosen `instanceId` handle distinct.
 Address the panel with that handle through `invoke_canvas_action`. If the

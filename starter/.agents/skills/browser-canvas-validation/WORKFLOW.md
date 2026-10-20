@@ -2,11 +2,9 @@
 
 ## Browser selection
 
-Use the browser canvas first for every agent-driven rendered check, interaction
-test, screenshot and visual, responsive or accessibility review. Discover its
-current capabilities rather than assuming an earlier host's limitations.
-The Replica prototype canvas remains the preview and publishing surface;
-discover the separate browser canvas for page inspection.
+Use the browser canvas first for every agent-driven rendered check, interaction test, screenshot and visual, responsive or accessibility review. Discover its current capabilities before the first required operation, then reuse the same-provider schema in this session until it is invalidated under [the runtime contract](./SKILL.md#runtime-contract). Source-only work does not enter this workflow.
+
+The Replica prototype canvas remains the preview and publishing surface; use the separate browser canvas for page inspection.
 
 Use configured Playwright MCP only when the canvas is unavailable for the
 required check: absent runtime, absent action, unsatisfied required identifier
@@ -26,18 +24,13 @@ derive branch instance IDs from another repository's scripts. A missing running
 target is a blocker unless starting the declared server is already authorized.
 Never start a second infrastructure project to supply validation.
 
-Read the requested outcome and product-design scenario/state owner. Establish
-expected results before interacting. Use the smallest connected flow that proves
-the request. Invalid-input submission, destination and reload-persistence checks
-apply when the requested behavior needs them and test mutations are authorized.
-Otherwise report those assertions untested. Do not submit real data to prove a
-read-only audit, or treat a disabled button alone as proof of safe persistence.
+Read the requested outcome and establish expected results before interacting. Read product-design guidance when required by the [context requirements](./SKILL.md#required-reads-and-dependencies). Use the smallest connected flow that proves the request. Invalid-input submission, destination and reload-persistence checks apply when the requested behavior needs them and test mutations are authorized. Otherwise report those assertions untested. Do not submit real data to prove a read-only audit, or treat a disabled button alone as proof of safe persistence.
 
 ## Discover, read, act, assert
 
-Inspect browser canvas capabilities and satisfy the actual schemas as described
-in [SKILL.md](./SKILL.md). Call `open_canvas` with the declared type and a session
-handle. Use `invoke_canvas_action` with that same handle to address the instance.
+Use browser canvas capabilities and schemas as described in [SKILL.md](./SKILL.md).
+Call `open_canvas` with the declared type and a session handle. Use
+`invoke_canvas_action` with that same handle to address the instance.
 Action inputs follow the discovered schema. When an action takes only the panel
 handle and its advertised inputs, invoke it directly without page acquisition.
 Supply a separate page identifier only if that schema requires one and the
@@ -76,9 +69,7 @@ For follow-up changes reuse the correct session preview, assert changed content
 and relevant behavior. If content is missing, use supported reload and re-read
 once before reporting stale rendering.
 
-A read timeout can be retried once after checking the declared readiness signal.
-Refocus the same owned panel, rediscover capabilities and retry inspection only
-with valid required identifiers. Do not loop or create duplicate panels.
+A read timeout can be retried once after checking the declared readiness signal. Refocus the same owned panel and retry inspection only with valid required identifiers and the existing schema. Rediscover only if the runtime contract's invalidation condition applies, not because a read timed out. Do not loop or create duplicate panels.
 For further failures use only the repository's authorized recovery procedure.
 Do not replay a timed-out state-changing action, its effect may already have
 occurred. Inspect resulting state first. Restarting servers, installing packages

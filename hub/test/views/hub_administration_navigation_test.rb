@@ -12,7 +12,9 @@ class HubAdministrationNavigationTest < ActionView::TestCase
 
   test "a repository administrator does not get Hub administration" do
     @repository_permission = "admin"
-    assert_no_administration(users.create)
+    data = navigation_for(users.create)
+    assert_empty data.fetch("administrationLinks")
+    assert_equal "Feedback", data.fetch("feedbackLabel")
   end
 
   test "a local identity does not get Hub administration even with a saved role" do

@@ -29,8 +29,7 @@ and tasks belong in [RESPONSIVE-DESIGN.md](./RESPONSIVE-DESIGN.md).
 
 ## Navigation primitives
 
-Distinguish tabs, breadcrumbs, side navigation, and action menus. Verify link
-versus button semantics, selection and focus behavior. Product owns destinations.
+Distinguish tabs, breadcrumbs, side navigation, and action menus. Verify link versus button semantics, selection and focus behavior. Product owns destinations. For a standalone link that preserves existing navigation structure, identify the semantic link guidance and any shared navigation rules that apply without requiring research into unrelated composite patterns. Read composition-specific guidance when a navigation pattern is introduced or changed.
 
 ## Forms
 

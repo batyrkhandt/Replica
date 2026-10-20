@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import { SidebarCollapseIcon, SidebarExpandIcon } from "@primer/octicons-react"
 import { Tooltip } from "@primer/react-brand"
 
+import { FeedbackIcon } from "@components/feedback-icon"
 import { RepositoryNavigationItem } from "@components/repository-navigation-item"
 import { RepositoryUserMenu } from "@components/repository-user-menu"
 
@@ -36,6 +37,14 @@ export function WorkspaceNavigation({
       onClick={() => onCollapsedChange(!collapsed)}
     />
   )
+  const feedbackLink = (
+    <RepositoryNavigationItem
+      href="https://gh.io/replica-feedback"
+      icon={FeedbackIcon}
+      label={data.feedbackLabel}
+      external
+    />
+  )
 
   return (
     <aside className={`repository-navigation ${className ?? ""}`} data-collapsed={collapsed}>
@@ -47,6 +56,13 @@ export function WorkspaceNavigation({
         ) : null}
       </div>
       <div className="repository-navigation__account">
+        {collapsed ? (
+          <Tooltip text={data.feedbackLabel} type="label" direction="e">
+            {feedbackLink}
+          </Tooltip>
+        ) : (
+          feedbackLink
+        )}
         {collapsed ? (
           <Tooltip text={toggleLabel} type="label" direction="e">
             {collapseButton}

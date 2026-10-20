@@ -1,4 +1,4 @@
-import { KebabHorizontalIcon, PencilIcon, TrashIcon } from "@primer/octicons-react"
+import { DotFillIcon, KebabHorizontalIcon, PencilIcon, TrashIcon } from "@primer/octicons-react"
 import { ActionMenu, Button, Tooltip } from "@primer/react-brand"
 import { useEffect, useId, useRef, useState } from "react"
 
@@ -41,6 +41,8 @@ export function ReviewThreadMessage({
   onAddReaction,
   onRemoveReaction,
   onBurstReaction,
+  onMarkUnread,
+  markUnreadDisabled = false,
 }: ReviewThreadMessageProps) {
   const actionTooltipId = useId()
   const editFormRef = useRef<HTMLFormElement>(null)
@@ -48,6 +50,9 @@ export function ReviewThreadMessage({
   const [menuSide, setMenuSide] = useState<"outside-bottom" | "outside-top">("outside-bottom")
   const author = comment.author.name || `@${comment.author.login}`
   const actionLabel = copy.commentActionsLabel.replace("%{author}", `@${comment.author.login}`)
+  const menuDisabled = actionsDisabled && (!onMarkUnread || markUnreadDisabled)
+  const canEdit = Boolean(comment.body && comment.viewerCanEdit)
+  const canDelete = Boolean(comment.body && comment.viewerCanDelete)
   useEffect(() => {
     if (confirmingEditDiscard) {
       editFormRef.current
@@ -73,8 +78,8 @@ export function ReviewThreadMessage({
           </>
         }
       >
-        {comment.body && (comment.viewerCanEdit || comment.viewerCanDelete) ? (
-          actionsDisabled ? (
+        {onMarkUnread || canEdit || canDelete ? (
+          menuDisabled ? (
             <div title={actionLabel}>
               <ActionMenu selectionVariant="none" size="small" menuAlignment="end" disabled>
                 <ActionMenu.Button
@@ -113,7 +118,7 @@ export function ReviewThreadMessage({
                         Math.min(window.innerHeight, shell?.bottom ?? Infinity) - bounds.bottom
                       const spaceAbove = bounds.top - Math.max(0, shell?.top ?? 0)
                       setMenuSide(
-                        spaceBelow < 88 && spaceAbove > spaceBelow
+                        spaceBelow < (onMarkUnread ? 128 : 88) && spaceAbove > spaceBelow
                           ? "outside-top"
                           : "outside-bottom",
                       )
@@ -122,13 +127,32 @@ export function ReviewThreadMessage({
                     {""}
                   </ActionMenu.Button>
                   <ActionMenu.Overlay aria-label={actionLabel}>
-                    {comment.viewerCanEdit ? (
+                    {onMarkUnread ? (
+                      <ActionMenu.Item
+                        value="mark-unread"
+                        disabled={markUnreadDisabled}
+                        leadingVisual={<DotFillIcon size={16} />}
+                        onClick={() => {
+                          if (!markUnreadDisabled) onMarkUnread()
+                        }}
+                        onKeyDown={(event) => {
+                          if (!markUnreadDisabled && (event.key === "Enter" || event.key === " ")) {
+                            event.preventDefault()
+                            onMarkUnread()
+                          }
+                        }}
+                      >
+                        {copy.markUnreadLabel}
+                      </ActionMenu.Item>
+                    ) : null}
+                    {canEdit ? (
                       <ActionMenu.Item
                         value="edit"
+                        disabled={actionsDisabled}
                         leadingVisual={<PencilIcon size={16} />}
                         onClick={onStartEdit}
                         onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
+                          if (!actionsDisabled && (event.key === "Enter" || event.key === " ")) {
                             event.preventDefault()
                             onStartEdit()
                           }
@@ -137,15 +161,22 @@ export function ReviewThreadMessage({
                         {copy.editLabel}
                       </ActionMenu.Item>
                     ) : null}
-                    {comment.viewerCanDelete ? (
+                    {canDelete && (onMarkUnread || canEdit) ? (
+                      <li role="separator" className="review-thread-message__menu-divider" />
+                    ) : null}
+                    {canDelete ? (
                       <ActionMenu.Item
                         value="delete"
-                        disabled={mutation !== null}
+                        disabled={actionsDisabled || mutation !== null}
                         className="review-thread-message__delete-item"
                         leadingVisual={<TrashIcon size={16} />}
                         onClick={onRequestDelete}
                         onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
+                          if (
+                            !actionsDisabled &&
+                            mutation === null &&
+                            (event.key === "Enter" || event.key === " ")
+                          ) {
                             event.preventDefault()
                             onRequestDelete()
                           }

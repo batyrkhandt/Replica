@@ -1,15 +1,27 @@
 .review-comment-row {
   background: transparent;
-  padding: var(--hub-space-8);
+  padding: var(--hub-space-8) var(--hub-space-12);
+  margin-inline-start: var(--hub-space-12);
   border: 0;
   border-radius: var(--brand-borderRadius-medium);
   position: relative;
+  isolation: isolate;
   font-size: var(--brand-text-size-100);
   line-height: var(--brand-text-lineHeight-100);
 }
 
-.review-comment-row:hover,
-.review-comment-row--selected {
+.review-comment-row::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline: calc(-1 * var(--hub-space-16) - var(--hub-space-4)) calc(-1 * var(--hub-space-4));
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.review-comment-row:hover::before,
+.review-comment-row--selected::before {
   background: var(--brand-color-border-muted);
 }
 
@@ -28,7 +40,19 @@
   color: inherit;
 }
 
+.review-comment-row__button::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline: calc(-1 * var(--hub-space-16) - var(--hub-space-4)) calc(-1 * var(--hub-space-4));
+  border-radius: var(--brand-borderRadius-medium);
+}
+
 .review-comment-row__button:focus-visible {
+  outline: none;
+}
+
+.review-comment-row__button:focus-visible::after {
   outline: 2px solid var(--hub-focus);
   outline-offset: -2px;
 }
@@ -39,9 +63,12 @@
 }
 
 .review-comment-row .review-comment-row__avatar {
-  width: 1.75rem;
-  height: 1.75rem;
-  flex: 0 0 1.75rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  position: absolute;
+  inset-inline-start: calc(-1 * var(--hub-space-24));
+  top: 50%;
+  transform: translateY(-50%);
   overflow: hidden;
   border-radius: 50%;
   color: var(--hub-fg-muted);
@@ -61,24 +88,47 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--hub-fg-default);
+  color: var(--hub-fg-muted);
+  font-weight: 400;
+}
+
+.review-comment-row--unread .review-comment-row__author {
   font-weight: 600;
 }
 
+.review-comment-row__author-and-build {
+  display: flex;
+  align-items: center;
+  gap: var(--hub-space-4);
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
 .review-comment-row__metadata time {
+  position: relative;
+  z-index: 1;
+  cursor: pointer;
   white-space: nowrap;
   font-size: 0.75rem;
 }
 
 .review-comment-row__unread {
+  z-index: 1;
+  cursor: pointer;
   background: var(--hub-accent);
   width: var(--hub-space-8);
   height: var(--hub-space-8);
   border-radius: 50%;
   position: absolute;
   top: 50%;
-  left: 0;
+  inset-inline-start: calc(-1 * var(--hub-space-24) + (1.25rem - var(--hub-space-8)) / 2);
   transform: translateY(-50%);
+}
+
+.review-comment-row__body-container {
+  display: block;
+  position: relative;
 }
 
 .review-comment-row__body {
@@ -87,6 +137,11 @@
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+  color: var(--hub-fg-muted);
+}
+
+.review-comment-row--unread .review-comment-row__author,
+.review-comment-row--unread .review-comment-row__body {
   color: var(--hub-fg-default);
 }
 
@@ -95,27 +150,20 @@
 }
 
 .review-comment-row__build {
-  min-width: 0;
-  margin-inline-start: 2.75rem;
-}
-
-.review-comment-row__build:empty {
-  display: none;
-}
-
-.review-comment-row__build:empty + :is(.review-comment-row__replies, .review-comment-row__status) {
-  margin-inline-start: 2.25rem;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  white-space: nowrap;
 }
 
 .review-comment-row__build a {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  position: relative;
+  z-index: 1;
+  color: var(--hub-fg-muted);
+  text-decoration: none;
 }
 
-.review-comment-row__status {
-  white-space: nowrap;
+.review-comment-row__build a:hover {
+  text-decoration: underline;
 }
 
 .review-comment-row__replies {
@@ -131,10 +179,13 @@
 }
 
 .review-comment-row__content,
-.review-comment-row__build,
-.review-comment-row__author {
+.review-comment-row__replies {
   min-width: 0;
   flex: 1;
+}
+
+.review-comment-row__author {
+  flex: 0 1 auto;
 }
 
 .review-comment-row__copy {
@@ -144,17 +195,15 @@
 }
 
 .review-comment-row__metadata {
-  align-items: baseline;
+  align-items: center;
 }
 
 .review-comment-row__context {
   font-size: 0.75rem;
-}
-
-.review-comment-row__context {
   align-items: center;
 }
 
 .review-comment-row__status {
   white-space: nowrap;
+  margin-inline-start: auto;
 }

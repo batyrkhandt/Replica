@@ -187,12 +187,9 @@ npm run dev
 
 Open the URL printed by Vite.
 
-As soon as the route for the requested work is known, show its current state
-before UI edits and keep the preview on that route. In Copilot, complete the
-[canvas preflight](#canvas-preflight) before UI edits or preview startup, then
-use the Replica prototype canvas. Use a browser preview only under the
-preflight's fallback conditions and disclose the limitation. A disconnected Hub is not
-the same as an unavailable canvas and does not prevent a local preview.
+Show the requested route before ordinary UI edits and keep the preview on that route. Source-only work and eligible [narrow edits](AGENTS.md#narrow-edits) do not require preview-before-edit.
+
+In Copilot, complete the [canvas preflight](#canvas-preflight) before ordinary UI edits or preview startup, then use the Replica prototype canvas. Normal workflows use a browser preview only under the preflight's fallback conditions; narrow navigation acceptance follows the browser validation skill without the Replica canvas preflight. A disconnected Hub is not the same as an unavailable canvas and does not prevent a local preview.
 
 ## Connect the Replica canvas
 
@@ -225,11 +222,9 @@ Keep only one Replica provider active.
 
 ### Canvas preflight
 
-Agents complete this gate before UI edits, prototype preview, publishing or Hub
-comment work. When `replica-prototype` is available, discover its capabilities
-and use the existing provider without reinstalling or updating it. If several
-providers are available, ask which to keep before changing plugin or extension
-settings.
+Agents complete this gate before ordinary UI edits, prototype preview, publishing or Hub comment work. Source-only tasks and eligible [narrow edits](AGENTS.md#narrow-edits) do not require this preflight unless the user requests an authorized canvas operation.
+
+When `replica-prototype` is available, discover its capabilities before the first required operation and reuse the same-provider schema in this session. Rediscover after a provider reload/reconnect, schema mismatch or explicit request to check for changed capabilities; a timeout alone does not invalidate a schema. Use the existing provider without reinstalling or updating it. If several providers are available, ask which to keep before changing plugin or extension settings.
 
 When the canvas is missing in a canvas-capable host, stop before UI edits or
 preview startup and tell the user: Open **Customization**, select **Installed**

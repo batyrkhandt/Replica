@@ -30,7 +30,6 @@ export const reviewCommentsCopy: ReviewCommentsCopy = {
   emptyLabel: "No comments have been added.",
   noMatchesLabel: "No comments match these filters.",
   buildLabel: "build %{number}",
-  checkingAnchorLabel: "Checking",
   movedAnchorLabel: "Moved",
   changedAnchorLabel: "Context changed",
   missingAnchorLabel: "Not found",
@@ -53,6 +52,8 @@ export const reviewCommentsCopy: ReviewCommentsCopy = {
   reactionCountOtherLabel: "%{reaction}, %{count} reactions",
   reactionErrorLabel: "The reaction could not be changed.",
   readErrorLabel: "Hub could not mark this conversation as read.",
+  markUnreadLabel: "Mark as unread",
+  markUnreadErrorLabel: "Hub could not mark this conversation as unread. Try again.",
   reactionLabels: {
     "+1": "Thumbs up",
     "-1": "Thumbs down",

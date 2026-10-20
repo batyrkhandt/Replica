@@ -55,12 +55,12 @@ Set `REPLICA_WELCOME_VIDEO_POSTER_URL` to a direct HTTPS image URL to show a sti
 
 Choose an explicit `hub-v*` release from [Hub releases](https://github.com/github/replica/releases). Do not use `releases/latest`: Hub and canvas releases share this repository, and a canvas release may not contain a Hub bundle.
 
-The example selects `hub-v1.0.0-rc.2`, a prerelease, not a generally available (GA) release. It contains both `replica-deploy.tar.gz` and `replica-deploy.tar.gz.sha256`. No stable Hub release is published yet. For a production deployment, wait for a stable Hub release with both assets, then set `HUB_RELEASE` to that tag. The `curl` commands below do not authenticate, so while the repository is private they return HTTP 404 even for readers with repository access.
+The example selects `hub-v1.0.0`, the stable Hub release published on October 15, 2026. It contains both `replica-deploy.tar.gz` and `replica-deploy.tar.gz.sha256`. The Replica repository and its release assets are public, so these downloads do not require GitHub authentication.
 
 Run these commands on a Linux server with `curl`, `tar`, and `sha256sum`:
 
 ```sh
-HUB_RELEASE=hub-v1.0.0-rc.2
+HUB_RELEASE=hub-v1.0.0
 HUB_RELEASE_URL="https://github.com/github/replica/releases/download/${HUB_RELEASE}"
 mkdir replica-hub &&
   cd replica-hub &&
@@ -76,7 +76,7 @@ The checksum file records the archive's SHA-256 digest, a value calculated from 
 
 The bundle contains `compose.yml` and the `replica` command. You do not need to clone the source repository.
 
-The `rc.2` bundle defaults to the major-version image tag `ghcr.io/github/replica-hub:1`. Verifying its archive does not verify that image or establish GA deployment readiness. Before production setup, confirm the stable release's assets and public image are available as described in [Publish a release](testing-and-operations.md#publish-a-release).
+The `hub-v1.0.0` bundle defaults to the major-version image tag `ghcr.io/github/replica-hub:1`. See [Image versions](#image-versions) for the stable tags available when running the image without the bundle.
 
 ## Create the configuration
 
