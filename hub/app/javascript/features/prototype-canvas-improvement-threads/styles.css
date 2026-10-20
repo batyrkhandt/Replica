@@ -59,6 +59,19 @@
   margin-bottom: 0.5rem;
 }
 
+.thread-sample__card::before {
+  inset-inline: calc(-1 * var(--hub-space-12)) var(--hub-space-4);
+}
+
+.thread-sample__card:not(.thread-sample__card--resolved) .review-comment-row__author,
+.thread-sample__card:not(.thread-sample__card--resolved) .review-comment-row__body {
+  color: var(--hub-fg-default);
+}
+
+.thread-sample__card:not(.thread-sample__card--resolved) .review-comment-row__author {
+  font-weight: 600;
+}
+
 .thread-sample__card-button {
   padding-inline-end: 1.75rem;
 }

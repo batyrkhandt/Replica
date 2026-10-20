@@ -124,6 +124,83 @@ try {
       let failNextDelete = false
       let phase = "document"
       let sharedDialogStyle
+      async function rowPresentation(row, state) {
+        const evidence = []
+        for (const width of [1280, 390]) {
+          await page.setViewportSize({ width, height: 900 })
+          for (const appearance of ["dark", "light"]) {
+            phase = `${state} row ${appearance} at ${width}`
+            await page
+              .getByRole("button", {
+                name: `${appearance === "dark" ? "Dark" : "Light"} appearance`,
+              })
+              .click()
+            await row.hover()
+            await page.mouse.move(0, 0)
+            const before = await row.locator(".review-comment-row__body").boundingBox()
+            await row.hover()
+            const style = await row.evaluate((element) => {
+              const sidebar = element.closest(".hub-sidebar")
+              const sidebarBox = sidebar.getBoundingClientRect()
+              const sidebarStyle = getComputedStyle(sidebar)
+              const box = element.getBoundingClientRect()
+              const highlight = getComputedStyle(element, "::before")
+              const hit = getComputedStyle(
+                element.querySelector(".review-comment-row__button"),
+                "::after",
+              )
+              const author = getComputedStyle(element.querySelector(".review-comment-row__author"))
+              const body = getComputedStyle(element.querySelector(".review-comment-row__body"))
+              const probe = document.createElement("span")
+              element.append(probe)
+              function token(name) {
+                probe.style.color = `var(${name})`
+                return getComputedStyle(probe).color
+              }
+              const foreground = token("--hub-fg-default")
+              const muted = token("--hub-fg-muted")
+              probe.style.backgroundColor = "var(--brand-color-border-muted)"
+              const background = getComputedStyle(probe).backgroundColor
+              probe.remove()
+              return {
+                author: author.color,
+                weight: author.fontWeight,
+                body: body.color,
+                foreground,
+                muted,
+                background: highlight.backgroundColor,
+                expectedBackground: background,
+                gutters: [
+                  box.left +
+                    parseFloat(highlight.left) -
+                    sidebarBox.left -
+                    parseFloat(sidebarStyle.borderLeftWidth),
+                  sidebarBox.right -
+                    box.right +
+                    parseFloat(highlight.right) -
+                    parseFloat(sidebarStyle.borderRightWidth),
+                ],
+                hitContainsHighlight:
+                  parseFloat(hit.left) <= parseFloat(highlight.left) &&
+                  parseFloat(hit.right) <= parseFloat(highlight.right),
+                unread: element.classList.contains("review-comment-row--unread"),
+              }
+            })
+            assert.equal(style.author, state === "active" ? style.foreground : style.muted)
+            assert.equal(style.body, state === "active" ? style.foreground : style.muted)
+            assert.equal(style.weight, state === "active" ? "600" : "400")
+            assert.equal(style.unread, false)
+            assert.equal(style.background, style.expectedBackground)
+            assert.deepEqual(style.gutters.map(Math.round), [8, 12])
+            assert.ok(style.hitContainsHighlight)
+            const after = await row.locator(".review-comment-row__body").boundingBox()
+            assert.equal(after.x, before.x)
+            evidence.push({ width, appearance, state, ...style })
+          }
+        }
+        await page.setViewportSize({ width: 1280, height: 900 })
+        console.log(JSON.stringify({ rowPresentation: evidence }))
+      }
       async function dialogStyle(dialog) {
         return dialog.evaluate((element) => {
           const shell = getComputedStyle(element)
@@ -724,6 +801,7 @@ try {
           await toggle.click()
           const sidebar = page.getByRole("complementary", { name: "Comments", exact: true })
           await sidebar.locator(".review-comment-row__button").waitFor()
+          await rowPresentation(sidebar.locator(".review-comment-row").first(), "read")
           await sidebar.locator(".review-comment-row__button").click()
           await page.locator(".review-comment-reactions .hub-counter").first().waitFor()
           for (const appearance of ["dark", "light"]) {
@@ -895,6 +973,8 @@ try {
           await realisticCopy()
           const cards = page.getByRole("button", { name: /^Open improvement:/ })
           assert.equal(await cards.count(), 3)
+          await rowPresentation(page.locator(".thread-sample__card").first(), "active")
+          await rowPresentation(page.locator(".thread-sample__card").last(), "active")
           const avatar = await cards.first().locator(".hub-user-avatar").boundingBox()
           assert.equal(avatar.width, 20)
           assert.equal(avatar.height, 20)
@@ -1324,6 +1404,7 @@ try {
           const cards = page.getByRole("button", { name: /^Open improvement:/ })
           await cards.first().waitFor({ state: "visible" })
           assert.equal(await cards.count(), 1)
+          await rowPresentation(page.locator(".thread-sample__card").first(), "active")
           let state = await store.load()
           phase = "saved anchor"
           assert.equal(state.notes[0].body, "Make the save action clearer.")
@@ -1500,6 +1581,11 @@ try {
           await dialog
             .getByRole("textbox", { name: "Follow-up", exact: true })
             .fill("Keep the existing shortcut.")
+          assert.ok(await cards.first().isDisabled())
+          assert.equal(
+            await cards.first().evaluate((element) => getComputedStyle(element).opacity),
+            "0.6",
+          )
           phase = "preview Escape protects follow-up draft"
           await target.press("Escape")
           await dialog
@@ -1634,6 +1720,7 @@ try {
           await cards.first().waitFor({ state: "visible" })
           state = await store.load()
           assert.equal(state.notes[0].status, "resolved")
+          await rowPresentation(page.locator(".thread-sample__card").first(), "resolved")
           assert.equal(state.notes[0].body, "Make the save action clearer.")
           assert.equal(
             state.notes[0].thread.messages.filter((entry) => entry.role === "author").length,

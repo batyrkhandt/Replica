@@ -45,6 +45,10 @@ type Story = StoryObj<typeof meta>
 
 export const PinsWithoutSidebar: Story = {}
 
+export const ActiveNotes: Story = {
+  args: { open: true },
+}
+
 export const CopilotAnswer: Story = {
   args: {
     open: true,

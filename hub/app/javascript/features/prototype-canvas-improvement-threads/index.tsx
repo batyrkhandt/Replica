@@ -476,7 +476,10 @@ export function ImprovementThreads({
           {visible.map((item) => {
             const count = item.messages.filter((entry) => entry.role === "author").length
             return (
-              <article className="review-comment-row thread-sample__card" key={item.id}>
+              <article
+                className={`review-comment-row thread-sample__card${item.status === "resolved" ? " thread-sample__card--resolved" : ""}`}
+                key={item.id}
+              >
                 <button
                   ref={(element) => {
                     if (element) cardButtons.current.set(item.id, element)
