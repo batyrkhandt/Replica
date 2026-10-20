@@ -149,7 +149,8 @@ export type PublishPreparation = {
     originFingerprint: string | null
     pushFingerprint: string | null
   }
-  workingTree: "clean" | "changed"
+  workingTree: "clean" | "changed" | "unavailable"
+  workingTreeError?: string
   changes?: {
     files: PublishChangeList
     localSkills: PublishChangeList

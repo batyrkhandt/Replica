@@ -13,27 +13,31 @@ export function PublishChangesDialog({
   busy,
   error,
   changes,
+  checkError,
   remembered,
   returnFocusRef,
   onClose,
   onChoose,
+  onRetry,
 }: {
   busy: boolean
   error: string
   changes?: PublishPreparation["changes"]
+  checkError?: string
   remembered: boolean
   returnFocusRef: RefObject<HTMLButtonElement | null>
   onClose: () => void
   onChoose: (mode: PublishMode, remember: boolean) => void
+  onRetry: () => void
 }) {
   const [remember, setRemember] = useState(remembered)
   const descriptionId = useId()
   const checkboxId = useId()
   return (
     <CanvasDialog
-      title={copy.title}
+      title={checkError ? copy.checkFailedTitle : copy.title}
       closeLabel={copy.close}
-      descriptionId={descriptionId}
+      descriptionId={checkError ? undefined : descriptionId}
       returnFocusRef={returnFocusRef}
       onClose={() => {
         if (!busy) onClose()
@@ -41,7 +45,8 @@ export function PublishChangesDialog({
       className="publish-changes-dialog"
     >
       <Stack gap="normal" padding="none">
-        <p id={descriptionId}>{copy.description}</p>
+        {!checkError ? <p id={descriptionId}>{copy.description}</p> : null}
+        {checkError ? <HubAlert title={checkError} variant="critical" layout="compact" /> : null}
         {changes?.files.total ? (
           <section aria-label={copy.changedFiles}>
             <ul className="publish-changes-dialog__files">
@@ -56,29 +61,46 @@ export function PublishChangesDialog({
             </ul>
           </section>
         ) : null}
-        <p>
-          {changes?.localSkills.total ? `${copy.localSkills(changes.localSkills.total)} ` : null}
-          {copy.selection}
-        </p>
-        <FormControl id={checkboxId} fullWidth>
-          <Checkbox
-            checked={remember}
-            disabled={busy}
-            onChange={(event) => setRemember(event.target.checked)}
-          />
-          <FormControl.Label>{copy.remember}</FormControl.Label>
-        </FormControl>
+        {!checkError ? (
+          <p>
+            {changes?.localSkills.total ? `${copy.localSkills(changes.localSkills.total)} ` : null}
+            {copy.selection}
+          </p>
+        ) : null}
+        {!checkError ? (
+          <FormControl id={checkboxId} fullWidth>
+            <Checkbox
+              checked={remember}
+              disabled={busy}
+              onChange={(event) => setRemember(event.target.checked)}
+            />
+            <FormControl.Label>{copy.remember}</FormControl.Label>
+          </FormControl>
+        ) : null}
         {error ? <HubAlert title={error} variant="critical" layout="compact" /> : null}
         <footer className="publish-changes-dialog__actions">
-          <Button
-            variant="primary"
-            size="small"
-            disabled={busy}
-            aria-busy={busy}
-            onClick={() => onChoose("commit-changes", remember)}
-          >
-            {copy.commit}
-          </Button>
+          {checkError ? (
+            <Button
+              variant="primary"
+              size="small"
+              disabled={busy}
+              aria-busy={busy}
+              onClick={onRetry}
+            >
+              {copy.retryCheck}
+            </Button>
+          ) : null}
+          {!checkError ? (
+            <Button
+              variant="primary"
+              size="small"
+              disabled={busy}
+              aria-busy={busy}
+              onClick={() => onChoose("commit-changes", remember)}
+            >
+              {copy.commit}
+            </Button>
+          ) : null}
           <Button size="small" disabled={busy} onClick={() => onChoose("committed-only", false)}>
             {copy.committed}
           </Button>
