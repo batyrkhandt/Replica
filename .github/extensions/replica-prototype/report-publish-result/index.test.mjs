@@ -1,8 +1,9 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { writeFile } from "node:fs/promises"
+import { access, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { describe, it } from "node:test"
+import { setTimeout } from "node:timers/promises"
 
 import { capturePublishTarget } from "../publish-target/index.mjs"
 import { readState } from "../read-state/index.mjs"
@@ -76,8 +77,15 @@ describe("reportPublishResult()", () => {
       await report(context, target, { outcome: "canceled", reason: undefined })
       const before = await readState(context)
 
-      assert.equal((await report(context, target, { outcome: "canceled" })).reported, false)
+      assert.equal(
+        (await report(context, target, { outcome: "canceled", reason: undefined })).reported,
+        false,
+      )
       await assert.rejects(report(context, target, { outcome: "failed" }), { statusCode: 409 })
+      await assert.rejects(
+        report(context, target, { outcome: "canceled", reason: "A different reason." }),
+        { statusCode: 409 },
+      )
       assert.deepEqual((await readState(context)).publishRequest, before.publishRequest)
       assert.equal(
         before.publishRequest.error,
@@ -89,9 +97,22 @@ describe("reportPublishResult()", () => {
   for (const [label, change] of [
     ["another canvas", { instanceId: "canvas-2" }],
     ["another mode", { mode: "committed-only" }],
+    ["another repository", (target) => ({ target: { ...target, repository: "team/other" } })],
     ["another commit", (target) => ({ target: { ...target, commitSha: "f".repeat(40) } })],
     ["another branch", (target) => ({ target: { ...target, branch: "other" } })],
+    ["another fetch remote", (target) => ({ target: { ...target, originFingerprint: "0" } })],
     ["another push remote", (target) => ({ target: { ...target, pushFingerprint: "0" } })],
+    ["another target mode", (target) => ({ target: { ...target, mode: "committed-only" } })],
+    ["another target canvas", (target) => ({ target: { ...target, canvasInstanceId: "other" } })],
+    ["a missing reporting canvas", { instanceId: undefined }],
+    [
+      "a missing target canvas",
+      (target) => {
+        const withoutCanvas = { ...target }
+        delete withoutCanvas.canvasInstanceId
+        return { target: withoutCanvas }
+      },
+    ],
   ]) {
     it(`leaves the request pending for ${label}`, async () => {
       await withContext(async (context) => {
@@ -106,9 +127,128 @@ describe("reportPublishResult()", () => {
     })
   }
 
+  for (const canvasInstanceId of [null, undefined]) {
+    it(`rejects a legacy request with ${canvasInstanceId} canvas identity`, async () => {
+      await withContext(async (context) => {
+        const { target } = await dispatch(context)
+        const state = await readState(context)
+        if (canvasInstanceId === undefined) delete state.publishRequest.canvasInstanceId
+        else state.publishRequest.canvasInstanceId = canvasInstanceId
+        await writeState(context, state)
+
+        await assert.rejects(report(context, target), { statusCode: 409 })
+        assert.deepEqual((await readState(context)).publishRequest, state.publishRequest)
+      })
+    })
+  }
+
+  it("rejects an original target after a committed-only checkout advances", async () => {
+    await withContext(async (context) => {
+      const { target } = await dispatch(context, "committed-only")
+      const before = (await readState(context)).publishRequest
+      execFileSync(
+        "git",
+        [
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "-c",
+          "commit.gpgsign=false",
+          "commit",
+          "--allow-empty",
+          "-qm",
+          "A different checkout commit",
+        ],
+        { cwd: context.repositoryPath },
+      )
+
+      await assert.rejects(report(context, target), { statusCode: 409 })
+      assert.deepEqual((await readState(context)).publishRequest, before)
+    })
+  })
+
+  it("accepts the original target after task commits advance a commit-changes request", async () => {
+    await withContext(async (context) => {
+      const { target } = await dispatch(context)
+      execFileSync(
+        "git",
+        [
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "-c",
+          "commit.gpgsign=false",
+          "commit",
+          "--allow-empty",
+          "-qm",
+          "Task commit before a blocked push",
+        ],
+        { cwd: context.repositoryPath },
+      )
+
+      assert.equal((await report(context, target)).reported, true)
+      assert.equal((await readState(context)).publishRequest.outcome, "blocked")
+    })
+  })
+
+  it("does not overwrite a retry dispatched while the old report checks push evidence", async () => {
+    await withContext(async (context) => {
+      execFileSync("git", ["remote", "add", "origin", "https://github.com/github/replica.git"], {
+        cwd: context.repositoryPath,
+      })
+      const entered = path.join(context.repositoryPath, "checking-push")
+      const release = path.join(context.repositoryPath, "continue-check")
+      await writeFile(
+        path.join(context.repositoryPath, "gh"),
+        `#!/bin/sh\n: > "${entered}"\nwhile [ ! -f "${release}" ]; do sleep 0.01; done\nprintf '[]'\n`,
+        { mode: 0o755 },
+      )
+      const { target, session } = await dispatch(context)
+      const initial = await readState(context)
+      initial.publishRequest.requestedAt = new Date(Date.now() - 1000).toISOString()
+      await writeState(context, initial)
+      const originalPath = process.env.PATH
+      process.env.PATH = `${context.repositoryPath}:${originalPath}`
+      const pending = report(context, target)
+      const rejected = assert.rejects(pending, { statusCode: 409 })
+      try {
+        let checking = false
+        for (let attempt = 0; attempt < 300; attempt++) {
+          checking = await access(entered).then(
+            () => true,
+            () => false,
+          )
+          if (checking) break
+          await setTimeout(10)
+        }
+        assert.equal(checking, true, "The old report is waiting for push evidence.")
+        const stopped = await readState(context)
+        stopped.publishRequest.state = "failed"
+        await writeState(context, stopped)
+        await requestPublish(context, session, { instanceId: "canvas-1", mode: target.mode })
+        const retry = (await readState(context)).publishRequest
+
+        await writeFile(release, "")
+        await rejected
+
+        assert.deepEqual((await readState(context)).publishRequest, retry)
+      } finally {
+        await writeFile(release, "")
+        await Promise.allSettled([pending, rejected])
+        process.env.PATH = originalPath
+      }
+    })
+  })
+
   it("rejects a report when no request is waiting", async () => {
     await withContext(async (context) => {
-      const target = { ...(await capturePublishTarget(context)), mode: "commit-changes" }
+      const target = {
+        ...(await capturePublishTarget(context)),
+        mode: "commit-changes",
+        canvasInstanceId: "canvas-1",
+      }
 
       await assert.rejects(report(context, target), { statusCode: 409 })
       assert.equal((await readState(context)).publishRequest.state, "idle")
@@ -121,6 +261,7 @@ describe("reportPublishResult()", () => {
 
       await assert.rejects(report(context, target, { outcome: "published" }), /blocked, canceled/)
       await assert.rejects(report(context, target, { reason: "x".repeat(301) }), /300 characters/)
+      await assert.rejects(report(context, target, { reason: { message: "blocked" } }), /text/)
       assert.equal((await readState(context)).publishRequest.state, "requested")
 
       await report(context, target, { outcome: "failed", reason: " Network\nerror\u2028here " })
@@ -128,6 +269,16 @@ describe("reportPublishResult()", () => {
         (await readState(context)).publishRequest.error,
         "Copilot could not publish this checkout. Network error here",
       )
+    })
+  })
+
+  it("accepts a reason at the 300-character boundary", async () => {
+    await withContext(async (context) => {
+      const { target } = await dispatch(context)
+      const reason = "x".repeat(300)
+
+      assert.equal((await report(context, target, { reason })).reported, true)
+      assert.ok((await readState(context)).publishRequest.error.endsWith(reason))
     })
   })
 

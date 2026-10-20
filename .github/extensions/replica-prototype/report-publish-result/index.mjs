@@ -1,5 +1,9 @@
 import { getPrototypeState } from "../get-prototype-state/index.mjs"
-import { samePublishTarget } from "../publish-target/index.mjs"
+import {
+  capturePublishTarget,
+  continuesPublishTarget,
+  samePublishTarget,
+} from "../publish-target/index.mjs"
 import { readState } from "../read-state/index.mjs"
 import { writeState } from "../write-state/index.mjs"
 
@@ -21,11 +25,22 @@ export async function reportPublishResult(context, { instanceId, outcome, reason
   if (!PUBLISH_RESULT_OUTCOMES.includes(outcome))
     throw new Error("Report a blocked, canceled, or failed publish outcome.")
   const safeReason = normalizeReason(reason)
+  const message = safeReason
+    ? `${outcomeMessages[outcome]} ${safeReason}`
+    : outcomeMessages[outcome]
 
   const request = (await readState(context)).publishRequest
-  if (request.state === "failed" && request.outcome === outcome && matches(request))
+  const currentTarget = await capturePublishTarget(context)
+  if (
+    !matches(request) ||
+    !(mode === "commit-changes"
+      ? await continuesPublishTarget(context, request.target, currentTarget)
+      : samePublishTarget(request.target, currentTarget))
+  )
+    throw conflict("No matching publish request is waiting for Copilot. Refresh the canvas status.")
+  if (request.state === "failed" && request.outcome === outcome && request.error === message)
     return acknowledge(context, false)
-  if (request.state !== "requested" || !matches(request))
+  if (request.state !== "requested")
     throw conflict("No matching publish request is waiting for Copilot. Refresh the canvas status.")
 
   const refreshed = await getPrototypeState(context, { refresh: true })
@@ -37,7 +52,8 @@ export async function reportPublishResult(context, { instanceId, outcome, reason
   const state = await readState(context)
   if (
     state.publishRequest.requestedAt !== request.requestedAt ||
-    !["requested", "failed"].includes(state.publishRequest.state)
+    state.publishRequest.state !== "requested" ||
+    !matches(state.publishRequest)
   )
     throw conflict("The publish request changed while reporting. Refresh the canvas status.")
   const reportedAt = new Date().toISOString()
@@ -46,7 +62,7 @@ export async function reportPublishResult(context, { instanceId, outcome, reason
     state: "failed",
     outcome,
     reportedAt,
-    error: safeReason ? `${outcomeMessages[outcome]} ${safeReason}` : outcomeMessages[outcome],
+    error: message,
   }
   state.updatedAt = reportedAt
   await writeState(context, state)
@@ -54,8 +70,11 @@ export async function reportPublishResult(context, { instanceId, outcome, reason
 
   function matches(candidate) {
     return (
-      (candidate.canvasInstanceId == null || candidate.canvasInstanceId === instanceId) &&
-      (candidate.mode ?? "committed-only") === mode &&
+      typeof instanceId === "string" &&
+      candidate.canvasInstanceId === instanceId &&
+      target?.canvasInstanceId === instanceId &&
+      candidate.mode === mode &&
+      target?.mode === mode &&
       Boolean(candidate.target) &&
       samePublishTarget(candidate.target, target ?? {})
     )

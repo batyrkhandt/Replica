@@ -762,6 +762,7 @@ export async function registerPrototypeCanvas(
                     "commitSha",
                     "originFingerprint",
                     "pushFingerprint",
+                    "canvasInstanceId",
                     "mode",
                   ],
                   properties: {
@@ -779,7 +780,7 @@ export async function registerPrototypeCanvas(
             handler: async (ctx) => {
               const entry = requireOpenPrototypeEntry(ctx.instanceId)
               const { target, outcome, reason } = ctx.input
-              if (target.canvasInstanceId != null && target.canvasInstanceId !== ctx.instanceId)
+              if (target.canvasInstanceId !== ctx.instanceId)
                 throw new CanvasError(
                   "publish_result_rejected",
                   "The publish request belongs to a different canvas.",

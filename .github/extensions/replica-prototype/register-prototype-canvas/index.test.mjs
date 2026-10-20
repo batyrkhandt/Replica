@@ -1321,6 +1321,9 @@ describe("registerPrototypeCanvas()", () => {
         const reportResult = canvas.actions.find(
           (action) => action.name === "report_publish_result",
         )
+        assert.ok(reportResult.inputSchema.properties.target.required.includes("canvasInstanceId"))
+        const targetWithoutCanvas = { ...target }
+        delete targetWithoutCanvas.canvasInstanceId
 
         await assert.rejects(
           reportResult.handler({
@@ -1329,6 +1332,14 @@ describe("registerPrototypeCanvas()", () => {
           }),
           { code: "publish_result_rejected" },
         )
+        await assert.rejects(
+          reportResult.handler({
+            ...openContext,
+            input: { outcome: "blocked", target: targetWithoutCanvas },
+          }),
+          { code: "publish_result_rejected" },
+        )
+        assert.equal((await readState(context)).publishRequest.state, "requested")
         const reported = await reportResult.handler({
           ...openContext,
           input: { outcome: "canceled", reason: "The user chose to stop.", target },

@@ -161,6 +161,12 @@ describe("requestPublish()", () => {
       publishInstructions,
       /Actions success or an earlier Build, even one for the same commit, is not sufficient/,
     )
+    assert.match(
+      publishInstructions,
+      /Whenever you stop before pushing, call `report_publish_result` on the canvas identified by `canvasInstanceId`/,
+    )
+    assert.match(publishInstructions, /Pass the unchanged request target JSON as `target`/)
+    assert.match(publishInstructions, /push was already observed.*`refresh_status`/)
   })
 
   it("reads the same complete procedure from LF and CRLF skill files", async () => {
