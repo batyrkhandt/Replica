@@ -18,7 +18,9 @@ describe("CanvasPairingsPage()", () => {
       code: "ABCDEF1234",
       repositoryLabel: "Repository",
       repository: "local/example",
-      permissions: "The canvas can read Build details and review conversations.",
+      permissions:
+        "The connection also lets Copilot add the learnings this repository's administrators accepted to your prompts.",
+      learningsConsentVersion: "1",
       expiration: "Connections expire after seven days. You can revoke access from",
       connectionsLabel: "Canvas connections",
       connectionsPath: "/canvas/connections",
@@ -38,10 +40,12 @@ describe("CanvasPairingsPage()", () => {
     expect(screen.getByRole("heading", { name: "Connect Replica canvas" })).toBeInTheDocument()
     expect(screen.getByText("ABCDEF1234")).toBeInTheDocument()
     expect(screen.getByText("local/example")).toBeInTheDocument()
+    expect(screen.getByText(data.permissions)).toBeInTheDocument()
     const form = screen.getByRole("button", { name: "Approve connection" }).closest("form")
     expect(form).toHaveAttribute("action", "/canvas/pair/ABCDEF1234")
     expect(form).toHaveAttribute("method", "post")
     expect(form?.querySelector('input[name="authenticity_token"]')).toHaveValue("csrf-token")
+    expect(form?.querySelector('input[name="learnings_consent_version"]')).toHaveValue("1")
     expect(screen.getByRole("link", { name: "Cancel" })).toHaveAttribute("href", "/repositories")
   })
 

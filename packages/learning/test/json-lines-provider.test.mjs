@@ -447,6 +447,40 @@ describe("JSON Lines provider", () => {
     )
   })
 
+  it("filters and appends audit entries without reading the whole file into memory", async (t) => {
+    const directory = fresh()
+    const provider = createJsonLinesMemoryProvider({ directory })
+    const recalls = Array.from({ length: 250 }, (_, index) =>
+      sealRecord({
+        ...receipt(`audit_recallhistory${String(index).padStart(8, "0")}`),
+        operation: "memory.recall",
+      }),
+    )
+    const redaction = sealRecord({
+      ...receipt("audit_redaction01"),
+      operation: "evidence.redact",
+    })
+    await provider.appendRecords("audit", [...recalls, redaction])
+    const files = path.join(directory, "v1")
+    await onFileHandle(t, files, "readFile", (name) => {
+      assert.notEqual(name, "audit.jsonl", "audit files must be streamed, not buffered in full")
+    })
+
+    assert.deepEqual(
+      await provider.readRecords("audit", {
+        scope,
+        operations: ["evidence.redact"],
+      }),
+      [redaction],
+    )
+    const next = receipt("audit_nextentry01")
+    assert.deepEqual(await provider.appendRecords("audit", [next, redaction]), {
+      appended: 1,
+      existing: 1,
+    })
+    assert.deepEqual(await provider.readRecords("audit", { scope }), [...recalls, redaction, next])
+  })
+
   it("reports a damaged complete line instead of skipping it", async () => {
     const directory = fresh()
     const provider = createJsonLinesMemoryProvider({ directory })

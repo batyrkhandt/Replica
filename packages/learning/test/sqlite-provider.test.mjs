@@ -14,6 +14,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
+import { DatabaseSync } from "node:sqlite"
 import { after, describe, it } from "node:test"
 import { agent, designer, weekOneLog } from "../conformance/index.mjs"
 import { createSqliteMemoryProvider } from "../src/providers/sqlite.mjs"
@@ -79,6 +80,7 @@ describe("SQLite provider", () => {
     await assert.rejects(exposed.appendRecords("grants", [grant("grant_aaaaaaaa1")]), {
       code: "storage_corrupt",
     })
+
     const health = await exposed.health()
     assert.equal(health.ok, false)
     assert.match(health.detail, /readable by other users/)
@@ -112,6 +114,36 @@ describe("SQLite provider", () => {
       assert.equal(statSync(outside).size, 0)
     },
   )
+
+  it("indexes audit operations when opening an existing store", async () => {
+    const created = provider()
+    const record = grant("grant_aaaaaaaa1")
+    await created.appendRecords("grants", [record])
+    const file = created.manifest().storage.location
+    await created.close()
+    const legacy = new DatabaseSync(file)
+    legacy.exec("drop index if exists records_by_operation")
+    legacy.close()
+
+    const reopened = provider({ directory: path.dirname(file) })
+    assert.deepEqual(await reopened.readRecords("grants", { scope }), [record])
+    const database = new DatabaseSync(file)
+    try {
+      const plan = database
+        .prepare(
+          `
+        explain query plan select body from records
+        where stream = ? and scope_key = ?
+          and json_extract(body, '$.operation') = ?
+        order by seq
+      `,
+        )
+        .all("audit", JSON.stringify(scope), "evidence.redact")
+      assert.ok(plan.some(({ detail }) => /records_by_operation .*<expr>=\?/.test(detail)))
+    } finally {
+      database.close()
+    }
+  })
 
   it("keeps every record when two connections write the same file at once", async () => {
     const directory = path.join(work, `store-${++count}`)

@@ -7,7 +7,7 @@ en:
       code_label: Connection code
       code_instruction: Only approve if this code matches the one shown in your Copilot canvas.
       repository_label: Repository
-      permissions: The canvas can read Build details and review conversations, edit prototype details, and participate in conversations with your Hub account. It can create review threads when the local checkout matches an imported Build.
+      permissions: The canvas can read Build details and review conversations, edit prototype details, and participate in conversations with your Hub account. It can create review threads when the local checkout matches an imported Build. The connection also lets Copilot add the learnings this repository's administrators accepted to your prompts.
       expiration: This connection expires after seven days. Hub checks your current repository access on every request. You can revoke access from
       renewable_expiration: This connection renews while you retain repository access and expires after 30 days without interactive canvas use. Automatic refreshes do not extend it. You can revoke access from
       connections: Canvas connections

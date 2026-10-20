@@ -36,8 +36,11 @@ class CanvasPairingsTest < ActionDispatch::IntegrationTest
     assert_equal "github/prototype", approval.fetch("repository")
     assert_equal approve_canvas_pairing_path(pairing.fetch("userCode")),
       approval.fetch("approvePath")
+    assert_includes approval.fetch("permissions"), "add the learnings"
+    assert_equal CanvasPairing::LEARNINGS_CONSENT_VERSION, approval.fetch("learningsConsentVersion")
 
-    post approve_canvas_pairing_path(pairing.fetch("userCode"))
+    post approve_canvas_pairing_path(pairing.fetch("userCode")),
+      params: { learnings_consent_version: approval.fetch("learningsConsentVersion") }
     assert_redirected_to canvas_connections_path
 
     get canvas_connections_path, as: :json
@@ -53,6 +56,7 @@ class CanvasPairingsTest < ActionDispatch::IntegrationTest
     token = approved.fetch("accessToken")
     assert CanvasGrant.authenticate(token)
     assert_nil CanvasGrant.first.fresh_authorized_at
+    assert CanvasGrant.first.learnings_consented_at
     assert_not_includes CanvasGrant.first.attributes.to_s, token
 
     get canvas_connections_path, as: :json
@@ -78,6 +82,53 @@ class CanvasPairingsTest < ActionDispatch::IntegrationTest
     end
     assert_response :conflict
     assert_equal "incompatible_canvas_interface", response.parsed_body.fetch("code")
+  end
+
+  test "a pairing approved before the approval page mentioned learnings connects without them" do
+    post canvas_api_pairings_path, params: { repository: "github/prototype" }, as: :json
+    pairing = JSON.parse(response.body)
+    CanvasPairing.find_by!(user_code: pairing.fetch("userCode"))
+      .update!(user: User.find_by!(github_id: 1001), approved_at: Time.current)
+
+    post canvas_api_pairing_token_path, params: { device_code: pairing.fetch("deviceCode") }, as: :json
+    assert_equal "approved", JSON.parse(response.body).fetch("status")
+    assert_nil CanvasGrant.sole.learnings_consented_at
+  end
+
+  test "an old approval form submitted after deployment connects without learnings" do
+    post canvas_api_pairings_path, params: { repository: "github/prototype" }, as: :json
+    pairing = JSON.parse(response.body)
+
+    post approve_canvas_pairing_path(pairing.fetch("userCode"))
+    assert_redirected_to canvas_connections_path
+    assert_nil CanvasPairing.find_by!(user_code: pairing.fetch("userCode")).learnings_consented_at
+
+    post canvas_api_pairing_token_path, params: { device_code: pairing.fetch("deviceCode") }, as: :json
+    approved = JSON.parse(response.body)
+    assert_equal "approved", approved.fetch("status")
+    assert_nil CanvasGrant.sole.learnings_consented_at
+
+    post canvas_api_learnings_recall_path,
+      headers: { "Authorization" => "Bearer #{approved.fetch("accessToken")}" }, as: :json
+    assert_response :forbidden
+    assert_equal "learnings_consent_required", JSON.parse(response.body).fetch("code")
+  end
+
+  test "only the current disclosure version grants learnings consent" do
+    [ [ "unknown", false ], [ CanvasPairing::LEARNINGS_CONSENT_VERSION, true ] ].each do |version, consented|
+      post canvas_api_pairings_path, params: { repository: "github/prototype" }, as: :json
+      pairing = JSON.parse(response.body)
+
+      post approve_canvas_pairing_path(pairing.fetch("userCode")),
+        params: { learnings_consent_version: version }
+      assert_redirected_to canvas_connections_path
+      assert_equal consented, CanvasPairing.find_by!(user_code: pairing.fetch("userCode")).learnings_consented_at.present?
+
+      post canvas_api_pairing_token_path, params: { device_code: pairing.fetch("deviceCode") }, as: :json
+      approved = JSON.parse(response.body)
+      assert_equal "approved", approved.fetch("status")
+      assert_equal consented, CanvasGrant.authenticate(approved.fetch("accessToken")).learnings_consented_at.present?
+    end
   end
 
   test "returns a signed-out reviewer to the matching browser approval" do

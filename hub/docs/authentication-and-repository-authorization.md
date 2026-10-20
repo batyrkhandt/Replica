@@ -92,7 +92,7 @@ bin/devcontainer exec bin/rails replica:github:poll
 
 ## Copilot canvas connections
 
-Authors approve a Copilot canvas connection in their signed-in browser after comparing its repository and short code with the canvas. Approval is scoped to one installed repository, not a branch or prototype. It works before any prototype is committed, pushed, discovered, or registered. Repository configuration can select the Hub automatically but cannot bypass approval. See [Prototype canvas](prototype-canvas.md#repository-hub-discovery) for the team configuration and precedence rules.
+Authors approve a Copilot canvas connection in their signed-in browser after comparing its repository and short code with the canvas. Approval is scoped to one installed repository, not a branch or prototype. It works before any prototype is committed, pushed, discovered, or registered. Repository configuration can select the Hub automatically but cannot bypass approval. Approval also records consent to [add the repository's accepted learnings](prototype-canvas.md#learnings-for-agents) to the person's prompts, as the approval page says. See [Prototype canvas](prototype-canvas.md#repository-hub-discovery) for the team configuration and precedence rules.
 
 The durable connection is a `CanvasGrant`. Its ID, user, and repository remain stable while access tokens rotate. A renewable pairing generates an independent refresh secret before approval and stores only its digest. Consuming the approved proof creates the grant with that digest; the refresh secret cannot authorize anything before consumption. Only Node stores plaintext access, refresh, and pending device credentials, in private machine-local files. They never enter renderer state, prototype frames, Git, URLs, or logs.
 

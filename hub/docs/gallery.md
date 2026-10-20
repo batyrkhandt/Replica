@@ -2,22 +2,40 @@
 
 The gallery is where reviewers browse connected repositories and registered prototype branches. Hub still discovers Builds for unlisted branches, but shows their cards only after a repository writer adds them to Hub.
 
-```text
-Selected repository
-  |-- Create -> prototype brief -> Copilot app session
-  |    +-- Templates catalog -> choose a layout -> default branch preview -> new prototype brief
-  +-- Prototypes (registered branches)
-       -> Prototype card
-  +-- Manage prototypes (repository writers)
-       -> Select an eligible branch -> add its name and description in a dialog
-       -> Edit a listed prototype's details in a dialog
+```mermaid
+flowchart TD
+    repo["Selected repository"]
 
-Prototype card
-  |-- review shell (shows an information dialog on your first visit to this prototype)
-  |-- Branch from here -> brief composer -> Copilot app session based on this branch
-  +-- Build history
-        |
-        +-- Build details
+    %% --- Create flow ---
+    repo --> create["Create"]
+    create --> brief["Prototype brief"]
+    brief --> copilot["Copilot app session"]
+    create -.-> templates["Templates catalog"]
+    templates --> layout["Choose a layout"]
+    layout --> preview["Default branch preview"]
+    preview --> newBrief["New prototype brief"]
+
+    %% --- Prototypes list ---
+    repo --> prototypes["Prototypes<br>(registered branches)"]
+    prototypes --> card["Prototype card"]
+
+    %% --- Manage prototypes ---
+    repo --> manage["Manage prototypes<br>(repository writers)"]
+    manage --> select["Select an eligible branch"]
+    select --> addDialog["Add name and description<br>(dialog)"]
+    manage --> editDialog["Edit a listed prototype's details<br>(dialog)"]
+
+    %% --- Prototype card detail ---
+    subgraph cardDetail["Prototype card"]
+        review["Review shell<br>(information dialog on first visit)"]
+        branchFromHere["Branch from here"]
+        branchFromHere --> composer["Brief composer"]
+        composer --> copilotBranch["Copilot app session<br>(based on this branch)"]
+        buildHistory["Build history"]
+        buildHistory --> buildDetails["Build details"]
+    end
+
+    card --> cardDetail
 ```
 
 In the GitHub-backed flow, Hub checks the reviewer's current GitHub access before showing any repository or Build. [Development-only local mode](local-development.md) uses its local identity instead.

@@ -43,6 +43,8 @@ const SCHEMA = `
     unique (stream, id)
   );
   create index if not exists records_by_scope on records (stream, scope_key, seq);
+  create index if not exists records_by_operation
+    on records (stream, scope_key, json_extract(body, '$.operation'), seq);
   create table if not exists memory_versions (
     seq integer primary key autoincrement,
     id text not null,
@@ -325,8 +327,8 @@ export function createSqliteMemoryProvider({ directory, file = "learning.sqlite"
 
 /**
  * Records in one table that match the contract's filters exactly: the same scope, any of the
- * IDs, any of the episodes, since inclusive and until exclusive, in the order appended. Times
- * are UTC text with six fractional digits, so text order is time order.
+ * IDs, any of the episodes or audit operations, since inclusive and until exclusive, in the
+ * order appended. Times are UTC text with six fractional digits, so text order is time order.
  */
 function select(db, query, { table, stream, time, episode }) {
   const values = []
@@ -338,6 +340,13 @@ function select(db, query, { table, stream, time, episode }) {
   if (stream) add("stream = ?", stream)
   add("scope_key = ?", canonicalJson(query.scope))
   if (query.ids) add("id in (select value from json_each(?))", JSON.stringify(query.ids))
+  if (query.operations?.length === 1)
+    add("json_extract(body, '$.operation') = ?", query.operations[0])
+  else if (query.operations)
+    add(
+      "json_extract(body, '$.operation') in (select value from json_each(?))",
+      JSON.stringify(query.operations),
+    )
   if (query.episodeIds) {
     if (!episode) return []
     add(`${episode} in (select value from json_each(?))`, JSON.stringify(query.episodeIds))

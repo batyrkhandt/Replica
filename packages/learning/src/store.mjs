@@ -1107,7 +1107,7 @@ class LearningStore {
     // Any earlier successful entry that names the event and its digest already audits it,
     // whatever its ID or however many events it names.
     const audited = new Set(
-      (await this.#read("audit", context))
+      (await this.#read("audit", context, { operations: ["evidence.redact"] }))
         .filter((entry) => entry.operation === "evidence.redact" && entry.outcome === "ok")
         .flatMap((entry) => entry.subjects)
         .filter((subject) => subject.kind === "event")
@@ -1353,7 +1353,7 @@ class LearningStore {
     )
     if (!versions.size) return null
     const audited = new Set(
-      (await this.#read("audit", context))
+      (await this.#read("audit", context, { operations: ["evidence.redact"] }))
         .filter((entry) => entry.operation === "evidence.redact" && entry.outcome === "ok")
         .flatMap((entry) => entry.subjects)
         .filter((subject) => subject.kind === "event")

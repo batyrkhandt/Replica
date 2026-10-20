@@ -19,6 +19,7 @@ import { reviewAction } from "../review-action/index.mjs"
 import { projectValidation, validateControls } from "../validate-controls/index.mjs"
 import { projectControlsStatus } from "../controls-status/index.mjs"
 import { improvementBatchResult } from "../improvement-batch-result/index.mjs"
+import { createLearningsHook } from "../recall-learnings/index.mjs"
 
 export { improvementBatchResult } from "../improvement-batch-result/index.mjs"
 
@@ -448,6 +449,7 @@ export async function registerPrototypeCanvas(
   const devServers = createDevServerManager({ discover })
 
   const session = await joinSession({
+    hooks: { onUserPromptSubmitted: createLearningsHook(canvasOptions.hubOptions) },
     canvases: [
       createCanvas({
         id: canvasOptions.id ?? "replica-prototype",

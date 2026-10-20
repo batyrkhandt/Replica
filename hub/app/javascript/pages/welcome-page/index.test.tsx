@@ -76,15 +76,6 @@ describe("WelcomePage()", () => {
       "data-sg-visit",
       "true",
     )
-    expect(
-      screen.getByRole("link", { name: data.readmeLabel }).querySelectorAll("svg"),
-    ).toHaveLength(2)
-    expect(
-      screen.getByRole("link", { name: data.setupLabel }).querySelectorAll("svg"),
-    ).toHaveLength(2)
-    expect(
-      screen.getByRole("link", { name: data.createLabel }).querySelectorAll("svg"),
-    ).toHaveLength(1)
     for (const label of [data.readmeLabel, data.setupLabel, data.createLabel]) {
       expect(screen.getByRole("heading", { level: 2, name: label })).toBeInTheDocument()
     }

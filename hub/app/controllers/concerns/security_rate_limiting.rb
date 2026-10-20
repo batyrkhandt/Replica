@@ -10,7 +10,8 @@ module SecurityRateLimiting
     analytics_destinations: [ 5, 1.minute ],
     workflow_installation: [ 5, 10.minutes ],
     hub_admin: [ 10, 1.minute ],
-    webhooks: [ 600, 1.minute ]
+    webhooks: [ 600, 1.minute ],
+    learning_recalls: [ 30, 1.minute ]
   }.freeze
 
   # Server-owned action names keep independently developed admin pages compatible.

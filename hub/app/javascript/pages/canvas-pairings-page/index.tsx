@@ -52,6 +52,11 @@ export function CanvasPairingsPage({ data }: { data: CanvasPairingsPageData }) {
 
               <form action={data.approvePath} method="post" className="canvas-pairings__actions">
                 <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
+                <input
+                  type="hidden"
+                  name="learnings_consent_version"
+                  value={data.learningsConsentVersion}
+                />
                 <Button type="submit" variant="primary">
                   {data.approveLabel}
                 </Button>

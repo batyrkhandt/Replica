@@ -190,6 +190,8 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
   async function checkOwner(record, context) {
     const hub = await getHub()
     if (!hub) return
+    if (record.owner && hub.origin !== record.owner.origin)
+      fail("These notes belong to a different Hub account or deployment.", 403)
     const connectionScope = {}
     const requestOptions = {
       register: false,
@@ -211,8 +213,6 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
     if (!currentViewer) return
     if (status.repository !== context.target.repository || status.branch !== context.target.branch)
       fail("Hub did not confirm the current prototype and author.", 409)
-    if (record.owner && hub.origin !== record.owner.origin)
-      fail("These notes belong to a different Hub account or deployment.", 403)
     if (currentViewer.viewerId == null) {
       const error =
         "Upgrade Hub to confirm the connected author's account ID. Author attribution is unavailable."
@@ -541,6 +541,20 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
           record.syncError = `Hub sync failed: ${error.message}. Your notes remain saved locally.`
           return
         }
+        for (const batch of record.batches) {
+          if (!["requested", "delivery_unknown"].includes(batch.state)) continue
+          const hasUnchangedSentNote = batch.notes.some((captured) =>
+            record.notes.some(
+              (note) =>
+                note.localId === captured.localId &&
+                !note.deleted &&
+                (captured.requestIds ?? [captured.localId]).some((id) =>
+                  requestIds(note, "sent").includes(id),
+                ),
+            ),
+          )
+          if (!hasUnchangedSentNote) batch.state = "cancelled"
+        }
         for (const note of record.notes.filter((item) => item.sync !== "synced")) {
           try {
             const result = await hub.request(base, {
@@ -630,6 +644,7 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
       const { key, context } = await identity()
       const record = await read(key)
       await checkOwner(record, context)
+      if ((await identity()).key !== key) fail("The prototype branch changed.", 409)
       const batch = record.batches.find((item) => item.id === input.batchId)
       if (!batch || batch.sessionId !== context.sessionId)
         fail("This batch does not belong to the current conversation.", 404)
@@ -644,6 +659,8 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
         const record = await read(key)
         if ((await identity()).key !== key) fail("The prototype branch changed.", 409)
         await checkOwner(record, (await identity()).context)
+        if ((await identity()).key !== key)
+          fail("The prototype branch changed while checking Hub ownership.", 409)
         const batch = record.batches.find((item) => item.id === input.batchId)
         if (
           !batch ||
@@ -697,7 +714,7 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
         batch.state = "completed"
         record.revision++
         await store.write(`${key}.json`, record)
-        return view(key, record)
+        return { batchId: batch.id, completed: true, noteCount: batch.notes.length }
       })
     },
   }

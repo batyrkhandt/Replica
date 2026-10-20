@@ -41,7 +41,7 @@ If the repository is missing or access is denied, ask its maintainer to check yo
 
 The Replica prototype canvas shows your local preview beside the Copilot conversation and adds publishing, sharing, commenting, and prototype controls.
 
-Ask your agent to install the plugin and provide the follwoing commands ot teh agent:
+Ask your agent to install the plugin and provide the following commands to the agent:
 
 ```sh
 copilot plugin marketplace add github/replica
@@ -50,7 +50,7 @@ copilot plugin install replica-prototype@replica
 
 You can also run this manually in a terminal with Copilot CLI available.
 
-If the `copilot` command is unavailable, follow the [Copilot CLI installation instructions](https://docs.github.com/en/copilot/get-started/cli-quickstart) first.
+Repositories using the current Replica starter setup script automatically run `npm install -g @github/copilot` if `copilot` is missing, then install the Replica plugin. This needs npm and a writable global installation directory. Setup does not use sudo or change your shell configuration. Dependency installation with `npm ci` still runs if CLI or plugin setup fails; this does not mean the canvas is ready. Check the app's setup output for the failure reason and recovery steps. If automatic installation fails, or your repository does not use that script, follow the [Copilot CLI installation instructions](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli), then rerun `node scripts/setup-replica-plugin.mjs` in repositories that have it.
 
 In the Copilot app sidebar, open **Customize**, then **Installed**. Find the `replica-prototype` plugin and enable it. Also find its `replica-prototype` canvas and enable that extension; both the plugin and extension must be enabled.
 
