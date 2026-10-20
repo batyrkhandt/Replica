@@ -1,29 +1,17 @@
 import { ThemeProvider } from "@primer/react-brand"
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { createRef } from "react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { octocatRootComment } from "@/storybook/fixtures/review/comments"
 import { reviewCommentsCopy } from "@utils/review-comment/en"
-
 import { importedPrototype, publicationHub } from "@utils/resolve-prototype-publication/fixtures"
 
-import { HubPanel } from "."
+import { PrototypeCanvasHubPanel } from "."
 
-beforeEach(() => {
-  const controls = document.createElement("div")
-  controls.id = "canvas-review-controls"
-  document.body.append(controls)
-})
-
-afterEach(() => {
-  document.getElementById("canvas-review-controls")?.remove()
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-})
-
-describe("HubPanel()", () => {
+describe("PrototypeCanvasHubPanel()", () => {
   it("opens an earlier comment Build on the selected Hub rather than the loopback canvas", async () => {
+    render(<div id="canvas-review-controls" />)
     vi.stubGlobal(
       "fetch",
       vi.fn<typeof fetch>().mockImplementation((input) => {
@@ -35,7 +23,7 @@ describe("HubPanel()", () => {
     )
     render(
       <ThemeProvider>
-        <HubPanel
+        <PrototypeCanvasHubPanel
           config={{ name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" }}
           frameRef={createRef<HTMLIFrameElement>()}
           status={{
@@ -66,6 +54,7 @@ describe("HubPanel()", () => {
   })
 
   it("persists unread through the canvas proxy, keeps the draft open, and reads on reopening", async () => {
+    render(<div id="canvas-review-controls" />)
     let lastSeen: number | null = octocatRootComment.activityVersion
     const fetchMock = vi.fn<typeof fetch>().mockImplementation((input, options) => {
       if (input === "/api/hub/events") return Promise.reject(new Error("Offline"))
@@ -83,7 +72,7 @@ describe("HubPanel()", () => {
     vi.stubGlobal("fetch", fetchMock)
     render(
       <ThemeProvider>
-        <HubPanel
+        <PrototypeCanvasHubPanel
           config={{ name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" }}
           frameRef={createRef<HTMLIFrameElement>()}
           status={{ ...publicationHub, state: "connected", prototype: importedPrototype }}
@@ -135,6 +124,7 @@ describe("HubPanel()", () => {
   })
 
   it("keeps throttled comments and the draft until the Hub changes", async () => {
+    render(<div id="canvas-review-controls" />)
     const message = "Too many requests. No changes were made. Wait 60 seconds, then try again."
     const fetchMock = vi.fn<typeof fetch>().mockImplementation((input, options) => {
       if (input === "/api/hub/events") return Promise.reject(new Error("Offline"))
@@ -147,7 +137,7 @@ describe("HubPanel()", () => {
     vi.stubGlobal("fetch", fetchMock)
     const view = render(
       <ThemeProvider>
-        <HubPanel
+        <PrototypeCanvasHubPanel
           config={{ name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" }}
           frameRef={createRef<HTMLIFrameElement>()}
           status={{ ...publicationHub, state: "connected", prototype: importedPrototype }}
@@ -175,7 +165,7 @@ describe("HubPanel()", () => {
     ).toHaveLength(1)
     view.rerender(
       <ThemeProvider>
-        <HubPanel
+        <PrototypeCanvasHubPanel
           config={{ name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" }}
           frameRef={createRef<HTMLIFrameElement>()}
           status={{
@@ -204,6 +194,7 @@ describe("HubPanel()", () => {
   it.each([false, true])(
     "keeps comments open state %s when opening a pin and posting a new thread",
     async (commentsOpen) => {
+      render(<div id="canvas-review-controls" />)
       const nonce = "00000000-0000-4000-8000-000000000010"
       vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
       const frameRef = createRef<HTMLIFrameElement>()
@@ -237,7 +228,7 @@ describe("HubPanel()", () => {
       const view = render(
         <ThemeProvider>
           <iframe ref={frameRef} title="Prototype" src="about:blank" onLoad={onFrameLoad} />
-          <HubPanel
+          <PrototypeCanvasHubPanel
             config={{ name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" }}
             frameRef={frameRef}
             status={{ ...publicationHub, state: "connected", prototype: importedPrototype }}

@@ -1,25 +1,18 @@
 import { ThemeProvider } from "@primer/react-brand"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { createRef } from "react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { octocatRootComment } from "@/storybook/fixtures/review/comments"
-
 import { importedPrototype, publicationHub } from "@utils/resolve-prototype-publication/fixtures"
 
-import { HubPanel } from "."
+import { PrototypeCanvasHubPanel } from "."
 
-afterEach(() => {
-  document.getElementById("canvas-review-controls")?.remove()
-})
-
-describe("HubPanel() reactions", () => {
+describe("PrototypeCanvasHubPanel() reactions", () => {
   it.each([true, false])(
     "retains optimistic reactions through invalidation and reconciles a successful save %s",
     async (successful) => {
-      const controls = document.createElement("div")
-      controls.id = "canvas-review-controls"
-      document.body.append(controls)
+      render(<div id="canvas-review-controls" />)
       const initial = {
         ...octocatRootComment,
         viewerLastSeenActivityVersion: octocatRootComment.activityVersion,
@@ -68,7 +61,7 @@ describe("HubPanel() reactions", () => {
       vi.stubGlobal("fetch", fetchMock)
       const view = render(
         <ThemeProvider>
-          <HubPanel
+          <PrototypeCanvasHubPanel
             config={{ name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" }}
             frameRef={createRef<HTMLIFrameElement>()}
             status={{ ...publicationHub, state: "connected", prototype: importedPrototype }}

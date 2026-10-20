@@ -7,13 +7,6 @@ import { describe, it } from "node:test"
 import { createLocalReviewComments } from "./index.mjs"
 import { withContext } from "../test-support/with-context/index.mjs"
 
-const scope = {
-  hubOrigin: "https://hub.example.com",
-  repository: "github/replica",
-  branch: "prototype",
-  viewerLogin: "octocat",
-}
-
 function git(context, ...args) {
   return execFileSync("git", args, { cwd: context.repositoryPath, encoding: "utf8" }).trim()
 }
@@ -39,8 +32,14 @@ function build(context) {
   }
 }
 
-describe("local review comments", () => {
+describe("createLocalReviewComments()", () => {
   it("persists local edits and deletion across instances", async () => {
+    const scope = {
+      hubOrigin: "https://hub.example.com",
+      repository: "github/replica",
+      branch: "prototype",
+      viewerLogin: "octocat",
+    }
     await withContext(async (context) => {
       const captured = revision(context)
       const anchor = { schemaVersion: 1, kind: "element", selector: "#save" }
@@ -58,6 +57,12 @@ describe("local review comments", () => {
   })
 
   it("isolates comments by Hub, repository, branch and reviewer", async () => {
+    const scope = {
+      hubOrigin: "https://hub.example.com",
+      repository: "github/replica",
+      branch: "prototype",
+      viewerLogin: "octocat",
+    }
     await withContext(async (context) => {
       const comments = localComments(context)
       const captured = revision(context)
@@ -79,6 +84,12 @@ describe("local review comments", () => {
   })
 
   it("uploads only matching source to an imported Build even when its commit differs", async () => {
+    const scope = {
+      hubOrigin: "https://hub.example.com",
+      repository: "github/replica",
+      branch: "prototype",
+      viewerLogin: "octocat",
+    }
     await withContext(async (context) => {
       const comments = localComments(context)
       const captured = revision(context)
@@ -145,6 +156,12 @@ describe("local review comments", () => {
   })
 
   it("does not attach new feedback to an older Build with the same source tree", async () => {
+    const scope = {
+      hubOrigin: "https://hub.example.com",
+      repository: "github/replica",
+      branch: "prototype",
+      viewerLogin: "octocat",
+    }
     await withContext(async (context) => {
       const comments = localComments(context)
       const imported = build(context)
@@ -169,6 +186,12 @@ describe("local review comments", () => {
   })
 
   it("retains rejected uploads for a later retry and propagates the Hub error", async () => {
+    const scope = {
+      hubOrigin: "https://hub.example.com",
+      repository: "github/replica",
+      branch: "prototype",
+      viewerLogin: "octocat",
+    }
     await withContext(async (context) => {
       const comments = localComments(context)
       const draft = await comments.create(scope, revision(context), {
@@ -198,6 +221,12 @@ describe("local review comments", () => {
   })
 
   it("keeps previous Prototype feedback separate even when a new history has the same source", async () => {
+    const scope = {
+      hubOrigin: "https://hub.example.com",
+      repository: "github/replica",
+      branch: "prototype",
+      viewerLogin: "octocat",
+    }
     await withContext(async (context) => {
       const comments = localComments(context)
       const captured = revision(context)
@@ -233,6 +262,12 @@ describe("local review comments", () => {
   })
 
   it("reconciles an ambiguous upload to its original Build after a newer Build arrives", async () => {
+    const scope = {
+      hubOrigin: "https://hub.example.com",
+      repository: "github/replica",
+      branch: "prototype",
+      viewerLogin: "octocat",
+    }
     await withContext(async (context) => {
       const comments = localComments(context)
       const draft = await comments.create(scope, revision(context), {

@@ -3,12 +3,11 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import { octocatRootComment } from "@/storybook/fixtures/review/comments"
 import { reviewCommentsCopy } from "@utils/review-comment/en"
-
 import type { HubStatus } from "@utils/prototype-canvas/types"
 import { publicationCopy } from "@utils/resolve-prototype-publication/en"
 import { importedPrototype, publicationHub } from "@utils/resolve-prototype-publication/fixtures"
 
-import { HubPanel } from "."
+import { PrototypeCanvasHubPanel } from "."
 
 const canvasPreview = `<!doctype html>
 <html lang="en">
@@ -52,7 +51,7 @@ function ConnectedDemo({
   preview = false,
   rateLimited = false,
   ...props
-}: ComponentProps<typeof HubPanel> & { preview?: boolean; rateLimited?: boolean }) {
+}: ComponentProps<typeof PrototypeCanvasHubPanel> & { preview?: boolean; rateLimited?: boolean }) {
   const [ready, setReady] = useState(false)
   const [open, setOpen] = useState(!preview)
   const frameRef = useRef<HTMLIFrameElement>(null)
@@ -160,7 +159,7 @@ function ConnectedDemo({
         />
       ) : null}
       {ready ? (
-        <HubPanel
+        <PrototypeCanvasHubPanel
           {...props}
           frameRef={preview ? frameRef : props.frameRef}
           config={
@@ -178,7 +177,7 @@ function ConnectedDemo({
 
 const meta = {
   title: "Components/Prototype canvas/Hub panel",
-  component: HubPanel,
+  component: PrototypeCanvasHubPanel,
   args: {
     config: {
       prototypeUrl: "http://localhost:4321/",
@@ -198,7 +197,7 @@ const meta = {
     open: true,
     onClose: () => {},
   },
-} satisfies Meta<typeof HubPanel>
+} satisfies Meta<typeof PrototypeCanvasHubPanel>
 
 export default meta
 type Story = StoryObj<typeof meta>

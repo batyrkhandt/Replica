@@ -32,18 +32,18 @@ import type { ReviewComment, ReviewReactionContent } from "@utils/review-comment
 import type { ReviewCommentMutation } from "@hooks/use-review-comments/types"
 import { reviewThreadMatchesFilters } from "@utils/review-thread-matches-filters"
 import { MENTION_CANDIDATES_SCHEMA } from "@utils/mention-candidate/schemas"
-
 import { request } from "@utils/prototype-canvas-request"
 import { copy } from "@utils/prototype-canvas/en"
 import { BranchPublication } from "@components/prototype-branch-publication"
 import { CommentingRecovery } from "@components/prototype-commenting-recovery"
-import { CanvasReviewOverlays } from "../prototype-review-overlays"
 import { useCommentingRecovery } from "@hooks/use-canvas-commenting-recovery"
 import type { Publication } from "@utils/resolve-prototype-publication"
 import { publicationCopy } from "@utils/resolve-prototype-publication/en"
-import { PublishSettings } from "../prototype-publish-settings"
 import type { usePublishPreference } from "@hooks/use-canvas-publish-preference"
 import type { CanvasConfig, HubStatus } from "@utils/prototype-canvas/types"
+
+import { CanvasReviewOverlays } from "../prototype-review-overlays"
+import { PublishSettings } from "../prototype-publish-settings"
 
 import "./styles.css"
 
@@ -83,7 +83,7 @@ function reviewRoute(value: unknown): ReviewRoute | null {
   return { pathname: value.pathname, search: value.search, hash: value.hash }
 }
 
-export function HubPanel({
+export function PrototypeCanvasHubPanel({
   config,
   frameRef,
   onRouteChange,
@@ -424,7 +424,7 @@ export function HubPanel({
         loaded.push(...page.comments)
         nextCursor = page.nextCursor
         if (!nextCursor) break
-        if (pageNumber === 99) throw new Error("Too many review comment pages.")
+        if (pageNumber === 99) throw new Error(copy.commentPagesExceeded)
       }
       if (
         commentIdentityRef.current !== requestedIdentity ||
@@ -586,7 +586,7 @@ export function HubPanel({
           next.branch !== status?.branch ||
           !next.reviewRevision
         )
-          throw new Error(next.reviewError || "Hub could not prepare this comment.")
+          throw new Error(next.reviewError || copy.commentPreparationFailed)
         selectionRevisionRef.current = next.reviewRevision
         sendBridge("replica:canvas:select", { mode })
       } catch (cause) {
@@ -934,7 +934,7 @@ export function HubPanel({
         .catch((cause: unknown) => {
           if (identityRef.current === requestedIdentity) {
             const message = cause instanceof Error ? cause.message : String(cause)
-            setError(`The comment was saved, but Hub could not be refreshed: ${message}`)
+            setError(copy.commentRefreshFailed(message))
           }
         })
       return true
@@ -1504,7 +1504,7 @@ export function HubPanel({
               <div className="canvas-comments-live-notices">
                 {liveError ? (
                   <p className="canvas-comments-live-status" role="status">
-                    Live updates paused; checking every 30 seconds.
+                    {copy.commentLiveUpdatesPaused}
                   </p>
                 ) : null}
                 {status?.reviewError ? (
