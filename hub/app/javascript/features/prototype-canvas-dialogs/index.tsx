@@ -87,6 +87,7 @@ export function AppDialogs({
         <PublishChangesDialog
           busy={publication.busy}
           error={publication.publishDialogError}
+          changes={publication.publishDialog.preparation.changes}
           remembered={publication.publishDialog.preparation.remember}
           returnFocusRef={intent ? shareButtonRef : publishButtonRef}
           onClose={publication.closePublishDialog}

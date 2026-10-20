@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { writeFile } from "node:fs/promises"
+import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { it } from "node:test"
 
@@ -30,8 +30,18 @@ it("checks fresh staged, unstaged and untracked changes without touching Git or 
     git("commit", "-qm", "Fixture")
     git("config", "status.showUntrackedFiles", "no")
     assert.equal((await preparePublish(context, preferences)).workingTree, "clean")
+    await mkdir(path.join(context.repositoryPath, ".github/skills/local"), { recursive: true })
+    await writeFile(path.join(context.repositoryPath, ".github/skills/local/SKILL.md"), "skill")
+    const localOnly = await preparePublish(context, preferences)
+    assert.equal(localOnly.workingTree, "clean")
+    assert.deepEqual(localOnly.changes, {
+      files: { paths: [], total: 0 },
+      localSkills: { paths: [".github/skills/local/SKILL.md"], total: 1 },
+    })
     await writeFile(file, "unstaged")
-    assert.equal((await preparePublish(context, preferences)).workingTree, "changed")
+    const unstaged = await preparePublish(context, preferences)
+    assert.equal(unstaged.workingTree, "changed")
+    assert.deepEqual(unstaged.changes.files, { paths: ["tracked.txt"], total: 1 })
     git("add", "tracked.txt")
     const staged = git("diff", "--cached")
     const head = git("rev-parse", "HEAD").trim()

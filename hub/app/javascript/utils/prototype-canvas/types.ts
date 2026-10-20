@@ -150,7 +150,13 @@ export type PublishPreparation = {
     pushFingerprint: string | null
   }
   workingTree: "clean" | "changed"
+  changes?: {
+    files: PublishChangeList
+    localSkills: PublishChangeList
+  }
   remember: boolean
 }
+
+export type PublishChangeList = { paths: string[]; total: number }
 
 export type PublishMode = "commit-changes" | "committed-only"

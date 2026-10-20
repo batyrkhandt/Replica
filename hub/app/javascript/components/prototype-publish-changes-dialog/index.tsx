@@ -4,7 +4,7 @@ import { useId, useState, type RefObject } from "react"
 import { HubAlert } from "@components/hub-alert"
 
 import { CanvasDialog } from "../prototype-canvas-dialog"
-import type { PublishMode } from "@utils/prototype-canvas/types"
+import type { PublishMode, PublishPreparation } from "@utils/prototype-canvas/types"
 import { publishChangesCopy as copy } from "@hooks/use-canvas-publish-preference/en"
 
 import "./styles.css"
@@ -12,6 +12,7 @@ import "./styles.css"
 export function PublishChangesDialog({
   busy,
   error,
+  changes,
   remembered,
   returnFocusRef,
   onClose,
@@ -19,6 +20,7 @@ export function PublishChangesDialog({
 }: {
   busy: boolean
   error: string
+  changes?: PublishPreparation["changes"]
   remembered: boolean
   returnFocusRef: RefObject<HTMLButtonElement | null>
   onClose: () => void
@@ -40,6 +42,24 @@ export function PublishChangesDialog({
     >
       <Stack gap="normal" padding="none">
         <p id={descriptionId}>{copy.description}</p>
+        {changes?.files.total ? (
+          <section aria-label={copy.changedFiles}>
+            <ul className="publish-changes-dialog__files">
+              {changes.files.paths.map((file) => (
+                <li key={file}>
+                  <code>{file}</code>
+                </li>
+              ))}
+              {changes.files.total > changes.files.paths.length ? (
+                <li>{copy.moreChanges(changes.files.total - changes.files.paths.length)}</li>
+              ) : null}
+            </ul>
+          </section>
+        ) : null}
+        <p>
+          {changes?.localSkills.total ? `${copy.localSkills(changes.localSkills.total)} ` : null}
+          {copy.selection}
+        </p>
         <FormControl id={checkboxId} fullWidth>
           <Checkbox
             checked={remember}

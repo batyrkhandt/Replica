@@ -339,6 +339,42 @@ it("keeps the Published status non-interactive until local edits are detected", 
   view.unmount()
 })
 
+it("lists the detected changes and leaves local agent skills out of the commit", async () => {
+  const { fixture, fetch } = sharingFixture()
+  fixture.state.stats.workingTree = "changed"
+  const respond = fetch.getMockImplementation()!
+  fetch.mockImplementation((path, options) =>
+    path === "/api/publish/prepare"
+      ? Promise.resolve(
+          Response.json({
+            ...publishPreparation(fixture.state),
+            changes: {
+              files: { paths: ["src/App.tsx"], total: 3 },
+              localSkills: { paths: [".github/skills/publish/SKILL.md"], total: 1 },
+            },
+          }),
+        )
+      : respond(path, options),
+  )
+  const view = render(
+    <App config={{ name: "Demo", prototypeUrl: "http://localhost:4321/", token: "local" }} />,
+  )
+  fireEvent.click(await screen.findByRole("button", { name: "Publish" }))
+  const dialog = await screen.findByRole("dialog", { name: "Publish uncommitted changes?" })
+  const files = within(dialog).getByRole("region", { name: "Uncommitted changes" })
+  expect(
+    within(files)
+      .getAllByRole("listitem")
+      .map((item) => item.textContent),
+  ).toEqual(["src/App.tsx", "2 more"])
+  expect(
+    within(dialog).getByText(
+      "1 local agent skill file stays uncommitted. Copilot commits only changes related to this prototype task and asks if it cannot tell which changes belong.",
+    ),
+  ).toBeVisible()
+  view.unmount()
+})
+
 it("keeps a failed publish choice visible and never falls back to publishing the committed version", async () => {
   const { fixture, fetch } = sharingFixture()
   fixture.state.stats.workingTree = "changed"

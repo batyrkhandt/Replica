@@ -10,6 +10,10 @@ const meta = {
     busy: false,
     error: "",
     remembered: false,
+    changes: {
+      files: { paths: ["src/App.tsx", "src/components/Header.tsx"], total: 2 },
+      localSkills: { paths: [".github/skills/replica-publish-prototype/SKILL.md"], total: 1 },
+    },
     returnFocusRef: createRef<HTMLButtonElement>(),
     onClose: () => undefined,
     onChoose: () => undefined,
