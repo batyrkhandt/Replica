@@ -5,19 +5,20 @@ class CanvasApi::ImprovementNotesController < CanvasApi::BaseController
   prepend_before_action -> { reject_large_request(maximum: 1_600_000) }, only: :create
   before_action :require_writer, only: :create
   rescue_from ActiveRecord::RecordInvalid, with: :invalid_note
+  rescue_from ImprovementComment::Conflict, with: ->(error) { render json: { error: error.message }, status: :conflict }
 
   # @route GET /api/canvas/repositories/:repository_github_id/prototypes/:prototype_id/improvement_notes (canvas_api_improvement_notes)
   def index
-    if @prototype.improvement_notes.where(user: Current.user).limit(201).count > 200
+    if @prototype.improvement_notes.where(user: Current.user).limit(201).count > ImprovementComment::MAXIMUM_NOTES
       return render json: { error: "Too many improvement notes." }, status: :conflict
     end
 
-    page = ReviewComment.improvement_note_page_for \
-      @prototype,
-      viewer: Current.user,
+    page = CanvasCommentPage.read \
+      notes: @prototype.improvement_notes.where(user: Current.user),
+      purpose: "prototype/#{@prototype.id}/improvement-notes/viewer/#{Current.user.id}",
       cursor: pagination_cursor,
       page_size: page_size do |candidate|
-        note_page_json(candidate).to_json.bytesize <= ReviewComment::NOTE_PAGE_MAXIMUM_BYTES
+        note_page_json(candidate).to_json.bytesize <= ImprovementComment::PAGE_MAXIMUM_BYTES
       end
     render json: note_page_json(page)
   end
@@ -33,68 +34,23 @@ class CanvasApi::ImprovementNotesController < CanvasApi::BaseController
     return head :bad_request if params.key?(:thread) && !params[:thread].is_a?(ActionController::Parameters)
     return head :bad_request if params.key?(:note_thread)
     return head :bad_request if %i[local_id body status capture].any? { !params[_1].nil? && !params[_1].is_a?(String) }
-
-    thread = params[:thread]&.to_unsafe_h
-
-    @prototype.with_lock do
-      note = @prototype.improvement_notes.find_or_initialize_by(user: Current.user, local_id: params[:local_id])
-      if note.note_thread.present? && !params.key?(:thread)
-        return render json: { error: "Upgrade the client to preserve this note's thread." }, status: :conflict
-      end
-      if note.persisted? && note.anchor != params[:anchor].to_unsafe_h
-        return render json: { error: "A saved note's target cannot change." }, status: :conflict
-      end
-
-      if note.persisted? && revision < note.note_revision
-        return render json: { error: "The Hub note has a newer revision." }, status: :conflict
-      end
-      if note.persisted? && revision == note.note_revision
-        if note.deleted_at.present? && thread
-          retry_note = note.dup
-          retry_note.assign_attributes(note_thread: thread, note_status: params[:status])
-          retry_note.note_thread_contract.validate_record
-          raise ActiveRecord::RecordInvalid, retry_note if retry_note.errors.any?
-        end
-        same = note.body == (params[:deleted] ? nil : params[:body]) &&
-          note.note_status == params[:status] &&
-          note.anchor == params[:anchor]&.to_unsafe_h &&
-          note.deleted_at.present? == params[:deleted] &&
-          note.capture == params[:capture] &&
-          note.note_thread == (params[:deleted] ? nil : thread)
-        return render json: { error: "This note revision has different content." }, status: :conflict unless same
-
-        return render json: review_comment_json(note)
-      end
-      return head :conflict if note.deleted_at.present?
-      if previous_revision != (note.persisted? ? note.note_revision : 0)
-        return render json: { error: "The Hub note changed since its last synchronization." }, status: :conflict
-      end
-      if note.new_record?
-        return head :conflict if @prototype.improvement_notes.where(user: Current.user).count >= 200
-
-        note.anchor = params[:anchor]&.to_unsafe_h
-      end
-      note.assign_attributes \
-        body: params[:deleted] ? nil : params[:body],
-        note_revision: revision,
-        note_status: params[:status],
-        note_thread: thread,
-        capture: params[:capture]
-      if params[:deleted]
-        note.created_at ||= Time.current
-        note.deleted_at = Time.current
-      end
-      note.save!
-      render json: review_comment_json(note), status: :ok
+    if params.key?(:build_number) && (!params[:build_number].is_a?(Integer) || !params[:build_number].positive?)
+      return head :bad_request
     end
+
+    attributes = params.permit(:local_id, :revision, :previous_revision, :build_number, :body, :status, :deleted, :capture).to_h.symbolize_keys
+    attributes[:anchor] = params[:anchor].to_unsafe_h
+    attributes[:thread] = params[:thread].to_unsafe_h if params.key?(:thread)
+    note = ImprovementComment.synchronize!(prototype: @prototype, user: Current.user, attributes:)
+    render json: improvement_note_json(note), status: :ok
   end
 
   private
 
   def note_page_json(page)
     {
-      threadVersion: ReviewComment::NoteThreadContract::VERSION,
-      notes: page.records.map { review_comment_json(_1) },
+      threadVersion: ImprovementComment::ThreadContract::VERSION,
+      notes: page.records.map { improvement_note_json(_1) },
       nextCursor: page.next_cursor,
       hasMore: page.has_more
     }

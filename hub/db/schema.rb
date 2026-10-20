@@ -303,6 +303,60 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_19_140000) do
     t.index ["proof_digest"], name: "index_hub_admin_enrollments_on_proof_digest", unique: true
   end
 
+  create_table "improvement_comment_replies", force: :cascade do |t|
+    t.integer "response_id", null: false
+    t.integer "request_id", null: false
+    t.integer "prototype_id", null: false
+    t.integer "user_id", null: false
+    t.string "thread_key", null: false
+    t.integer "position", null: false
+    t.index ["prototype_id", "user_id", "thread_key"], name: "improvement_comment_replies_thread"
+    t.index ["prototype_id"], name: "index_improvement_comment_replies_on_prototype_id"
+    t.index ["request_id"], name: "index_improvement_comment_replies_on_request_id"
+    t.index ["response_id", "position"], name: "index_improvement_comment_replies_on_response_id_and_position", unique: true
+    t.index ["response_id", "request_id"], name: "idx_on_response_id_request_id_1aa61357ff", unique: true
+    t.index ["user_id"], name: "index_improvement_comment_replies_on_user_id"
+    t.check_constraint "response_id <> request_id AND position >= 0", name: "improvement_comment_replies_shape"
+  end
+
+  create_table "improvement_comments", force: :cascade do |t|
+    t.integer "prototype_id", null: false
+    t.integer "user_id", null: false
+    t.integer "build_id"
+    t.integer "root_id"
+    t.string "local_id", null: false
+    t.string "thread_key", null: false
+    t.integer "position", default: 0, null: false
+    t.string "role", default: "author", null: false
+    t.string "status", default: "open", null: false
+    t.text "body"
+    t.json "author_snapshot"
+    t.json "anchor"
+    t.text "capture"
+    t.integer "note_revision"
+    t.string "note_status"
+    t.integer "thread_version"
+    t.datetime "deleted_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["build_id"], name: "index_improvement_comments_on_build_id"
+    t.index ["id", "prototype_id", "user_id", "local_id"], name: "improvement_comments_root_identity", unique: true
+    t.index ["id", "prototype_id", "user_id", "thread_key"], name: "improvement_comments_thread_identity", unique: true
+    t.index ["prototype_id", "created_at", "id"], name: "idx_on_prototype_id_created_at_id_3f3dd1473e"
+    t.index ["prototype_id", "user_id", "local_id"], name: "idx_on_prototype_id_user_id_local_id_bce29f2a3a", unique: true
+    t.index ["prototype_id"], name: "index_improvement_comments_on_prototype_id"
+    t.index ["root_id", "position"], name: "index_improvement_comments_on_root_id_and_position", unique: true
+    t.index ["user_id"], name: "index_improvement_comments_on_user_id"
+    t.check_constraint "(role = 'author' AND status IN ('open', 'sent', 'ready', 'blocked')) OR (role = 'copilot' AND status IN ('ready', 'blocked') AND author_snapshot IS NULL)", name: "improvement_comments_role_status"
+    t.check_constraint "(root_id IS NULL AND position = 0 AND role = 'author' AND thread_key = local_id AND build_id IS NOT NULL AND anchor IS NOT NULL AND note_revision > 0 AND note_revision IS NOT NULL AND note_status IN ('open', 'sent', 'ready', 'resolved', 'blocked') AND note_status IS NOT NULL) OR (root_id IS NOT NULL AND root_id <> id AND position > 0 AND build_id IS NULL AND anchor IS NULL AND capture IS NULL AND note_revision IS NULL AND note_status IS NULL AND thread_version IS NULL)", name: "improvement_comments_shape"
+    t.check_constraint "CASE WHEN deleted_at IS NULL THEN body IS NOT NULL AND length(trim(body)) > 0 AND length(CAST(body AS BLOB)) <= 10000 ELSE body IS NULL AND author_snapshot IS NULL END", name: "improvement_comments_body"
+    t.check_constraint "anchor IS NULL OR (json_valid(anchor) AND json_type(anchor) = 'object' AND length(CAST(anchor AS BLOB)) <= 16384)", name: "improvement_comments_anchor"
+    t.check_constraint "author_snapshot IS NULL OR (json_valid(author_snapshot) AND json_type(author_snapshot) = 'object')", name: "improvement_comments_author"
+    t.check_constraint "capture IS NULL OR length(CAST(capture AS BLOB)) <= 1500000", name: "improvement_comments_capture"
+    t.check_constraint "length(local_id) = 36 AND length(thread_key) = 36", name: "improvement_comments_local_id"
+    t.check_constraint "thread_version IS NULL OR thread_version IN (1, 2)", name: "improvement_comments_thread_version"
+  end
+
   create_table "learning_runs", force: :cascade do |t|
     t.integer "repository_id", null: false
     t.integer "requested_by_id"
@@ -472,31 +526,22 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_19_140000) do
     t.datetime "updated_at", null: false
     t.integer "user_id", null: false
     t.datetime "learning_removal_due_at"
-    t.string "kind", default: "review", null: false
-    t.string "local_id"
-    t.integer "note_revision"
-    t.string "note_status"
-    t.text "capture"
-    t.json "note_thread"
     t.index ["build_id"], name: "index_review_comments_on_build_id"
     t.index ["id", "prototype_id"], name: "index_review_comments_on_id_and_prototype", unique: true
     t.index ["learning_removal_due_at"], name: "index_review_comments_on_learning_removal_due_at", where: "learning_removal_due_at IS NOT NULL"
     t.index ["prototype_id", "created_at", "id"], name: "index_review_comments_on_prototype_and_created_at", order: { created_at: :desc, id: :desc }
-    t.index ["prototype_id", "user_id", "local_id"], name: "index_review_comments_on_prototype_id_and_user_id_and_local_id", unique: true
     t.index ["resolved_by_id"], name: "index_review_comments_on_resolved_by_id"
     t.index ["root_id"], name: "index_review_comments_on_root_id"
     t.index ["user_id"], name: "index_review_comments_on_user_id"
-    t.check_constraint "(kind = 'review' AND local_id IS NULL AND note_revision IS NULL AND note_status IS NULL AND capture IS NULL) OR (kind = 'improvement_note' AND root_id IS NULL AND build_id IS NULL AND local_id IS NOT NULL AND length(local_id) = 36 AND note_revision IS NOT NULL AND note_revision > 0 AND note_status IS NOT NULL AND note_status IN ('open', 'sent', 'ready', 'resolved', 'blocked') AND (capture IS NULL OR length(CAST(capture AS BLOB)) <= 1500000))", name: "review_comments_kind"
     t.check_constraint "(resolved_at IS NULL AND resolved_by_id IS NULL) OR (root_id IS NULL AND resolved_at IS NOT NULL AND resolved_by_id IS NOT NULL)", name: "review_comments_resolution"
     t.check_constraint "(root_id IS NULL AND activity_version IS NOT NULL AND activity_version > 0) OR (root_id IS NOT NULL AND activity_version IS NULL)", name: "review_comments_activity_version"
-    t.check_constraint "(root_id IS NULL AND anchor IS NOT NULL AND (build_id IS NOT NULL OR kind = 'improvement_note')) OR (kind = 'review' AND root_id IS NOT NULL AND build_id IS NULL AND anchor IS NULL)", name: "review_comments_thread_shape"
+    t.check_constraint "(root_id IS NULL AND build_id IS NOT NULL AND anchor IS NOT NULL) OR (root_id IS NOT NULL AND build_id IS NULL AND anchor IS NULL)", name: "review_comments_thread_shape"
     t.check_constraint "CASE WHEN deleted_at IS NULL THEN body IS NOT NULL AND length(trim(body)) > 0 AND length(CAST(body AS BLOB)) <= 10000 ELSE body IS NULL END", name: "review_comments_body"
     t.check_constraint "anchor IS NULL OR json_type(anchor) = 'object'", name: "review_comments_anchor_object"
     t.check_constraint "anchor IS NULL OR json_valid(anchor)", name: "review_comments_anchor_json"
     t.check_constraint "anchor IS NULL OR length(CAST(anchor AS BLOB)) BETWEEN 2 AND 16384", name: "review_comments_anchor_size"
     t.check_constraint "deleted_at IS NULL OR deleted_at >= created_at", name: "review_comments_deletion_time"
     t.check_constraint "edited_at IS NULL OR (deleted_at IS NULL AND edited_at >= created_at)", name: "review_comments_edit_state"
-    t.check_constraint "note_thread IS NULL OR (kind = 'improvement_note' AND CASE WHEN json_valid(note_thread) THEN json_type(note_thread) = 'object' ELSE 0 END AND length(CAST(note_thread AS BLOB)) BETWEEN 2 AND 32768)", name: "review_comments_note_thread"
     t.check_constraint "root_id IS NULL OR root_id <> id", name: "review_comments_root_not_self"
   end
 
@@ -716,6 +761,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_19_140000) do
   add_foreign_key "copilot_connections", "users", on_delete: :cascade
   add_foreign_key "fresh_authorizations", "repositories", on_delete: :nullify
   add_foreign_key "fresh_authorizations", "users", on_delete: :cascade
+  add_foreign_key "improvement_comment_replies", "improvement_comments", column: ["request_id", "prototype_id", "user_id", "thread_key"], primary_key: ["id", "prototype_id", "user_id", "thread_key"], on_delete: :restrict
+  add_foreign_key "improvement_comment_replies", "improvement_comments", column: ["response_id", "prototype_id", "user_id", "thread_key"], primary_key: ["id", "prototype_id", "user_id", "thread_key"], on_delete: :restrict
+  add_foreign_key "improvement_comments", "builds", column: ["build_id", "prototype_id"], primary_key: ["id", "prototype_id"], on_delete: :restrict
+  add_foreign_key "improvement_comments", "improvement_comments", column: ["root_id", "prototype_id", "user_id", "thread_key"], primary_key: ["id", "prototype_id", "user_id", "local_id"], on_delete: :restrict
+  add_foreign_key "improvement_comments", "prototypes", on_delete: :restrict
+  add_foreign_key "improvement_comments", "users", on_delete: :restrict
   add_foreign_key "learning_runs", "repositories", on_delete: :cascade
   add_foreign_key "learning_runs", "users", column: "requested_by_id", on_delete: :nullify
   add_foreign_key "notification_resources", "notifications", on_delete: :cascade

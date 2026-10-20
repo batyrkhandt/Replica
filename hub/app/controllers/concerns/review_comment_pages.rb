@@ -1,6 +1,7 @@
 # Shares pagination and serialization without selecting an authentication or prototype context.
 module ReviewCommentPages
   extend ActiveSupport::Concern
+  include ImprovementNotePages
 
   included do
     rescue_from ReviewComment::InvalidPagination, with: :invalid_pagination
@@ -39,21 +40,6 @@ module ReviewCommentPages
   end
 
   def review_comment_json(comment)
-    if comment.improvement_note?
-      can_write = comment.editable_by?(Current.user) &&
-        @repository.authorization.sufficient?(@repository_permission, minimum: :write)
-      return {
-        id: comment.id, kind: "improvement_note", localId: comment.local_id,
-        revision: comment.note_revision, status: comment.note_status,
-        body: comment.body, anchor: comment.anchor, capture: comment.capture,
-        thread: comment.note_thread,
-        deletedAt: comment.deleted_at&.iso8601(6),
-        createdAt: comment.created_at.iso8601(6), updatedAt: comment.updated_at.iso8601(6),
-        author: author_json(comment.user),
-        viewerCanEdit: can_write,
-        viewerCanDelete: can_write
-      }
-    end
     payload = {
       id: comment.id,
       kind: comment.root_comment? ? "root" : "reply",
@@ -86,7 +72,7 @@ module ReviewCommentPages
   end
 
   def prepare_viewer_thread_reads(comments)
-    root_ids = comments.filter_map { _1.id if _1.root_comment? && !_1.improvement_note? }
+    root_ids = comments.filter_map { _1.id if _1.is_a?(ReviewComment) && _1.root_comment? }
     @viewer_thread_reads = ReviewThreadRead.where \
       root_id: root_ids,
       user: Current.user

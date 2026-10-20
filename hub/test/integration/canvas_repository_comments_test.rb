@@ -430,21 +430,19 @@ class CanvasRepositoryCommentsTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "improvement notes need no Build and stay out of ordinary reviews and summaries" do
+  test "published improvements stay separate from ordinary reviews and summaries" do
     prototype = prototypes.create(repository: @repository)
     ordinary = create_comment(prototype, 1)
-    note = ReviewComment.create! \
+    note = ImprovementComment.create! \
       prototype:,
+      build: ordinary.build,
       user: @author,
-      kind: "improvement_note",
       local_id: SecureRandom.uuid,
       note_revision: 1,
       note_status: "open",
       body: "Polish the Save button",
       anchor: ordinary.anchor
 
-    assert_nil note.build_id
-    assert_empty note.thread_reads
     assert_not_includes prototype.review_comments, note
     collection = Learning::Collection.new(Learning::Store.new(@repository)).log
     assert_equal [ ordinary.id ], collection[:calls].sole[:result][:threads].pluck(:id)
@@ -459,6 +457,7 @@ class CanvasRepositoryCommentsTest < ActionDispatch::IntegrationTest
       comments = JSON.parse(response.body).fetch("comments")
       assert_equal [ note.id ], comments.pluck("id")
       assert_equal "improvement_note", comments.first.fetch("kind")
+      assert_equal ordinary.build.number, comments.first.fetch("buildNumber")
       assert_equal false, comments.first.fetch("viewerCanEdit")
       get path, params: { improvement_notes: "include" }, headers: @headers
       assert_equal [ note.id, ordinary.id ], JSON.parse(response.body).fetch("comments").pluck("id")
@@ -473,25 +472,41 @@ class CanvasRepositoryCommentsTest < ActionDispatch::IntegrationTest
     path = canvas_api_improvement_notes_path(@repository.route_id, prototype)
     input = {
       local_id: SecureRandom.uuid, revision: 1, previous_revision: 0, body: "Polish this", status: "open",
-      deleted: false, anchor: ordinary.anchor, capture: ""
+      build_number: ordinary.build.number, deleted: false, anchor: ordinary.anchor, capture: ""
     }
     post path, params: input, headers: @headers, as: :json
     assert_response :forbidden
     stub_github_permissions([ repository_payload(2001, "github/prototype") ], { 2001 => "push" })
-    assert_no_difference "Notification.count" do
-      assert_difference "ReviewComment.count", 1 do
+    queued = builds.create(prototype:, number: 2, commit_sha: "b" * 40)
+    foreign_prototype = prototypes.create(repository: @repository, branch_name: "prototype/foreign")
+    foreign = builds.create_successful(prototype: foreign_prototype, number: 3)
+    unpublished = prototypes.create(repository: @repository, branch_name: "prototype/unpublished")
+    unpublished_path = canvas_api_improvement_notes_path(@repository.route_id, unpublished)
+    assert_no_difference "ImprovementComment.count" do
+      [ input.except(:build_number), input.merge(build_number: queued.number),
+        input.merge(build_number: foreign.number) ].each do |invalid|
+        post path, params: invalid, headers: @headers, as: :json
+        assert_response :unprocessable_entity
+      end
+      post unpublished_path, params: input, headers: @headers, as: :json
+      assert_response :unprocessable_entity
+    end
+    assert_no_difference [ "ReviewComment.count", "Notification.count", "ReviewThreadRead.count" ] do
+      assert_difference "ImprovementComment.count", 1 do
         post path, params: input, headers: @headers, as: :json
         assert_response :success
       end
     end
-    assert_no_difference "ReviewComment.count" do
+    assert_no_difference "ImprovementComment.count" do
       post path, params: input, headers: @headers, as: :json
       assert_response :success
     end
     post path, params: input.merge(body: "Different same revision"), headers: @headers, as: :json
     assert_response :conflict
-    post path, params: input.merge(revision: 2, previous_revision: 1, body: "Edited"), headers: @headers, as: :json
+    post path, params: input.except(:build_number).merge(revision: 2, previous_revision: 1, body: "Edited"), headers: @headers, as: :json
     assert_response :success
+    post path, params: input.merge(revision: 3, previous_revision: 2, build_number: foreign.number), headers: @headers, as: :json
+    assert_response :conflict
     post path, params: input.merge(revision: 4, previous_revision: 1, body: "Stale clone with more edits"), headers: @headers, as: :json
     assert_response :conflict
     post path, params: input.merge(revision: 3, anchor: input[:anchor].merge("selector" => "#other")), headers: @headers, as: :json
@@ -502,8 +517,10 @@ class CanvasRepositoryCommentsTest < ActionDispatch::IntegrationTest
     assert_equal [ @viewer.login ], JSON.parse(response.body).fetch("notes").map { _1.fetch("author").fetch("login") }
     note = prototype.improvement_notes.first!
     assert_equal @viewer, note.user
+    assert_equal ordinary.build, note.build
     assert_equal "Edited", note.body
     prototype.improvement_notes.create! \
+      build: ordinary.build,
       user: @author,
       local_id: SecureRandom.uuid,
       body: "Another author's note",
@@ -520,10 +537,46 @@ class CanvasRepositoryCommentsTest < ActionDispatch::IntegrationTest
     assert_response :conflict
   end
 
+  test "mixed pagination retains reviews and notes with the same id and creation time" do
+    prototype = prototypes.create(repository: @repository)
+    ordinary = create_comment(prototype, 1)
+    timestamp = ordinary.created_at.change(usec: 0)
+    ordinary.update_columns(created_at: timestamp)
+    note = ImprovementComment.create! \
+      id: ordinary.id, prototype:, build: ordinary.build, user: @author, local_id: SecureRandom.uuid,
+      note_revision: 1, note_status: "open", body: "Polish the Save button",
+      anchor: ordinary.anchor, created_at: timestamp
+
+    [ @path, canvas_api_review_comments_path(@repository.route_id, prototype) ].each do |path|
+      received = []
+      cursor = nil
+      2.times do |index|
+        get path, params: { pageSize: 1, improvement_notes: "include", cursor: }.compact, headers: @headers
+        assert_response :success
+        page = response.parsed_body
+        assert_equal 1, page.fetch("comments").length
+        received.concat(page.fetch("comments").map { _1.values_at("kind", "id") })
+        assert_equal index.zero?, page.fetch("hasMore")
+        cursor = page.fetch("nextCursor")
+        index.zero? ? assert_not_nil(cursor) : assert_nil(cursor)
+      end
+      assert_equal [ [ "improvement_note", note.id ], [ "root", ordinary.id ] ], received.sort
+
+      [ [ {}, "root", ordinary.id ], [ { improvement_notes: "only" }, "improvement_note", note.id ] ].each do |filters, kind, id|
+        get path, params: filters.merge(pageSize: 1), headers: @headers
+        assert_response :success
+        page = response.parsed_body
+        assert_equal [ [ kind, id ] ], page.fetch("comments").map { _1.values_at("kind", "id") }
+        assert_equal false, page.fetch("hasMore")
+        assert_nil page.fetch("nextCursor")
+      end
+    end
+  end
+
   test "note writes reject oversized bodies before JSON parsing or repository authorization" do
     prototype = prototypes.create(repository: @repository)
     path = canvas_api_improvement_notes_path(@repository.route_id, prototype)
-    assert_no_difference "ReviewComment.count" do
+    assert_no_difference [ "ReviewComment.count", "ImprovementComment.count" ] do
       post path, params: "{" * 1_600_001,
         headers: @headers.merge("CONTENT_TYPE" => "application/json")
       assert_response :content_too_large
@@ -536,7 +589,7 @@ class CanvasRepositoryCommentsTest < ActionDispatch::IntegrationTest
     path = canvas_api_improvement_notes_path(@repository.route_id, prototype)
     input = {
       local_id: SecureRandom.uuid, revision: 1, previous_revision: 0, body: "Polish this",
-      status: "open", deleted: false, anchor: ordinary.anchor, capture: ""
+      build_number: ordinary.build.number, status: "open", deleted: false, anchor: ordinary.anchor, capture: ""
     }
     stub_github_permissions([ repository_payload(2001, "github/prototype") ], { 2001 => "push" })
     store = ActiveSupport::Cache::MemoryStore.new
@@ -546,7 +599,7 @@ class CanvasRepositoryCommentsTest < ActionDispatch::IntegrationTest
         post path, params: input, headers: @headers, as: :json
         assert_response :success
       end
-      assert_no_difference "ReviewComment.count" do
+      assert_no_difference "ImprovementComment.count" do
         post path, params: input.merge(local_id: SecureRandom.uuid), headers: @headers, as: :json
         assert_response :too_many_requests
         assert_equal "60", response.headers["Retry-After"]
