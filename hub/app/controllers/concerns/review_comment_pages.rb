@@ -48,13 +48,16 @@ module ReviewCommentPages
     return payload.merge(rootId: comment.root_id) if comment.reply?
 
     viewer_read = viewer_thread_read(comment)
-    build_path = repository_prototype_path \
-      @repository.route_id,
-      @prototype || comment.prototype,
-      build: comment.build.number
+    build_path = if comment.build
+      repository_prototype_path \
+        @repository.route_id,
+        @prototype || comment.prototype,
+        build: comment.build.number
+    end
     payload.merge \
-      buildNumber: comment.build.number,
+      buildNumber: comment.build&.number,
       buildPath: build_path,
+      draftRevisionId: comment.draft_review_revision_id,
       anchor: comment.anchor,
       resolvedAt: comment.resolved_at&.iso8601(6),
       resolvedBy: comment.resolved_by ? author_json(comment.resolved_by) : nil,

@@ -127,6 +127,14 @@ export type HubStatus = {
   repository?: string
   branch?: string
   commitSha?: string
+  reviewRevision?: {
+    id: number | null
+    treeSha: string
+    commitSha: string
+    clean: boolean
+    prototypeId: number
+  }
+  reviewError?: string
   prototype?: HubPrototype
   registrationError?: string
   registrationReason?: string

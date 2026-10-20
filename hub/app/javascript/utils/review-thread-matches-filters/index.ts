@@ -55,7 +55,7 @@ export function reviewThreadMatchesFilters(
     root.body ?? "",
     root.author.login,
     root.author.name ?? "",
-    root.buildNumber.toString(),
+    root.buildNumber?.toString() ?? "",
     ...thread.replies.flatMap((reply) => [
       reply.body ?? "",
       reply.author.login,

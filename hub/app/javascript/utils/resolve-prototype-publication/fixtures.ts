@@ -40,6 +40,13 @@ export const publicationHub: HubStatus = {
   branch: "prototype/welcome",
   commitSha: sha,
   hubOrigin: "https://hub.example.com",
+  reviewRevision: {
+    id: null,
+    treeSha: "c".repeat(40),
+    commitSha: sha,
+    clean: true,
+    prototypeId: 1,
+  },
   discovery: { state: "valid", origin: "https://hub.example.com", defaultBranch: "main" },
 }
 export const importedPrototype: NonNullable<HubStatus["prototype"]> = {

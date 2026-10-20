@@ -3,25 +3,27 @@
 # Table name: review_comments
 # Database name: primary
 #
-#  id                      :integer          not null, primary key
-#  activity_version        :integer
-#  anchor                  :json
-#  body                    :text
-#  deleted_at              :datetime
-#  edited_at               :datetime
-#  learning_removal_due_at :datetime
-#  resolved_at             :datetime
-#  created_at              :datetime         not null
-#  updated_at              :datetime         not null
-#  build_id                :integer
-#  prototype_id            :integer          not null
-#  resolved_by_id          :integer
-#  root_id                 :integer
-#  user_id                 :integer          not null
+#  id                       :integer          not null, primary key
+#  activity_version         :integer
+#  anchor                   :json
+#  body                     :text
+#  deleted_at               :datetime
+#  edited_at                :datetime
+#  learning_removal_due_at  :datetime
+#  resolved_at              :datetime
+#  created_at               :datetime         not null
+#  updated_at               :datetime         not null
+#  build_id                 :integer
+#  draft_review_revision_id :integer
+#  prototype_id             :integer          not null
+#  resolved_by_id           :integer
+#  root_id                  :integer
+#  user_id                  :integer          not null
 #
 # Indexes
 #
 #  index_review_comments_on_build_id                  (build_id)
+#  index_review_comments_on_draft_review_revision_id  (draft_review_revision_id)
 #  index_review_comments_on_id_and_prototype          (id,prototype_id) UNIQUE
 #  index_review_comments_on_learning_removal_due_at   (learning_removal_due_at) WHERE learning_removal_due_at IS NOT NULL
 #  index_review_comments_on_prototype_and_created_at  (prototype_id,created_at DESC,id DESC)
@@ -31,11 +33,12 @@
 #
 # Foreign Keys
 #
-#  [build_id, prototype_id]  ([build_id, prototype_id] => builds[id, prototype_id]) ON DELETE => restrict
-#  [root_id, prototype_id]   ([root_id, prototype_id] => review_comments[id, prototype_id]) ON DELETE => restrict
-#  prototype_id              (prototype_id => prototypes.id) ON DELETE => restrict
-#  resolved_by_id            (resolved_by_id => users.id) ON DELETE => restrict
-#  user_id                   (user_id => users.id) ON DELETE => restrict
+#  [build_id, prototype_id]                  ([build_id, prototype_id] => builds[id, prototype_id]) ON DELETE => restrict
+#  [draft_review_revision_id, prototype_id]  ([draft_review_revision_id, prototype_id] => draft_review_revisions[id, prototype_id]) ON DELETE => restrict
+#  [root_id, prototype_id]                   ([root_id, prototype_id] => review_comments[id, prototype_id]) ON DELETE => restrict
+#  prototype_id                              (prototype_id => prototypes.id) ON DELETE => restrict
+#  resolved_by_id                            (resolved_by_id => users.id) ON DELETE => restrict
+#  user_id                                   (user_id => users.id) ON DELETE => restrict
 #
 # Check Constraints
 #
@@ -48,7 +51,7 @@
 #  review_comments_edit_state        (edited_at IS NULL OR (deleted_at IS NULL AND edited_at >= created_at))
 #  review_comments_resolution        ((resolved_at IS NULL AND resolved_by_id IS NULL) OR (root_id IS NULL AND resolved_at IS NOT NULL AND resolved_by_id IS NOT NULL))
 #  review_comments_root_not_self     (root_id IS NULL OR root_id <> id)
-#  review_comments_thread_shape      ((root_id IS NULL AND build_id IS NOT NULL AND anchor IS NOT NULL) OR (root_id IS NOT NULL AND build_id IS NULL AND anchor IS NULL))
+#  review_comments_thread_shape      (((root_id IS NULL AND (build_id IS NOT NULL OR draft_review_revision_id IS NOT NULL) AND anchor IS NOT NULL) OR (root_id IS NOT NULL AND build_id IS NULL AND draft_review_revision_id IS NULL AND anchor IS NULL)))
 #
 # Stores one root comment or reply in a Prototype review thread.
 class ReviewComment < ApplicationRecord
@@ -87,6 +90,7 @@ class ReviewComment < ApplicationRecord
 
   belongs_to :prototype
   belongs_to :build, optional: true
+  belongs_to :draft_review_revision, optional: true
   belongs_to :user
   belongs_to :root, \
     class_name: "ReviewComment",
@@ -159,11 +163,17 @@ class ReviewComment < ApplicationRecord
   scope :roots, -> { where(root_id: nil) }
   scope :not_deleted, -> { where(deleted_at: nil) }
   scope :unresolved, -> { where(resolved_at: nil) }
+  scope :published, -> {
+    roots = ReviewComment.roots.where.not(build_id: nil)
+    where(id: roots.select(:id)).or(where(root_id: roots.select(:id)))
+  }
 
   validates :body, presence: true, if: -> { deleted_at.nil? }
   validates :body, absence: true, if: -> { deleted_at.present? }
-  validates :build, presence: true, if: :root_comment?
+  validates :build, presence: true, if: -> { root_comment? && draft_review_revision_id.nil? }
   validates :build, absence: true, if: :reply?
+  validates :draft_review_revision, absence: true, if: :reply?
+  validate :draft_revision_matches_prototype
   validates :anchor, presence: true, if: :root_comment?
   validates :anchor, absence: true, if: :reply?
   validates :root, presence: true, if: :reply?
@@ -183,10 +193,15 @@ class ReviewComment < ApplicationRecord
 
   class << self
     # Returns comments newest first with a signed token for the next page.
-    def page_for(prototype, cursor:, page_size:)
+    def page_for(prototype, cursor:, page_size:, draft_revision: nil)
+      relation = where(prototype:).published
+      if draft_revision
+        roots = where(prototype:, draft_review_revision: draft_revision).roots
+        relation = relation.or(where(id: roots.select(:id))).or(where(root_id: roots.select(:id)))
+      end
       paginate \
-        where(prototype:).includes(:build, :user, :resolved_by, :reactions, comment_mentions: :github_identity),
-        purpose: "prototype/#{prototype.id}",
+        relation.includes(:build, :user, :resolved_by, :reactions, comment_mentions: :github_identity),
+        purpose: "prototype/#{prototype.id}/revision/#{draft_revision&.id}",
         cursor:,
         page_size:
     end
@@ -194,7 +209,7 @@ class ReviewComment < ApplicationRecord
     # Returns one bounded stream across every reviewable branch in the repository.
     def page_for_repository(repository, viewer:, cursor:, page_size:)
       paginate \
-        where(prototype: repository.reviewable_prototypes).includes(:prototype, :build, :user, :resolved_by, :reactions, comment_mentions: :github_identity),
+        published.where(prototype: repository.reviewable_prototypes).includes(:prototype, :build, :user, :resolved_by, :reactions, comment_mentions: :github_identity),
         purpose: "repository/#{repository.id}/viewer/#{viewer.id}",
         cursor:,
         page_size:
@@ -202,7 +217,7 @@ class ReviewComment < ApplicationRecord
 
     # Reads only visible starting comments, with filters bound into the cursor.
     def summary_page_for_repository(repository, viewer:, cursor:, page_size:, filters:, &fits)
-      relation = roots.not_deleted.where(prototype: repository.reviewable_prototypes)
+      relation = roots.not_deleted.where.not(build_id: nil).where(prototype: repository.reviewable_prototypes)
       relation = relation.where(resolved_at: nil) if filters[:resolution] == "unresolved"
       relation = relation.where.not(resolved_at: nil) if filters[:resolution] == "resolved"
       relation = relation.where(created_at: filters[:from]..) if filters[:from]
@@ -314,6 +329,11 @@ class ReviewComment < ApplicationRecord
     actor.present? && actor.id == user_id && deleted_at.nil?
   end
 
+  # Reports whether a thread has a published Build rather than only local source.
+  def published?
+    (root_comment? ? build_id : root.build_id).present?
+  end
+
   # Removes a deleted comment's text, every version of it and the labels on them, from its
   # repository's learning store, which keeps its own copy of review comments. It adds nothing else
   # to the store and never asks Copilot, so it also works while Learnings is off. The store records
@@ -339,6 +359,8 @@ class ReviewComment < ApplicationRecord
 
   # Captures identifiers only, never review text or its saved target.
   def record_analytics_creation
+    return unless published?
+
     prototype.repository.with_lock do
       Analytics::Event.record! \
         repository: prototype.repository,
@@ -380,6 +402,16 @@ class ReviewComment < ApplicationRecord
     errors.add(:build, "must belong to this prototype")
   end
 
+  # Keeps local review identity in the same Prototype and eventual Build.
+  def draft_revision_matches_prototype
+    return if draft_review_revision.nil?
+
+    if draft_review_revision.prototype_id != prototype_id ||
+        draft_review_revision.build_id != build_id
+      errors.add(:draft_review_revision, "must match this prototype and Build")
+    end
+  end
+
   # Requires the recorded Build to be successful.
   def build_is_successful
     return if build.nil? || build.state == "successful"
@@ -412,7 +444,7 @@ class ReviewComment < ApplicationRecord
 
   # Prevents thread identity and anchor fields from changing after creation.
   def identity_is_unchanged
-    %i[prototype_id build_id user_id anchor root_id].each do |attribute|
+    %i[prototype_id build_id draft_review_revision_id user_id anchor root_id].each do |attribute|
       errors.add(attribute, "cannot change") if public_send("will_save_change_to_#{attribute}?")
     end
   end

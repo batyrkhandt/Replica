@@ -179,6 +179,7 @@ export function HubPanel({
   const commentMutationRevisionRef = useRef(0)
   const commentMutationPendingRef = useRef(false)
   const bridgeNonceRef = useRef("")
+  const selectionRevisionRef = useRef<HubStatus["reviewRevision"]>(undefined)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const identityRef = useRef("")
   const previousOpenRef = useRef(open)
@@ -282,6 +283,8 @@ export function HubPanel({
   const canManage = prototype?.canEdit && prototype.registered
   const prototypeId = prototype?.id
   const currentBuild = prototype?.build ?? null
+  const reviewRevision = status?.reviewRevision
+  const draftRevisionId = reviewRevision?.id
   const visibleThreads = useMemo(
     () =>
       prototype
@@ -289,18 +292,16 @@ export function HubPanel({
             reviewThreadMatchesFilters(thread, {
               filters,
               viewerLogin: prototype.viewerLogin,
-              selectedBuildNumber: currentBuild?.number,
+              selectedBuildNumber: draftRevisionId ? null : currentBuild?.number,
               route: previewRoute,
             }),
           )
         : threads,
-    [currentBuild?.number, filters, previewRoute, prototype, threads],
+    [currentBuild?.number, draftRevisionId, filters, previewRoute, prototype, threads],
   )
   const visibleThreadCount = visibleThreads.length
   const hasUnreadVisibleThreads = visibleThreads.some((thread) => thread.unread)
-  const canCreateComment = Boolean(
-    currentBuild && status?.commitSha && status.commitSha === currentBuild.commitSha,
-  )
+  const canCreateComment = Boolean(reviewRevision && prototype && !status?.reviewError)
   const selectionBlocked = selectedAnchor !== null || draftActive || mutation !== null
   const hubVisible = open && !commentsOpen
   const reviewControlsTarget =
@@ -377,7 +378,14 @@ export function HubPanel({
       for (let pageNumber = 0; pageNumber < 100; pageNumber += 1) {
         const page = REVIEW_COMMENT_PAGE_SCHEMA.parse(
           await request(
-            `/api/hub/comments${nextCursor ? `?cursor=${encodeURIComponent(nextCursor)}` : ""}`,
+            `/api/hub/comments${
+              nextCursor || draftRevisionId
+                ? `?${new URLSearchParams({
+                    ...(nextCursor ? { cursor: nextCursor } : {}),
+                    ...(draftRevisionId ? { draft_revision_id: String(draftRevisionId) } : {}),
+                  })}`
+                : ""
+            }`,
             config.token,
           ),
         )
@@ -410,7 +418,7 @@ export function HubPanel({
         setLoading(false)
       }
     }
-  }, [config.token, prototypeId, identity])
+  }, [config.token, draftRevisionId, prototypeId, identity])
 
   useEffect(() => {
     const initial = window.setTimeout(() => {
@@ -436,10 +444,15 @@ export function HubPanel({
       setSelectionFailure(null)
       setRateLimitMessage("")
       setCommentsLoadFailed(false)
-      if (prototypeId) void loadComments()
     }, 0)
     return () => window.clearTimeout(initial)
-  }, [identity, prototypeId, loadComments])
+  }, [identity])
+
+  useEffect(() => {
+    if (!prototypeId) return
+    const initial = window.setTimeout(() => void loadComments(), 0)
+    return () => window.clearTimeout(initial)
+  }, [prototypeId, loadComments])
 
   useEffect(() => {
     if (!prototypeId) return
@@ -508,13 +521,14 @@ export function HubPanel({
   const startSelection = useCallback(
     (mode: "element" | "area") => {
       if (!bridgeReady || !canCreateComment || selectionBlocked) return
+      selectionRevisionRef.current = reviewRevision
       setSelected(null)
       setSelectionFailure(null)
       setSelectionMode(mode)
       onClose()
       sendBridge("replica:canvas:select", { mode })
     },
-    [bridgeReady, canCreateComment, onClose, selectionBlocked, sendBridge],
+    [bridgeReady, canCreateComment, onClose, reviewRevision, selectionBlocked, sendBridge],
   )
 
   const cancelSelection = useCallback(() => {
@@ -785,7 +799,8 @@ export function HubPanel({
   }
 
   async function createComment(body: string) {
-    if (!currentBuild || !selectedAnchor || mutationRef.current) return false
+    const selectedRevision = selectionRevisionRef.current
+    if (!selectedRevision || !selectedAnchor || mutationRef.current) return false
     const requestedIdentity = identity
     mutationRef.current = true
     setMutation({ kind: "create" })
@@ -795,8 +810,8 @@ export function HubPanel({
         await request("/api/hub/comments", config.token, {
           method: "POST",
           body: JSON.stringify({
+            review_revision: selectedRevision,
             review_comment: {
-              build_number: currentBuild.number,
               body,
               anchor: selectedAnchor,
             },
@@ -1011,7 +1026,7 @@ export function HubPanel({
                   aria-label={`${reviewCommentsCopy.heading}, ${visibleThreadCount}${hasUnreadVisibleThreads ? `, ${reviewCommentsCopy.unreadLabel}` : ""}`}
                   aria-expanded={commentsOpen}
                   aria-keyshortcuts="Shift+C"
-                  disabled={!currentBuild || selectionBlocked}
+                  disabled={selectionBlocked}
                   onClick={toggleComments}
                 >
                   <HubCounter>{visibleThreadCount}</HubCounter>
@@ -1374,18 +1389,18 @@ export function HubPanel({
           loading={loading}
           loadFailed={commentsLoadFailed}
           notice={
-            liveError || (currentBuild && !canCreateComment) ? (
+            liveError || status?.reviewError || draftRevisionId ? (
               <div className="canvas-comments-live-notices">
                 {liveError ? (
                   <p className="canvas-comments-live-status" role="status">
                     Live updates paused; checking every 30 seconds.
                   </p>
                 ) : null}
-                {currentBuild && !canCreateComment ? (
-                  <p className="canvas-comments-live-status">
-                    New comments are available when the local checkout matches Build #
-                    {currentBuild.number}.
-                  </p>
+                {status?.reviewError ? (
+                  <p className="canvas-comments-live-status">{status.reviewError}</p>
+                ) : null}
+                {draftRevisionId ? (
+                  <p className="canvas-comments-live-status">{copy.localCommentsSaved}</p>
                 ) : null}
               </div>
             ) : null

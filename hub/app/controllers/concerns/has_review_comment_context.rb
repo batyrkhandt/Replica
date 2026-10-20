@@ -19,13 +19,24 @@ module HasReviewCommentContext
     page = ReviewComment.page_for \
       @prototype,
       cursor: pagination_cursor,
-      page_size: page_size
+      page_size: page_size,
+      draft_revision: review_draft_revision
     prepare_viewer_thread_reads(page.records)
     render json: {
       comments: page.records.map { review_comment_json(_1) },
       nextCursor: page.next_cursor,
       hasMore: page.has_more
     }
+  end
+
+  # Browser reviews cannot address threads that have not acquired a published Build.
+  def review_comments
+    @prototype.review_comments.published
+  end
+
+  # Only the paired canvas opts into one explicit local revision.
+  def review_draft_revision
+    nil
   end
 
   # Rejects a comment request larger than the allowed byte limit.

@@ -23,6 +23,7 @@ import { reviewAction } from "../review-action/index.mjs"
 import { createCommentStore } from "../comment-store/index.mjs"
 import { createShareLinks } from "../share-links/index.mjs"
 import { startPreviewProxy } from "../start-preview-proxy/index.mjs"
+import { captureReviewRevision } from "../capture-review-revision/index.mjs"
 
 const ASSET_PATHS = new Map([
   [
@@ -159,13 +160,59 @@ export async function startCanvasServer(initialContext, session, options = {}) {
     const hub = await hubClient()
     const { repository } = await readCanvasRepository(context)
     const discovery = discoveries.get(repository)
-    const status = hub
+    let status = hub
       ? await hub.status()
       : {
           state: "unconfigured",
           repository,
           message: "Enter a Hub URL to connect.",
         }
+    if (
+      hub &&
+      status.repositoryAuthorized &&
+      status.branch &&
+      status.registrationReason !== "branch_not_reviewable"
+    ) {
+      try {
+        const snapshot = await captureReviewRevision(context)
+        if (snapshot.commitSha !== status.commitSha)
+          throw httpError(
+            409,
+            "The checkout changed while preparing local comments. Refresh again.",
+          )
+        let revision
+        if (!snapshot.clean || status.prototype?.build?.commitSha !== snapshot.commitSha) {
+          revision = await hub.request("/api/canvas/draft_revision", {
+            method: "POST",
+            expectedTarget: status,
+            body: {
+              branch: status.branch,
+              tree_sha: snapshot.treeSha,
+              base_commit_sha: snapshot.commitSha,
+            },
+          })
+          if (
+            !Number.isSafeInteger(revision.id) ||
+            revision.id < 1 ||
+            revision.treeSha !== snapshot.treeSha
+          )
+            throw new Error("Hub returned an invalid local review revision.")
+          if (status.state !== "connected") status = await hub.status()
+          if (revision.prototypeId !== status.prototype?.id)
+            throw httpError(409, "The Hub prototype changed while preparing local comments.")
+        }
+        status = {
+          ...status,
+          reviewRevision: {
+            ...snapshot,
+            id: revision?.id ?? null,
+            prototypeId: status.prototype.id,
+          },
+        }
+      } catch (error) {
+        status = { ...status, reviewError: `Local comments unavailable: ${error.message}` }
+      }
+    }
     const ownsStartPage =
       status.state === "connected" &&
       (status.prototype?.startPageSet ?? status.prototype?.startPage !== undefined)
@@ -498,11 +545,11 @@ async function routeRequest(
   if (requestUrl.pathname === "/api/hub/comments" && request.method === "GET") {
     const base = await reviewPath(hub)
     const cursor = requestUrl.searchParams.get("cursor")
-    sendJson(
-      response,
-      200,
-      await hub.request(`${base}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`),
-    )
+    const query = new URLSearchParams()
+    if (cursor) query.set("cursor", cursor)
+    const revision = requestUrl.searchParams.get("draft_revision_id")
+    if (revision) query.set("draft_revision_id", revision)
+    sendJson(response, 200, await hub.request(`${base}${query.size ? `?${query}` : ""}`))
     return
   }
   if (requestUrl.pathname === "/api/hub/mention-candidates" && request.method === "GET") {
@@ -518,14 +565,51 @@ async function routeRequest(
     return
   }
   if (requestUrl.pathname === "/api/hub/comments" && request.method === "POST") {
-    const base = await reviewPath(hub)
+    const body = await readJson(request, 32_768)
+    const expected = body.review_revision
+    const snapshot = await captureReviewRevision(context)
+    const status = await hub.status()
+    if (
+      !expected ||
+      snapshot.treeSha !== expected.treeSha ||
+      snapshot.commitSha !== expected.commitSha ||
+      status.state !== "connected" ||
+      status.prototype.id !== expected.prototypeId ||
+      status.commitSha !== snapshot.commitSha
+    )
+      throw httpError(
+        409,
+        "The local preview revision changed. Refresh and select the target again before commenting.",
+      )
+    const attributes = {
+      body: body.review_comment?.body,
+      anchor: body.review_comment?.anchor,
+    }
+    if (snapshot.clean && status.prototype.build?.commitSha === snapshot.commitSha) {
+      attributes.build_number = status.prototype.build.number
+    } else {
+      const revision = await hub.request("/api/canvas/draft_revision", {
+        method: "POST",
+        expectedTarget: status,
+        body: {
+          branch: status.branch,
+          tree_sha: snapshot.treeSha,
+          base_commit_sha: snapshot.commitSha,
+        },
+      })
+      if (revision.prototypeId !== status.prototype.id)
+        throw httpError(409, "The Hub prototype changed. Refresh before commenting.")
+      attributes.draft_revision_id = revision.id
+    }
+    const base = `/api/canvas/repositories/${status.prototype.repositoryId}/prototypes/${status.prototype.id}/review_comments`
     sendJson(
       response,
       201,
       await hub.request(base, {
         method: "POST",
         interactive: true,
-        body: await readJson(request),
+        expectedTarget: status,
+        body: { review_comment: attributes },
       }),
     )
     return

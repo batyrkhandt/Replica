@@ -677,6 +677,15 @@ esac
           startPage: null,
           startPageSet,
         }
+      } else if (request.url === "/api/canvas/draft_revision" && request.method === "POST") {
+        const revision = JSON.parse(body)
+        result = {
+          id: 11,
+          prototypeId: 4,
+          treeSha: revision.tree_sha,
+          baseCommitSha: revision.base_commit_sha,
+          buildNumber: null,
+        }
       } else if (request.url === "/api/canvas/prototype" && request.method === "PATCH") {
         if (registrationError) {
           response.writeHead(403, { "Content-Type": "application/json" })
@@ -783,10 +792,13 @@ esac
       await writeFile(
         path.join(workspace, "git"),
         `#!/bin/sh
+while [ "$1" = "-c" ]; do shift 2; done
 case "$1:$2" in
   remote:get-url) echo https://github.com/\${TEST_REPOSITORY:-github/replica}.git ;;
   branch:--show-current) echo "\${TEST_BRANCH:-prototype/first}" ;;
   rev-parse:HEAD) printf '%040d\\n' "\${TEST_HEAD:-1}" ;;
+  rev-parse:HEAD^{tree}|write-tree:) printf '%040d\\n' "\${TEST_TREE:-2}" ;;
+  config:*) exit 1 ;;
 esac
 `,
         { mode: 0o755 },
@@ -1038,14 +1050,40 @@ esac
       assert.equal(
         (
           await send("/api/hub/comments", "POST", {
+            review_revision: (await send("/api/hub/status")).body.reviewRevision,
             review_comment: {
-              build_number: 2,
               body: "New thread",
               anchor: { schemaVersion: 1 },
             },
           })
         ).status,
         201,
+      )
+      const posted = JSON.parse(
+        calls.findLast(({ path, method }) => path.endsWith("/review_comments") && method === "POST")
+          .body,
+      )
+      assert.equal(posted.review_comment.draft_revision_id, 11)
+      assert.equal(posted.review_comment.build_number, undefined)
+      const previousRevision = (await send("/api/hub/status")).body.reviewRevision
+      const beforeChangedRevision = calls.filter(
+        ({ path, method }) => path.endsWith("/review_comments") && method === "POST",
+      ).length
+      process.env.TEST_TREE = "3"
+      assert.equal(
+        (
+          await send("/api/hub/comments", "POST", {
+            review_revision: previousRevision,
+            review_comment: { body: "Stale target", anchor: { schemaVersion: 1 } },
+          })
+        ).status,
+        409,
+      )
+      delete process.env.TEST_TREE
+      assert.equal(
+        calls.filter(({ path, method }) => path.endsWith("/review_comments") && method === "POST")
+          .length,
+        beforeChangedRevision,
       )
       assert.equal(
         (

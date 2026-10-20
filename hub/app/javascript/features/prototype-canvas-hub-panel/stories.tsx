@@ -59,7 +59,15 @@ function ConnectedDemo({
 
   useEffect(() => {
     const originalFetch = window.fetch.bind(window)
-    let comments = [octocatRootComment]
+    const startingComment = props.status?.reviewRevision?.id
+      ? {
+          ...octocatRootComment,
+          buildNumber: null,
+          buildPath: null,
+          draftRevisionId: props.status.reviewRevision.id,
+        }
+      : octocatRootComment
+    let comments = [startingComment]
     window.fetch = (input, init) => {
       const path = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
       if (
@@ -88,7 +96,7 @@ function ConnectedDemo({
           ),
         )
       }
-      if (path === "/api/hub/comments") {
+      if (path === "/api/hub/comments" || path.startsWith("/api/hub/comments?")) {
         if (init?.method === "POST") {
           if (typeof init.body !== "string")
             return Promise.reject(new Error("Expected a JSON comment request."))
@@ -96,7 +104,7 @@ function ConnectedDemo({
             review_comment: { body: string; anchor: typeof octocatRootComment.anchor }
           }
           const created = {
-            ...octocatRootComment,
+            ...startingComment,
             id: 2,
             body: review_comment.body,
             anchor: review_comment.anchor,
@@ -488,6 +496,7 @@ export const Connected: Story = {
       repository: "local/example",
       branch: "prototype/welcome",
       commitSha: "a".repeat(40),
+      reviewRevision: publicationHub.reviewRevision,
       hubOrigin: "http://replica.localhost:19500",
       prototype: {
         id: 1,
@@ -586,6 +595,27 @@ export const PinWithCommentsClosed: Story = {
 export const RateLimited: Story = {
   ...PinWithCommentsClosed,
   render: (args) => <ConnectedDemo {...args} preview rateLimited />,
+}
+
+export const LocalDraftComments: Story = {
+  ...PinWithCommentsClosed,
+  args: {
+    ...Connected.args,
+    status: {
+      ...publicationHub,
+      state: "connected",
+      reviewRevision: { ...publicationHub.reviewRevision!, id: 7, clean: false },
+      prototype: {
+        ...importedPrototype,
+        registered: false,
+        published: false,
+        build: null,
+        currentBuild: null,
+        buildState: null,
+        versionCount: 0,
+      },
+    },
+  },
 }
 
 export const PostedCommentWithCommentsClosed: Story = {

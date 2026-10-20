@@ -76,6 +76,8 @@ class Build < ApplicationRecord
   end
   belongs_to :prototype
   after_update :record_analytics_publication, if: -> { saved_change_to_state? && state == "successful" }
+  after_update_commit :associate_draft_reviews_later!,
+    if: -> { saved_change_to_state? && state == "successful" && prototype.draft_review_revisions.where(build_id: nil).exists? }
   has_many :webhook_deliveries, dependent: :nullify
   has_many :review_comments, dependent: :restrict_with_exception
   has_many :share_links, dependent: :restrict_with_exception
@@ -86,6 +88,14 @@ class Build < ApplicationRecord
   has_object :start_page_import
   has_object :workflow_run
   has_object :templates
+  has_object :draft_reviews
+
+  performs :associate_draft_reviews!, queue_as: :default do
+    self.enqueue_after_transaction_commit = true
+    limits_concurrency key: ->(build) { build.prototype }, duration: 5.minutes
+    retry_on GithubClient::Error, LocalDevelopment::Error,
+      wait: :polynomially_longer, attempts: 10
+  end
 
   performs :import_package!, queue_as: :builds do
     self.enqueue_after_transaction_commit = true
@@ -152,6 +162,11 @@ class Build < ApplicationRecord
   # Downloads and retains this Build's completed Actions package.
   def import_package!
     package_import.download!
+  end
+
+  # Associates synced local conversations after verifying this Build's source.
+  def associate_draft_reviews!
+    draft_reviews.fetch!
   end
 
   # Fetches and saves the author of this Build's exact commit from GitHub.

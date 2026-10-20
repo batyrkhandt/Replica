@@ -758,6 +758,7 @@ it("creates Hub conversations and supports existing-thread actions", async () =>
           repository: "github/prototype",
           branch: "prototype/welcome",
           commitSha: "a".repeat(40),
+          reviewRevision: publicationHub.reviewRevision,
           hubOrigin: "https://hub.example.com",
           prototype: {
             id: 1,
@@ -1032,77 +1033,108 @@ it("creates Hub conversations and supports existing-thread actions", async () =>
   view.unmount()
 })
 
-it("blocks new root comments when the local checkout differs from the imported Build", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn((input: RequestInfo | URL) => {
-      const path = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
-      if (path === "/api/hub/events") throw new Error("Live connection unavailable")
-      return Promise.resolve(
-        new Response(JSON.stringify({ comments: [], hasMore: false, nextCursor: null }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
+it.each(["unpublished", "dirty"] as const)(
+  "allows comments on an %s local preview without an exact imported Build",
+  async (preview) => {
+    const nonce = "00000000-0000-4000-8000-000000000020"
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+    const frameRef = createRef<HTMLIFrameElement>()
+    const onFrameLoad = vi.fn()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path =
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+        if (path === "/api/hub/events") throw new Error("Live connection unavailable")
+        return Promise.resolve(
+          new Response(JSON.stringify({ comments: [], hasMore: false, nextCursor: null }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+      }),
+    )
+
+    const view = render(
+      <ThemeProvider>
+        <iframe ref={frameRef} title="Prototype" src="about:blank" onLoad={onFrameLoad} />
+        <HubPanel
+          config={{ name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" }}
+          frameRef={frameRef}
+          status={{
+            state: "connected",
+            repository: "github/prototype",
+            branch: "prototype/welcome",
+            commitSha: "a".repeat(40),
+            reviewRevision: {
+              id: 7,
+              treeSha: "c".repeat(40),
+              commitSha: "a".repeat(40),
+              clean: preview === "unpublished",
+              prototypeId: 1,
+            },
+            hubOrigin: "https://hub.example.com",
+            prototype: {
+              id: 1,
+              repositoryId: 2001,
+              branch: "prototype/welcome",
+              name: "Welcome",
+              description: null,
+              viewerLogin: "octocat",
+              registered: true,
+              canEdit: true,
+              canRegister: true,
+              published: true,
+              buildState: "successful",
+              versionCount: 1,
+              build:
+                preview === "unpublished"
+                  ? null
+                  : {
+                      url: "https://hub.example.com/repositories/2001/prototypes/1?build=1",
+                      number: 1,
+                      commitSha: "a".repeat(40),
+                      publishedAt: "2026-09-14T12:00:00Z",
+                      author: { login: "octocat", name: null, avatarUrl: null },
+                    },
+            },
+          }}
+          onStatusChange={async () => {}}
+          onSelectHub={async () => {}}
+          open
+          onConnect={() => {}}
+          onClose={() => {}}
+        />
+      </ThemeProvider>,
+    )
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Comments, 0/ }))
+    await waitFor(() => expect(onFrameLoad).toHaveBeenCalled())
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "http://localhost:4321",
+          source: frameRef.current?.contentWindow,
+          data: {
+            type: "replica:canvas:ready",
+            nonce,
+            protocolVersion: 1,
+            route: { pathname: "/", search: "", hash: "" },
+          },
         }),
       )
-    }),
-  )
-
-  const view = render(
-    <ThemeProvider>
-      <HubPanel
-        config={{ name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" }}
-        frameRef={createRef<HTMLIFrameElement>()}
-        status={{
-          state: "connected",
-          repository: "github/prototype",
-          branch: "prototype/welcome",
-          commitSha: "b".repeat(40),
-          hubOrigin: "https://hub.example.com",
-          prototype: {
-            id: 1,
-            repositoryId: 2001,
-            branch: "prototype/welcome",
-            name: "Welcome",
-            description: null,
-            viewerLogin: "octocat",
-            registered: true,
-            canEdit: true,
-            canRegister: true,
-            published: true,
-            buildState: "successful",
-            versionCount: 1,
-            build: {
-              url: "https://hub.example.com/repositories/2001/prototypes/1?build=1",
-              number: 1,
-              commitSha: "a".repeat(40),
-              publishedAt: "2026-09-14T12:00:00Z",
-              author: { login: "octocat", name: null, avatarUrl: null },
-            },
-          },
-        }}
-        onStatusChange={async () => {}}
-        onSelectHub={async () => {}}
-        open
-        onConnect={() => {}}
-        onClose={() => {}}
-      />
-    </ThemeProvider>,
-  )
-
-  fireEvent.click(await screen.findByRole("button", { name: /^Comments, 0/ }))
-  expect(
-    await screen.findByText("New comments are available when the local checkout matches Build #1."),
-  ).toBeInTheDocument()
-  expect(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel })).toBeDisabled()
-  const commentsSidebar = screen
-    .getByRole("complementary", { name: reviewCommentsCopy.heading })
-    .closest(".canvas-comments-sidebar-shell")
-  expect(commentsSidebar).toHaveAttribute("data-open", "true")
-  fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.closeLabel }))
-  expect(commentsSidebar).toHaveAttribute("data-open", "false")
-  expect(commentsSidebar).toHaveAttribute("aria-hidden", "true")
-  view.unmount()
-})
+    })
+    expect(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel })).toBeEnabled()
+    const commentsSidebar = screen
+      .getByRole("complementary", { name: reviewCommentsCopy.heading })
+      .closest(".canvas-comments-sidebar-shell")
+    expect(commentsSidebar).toHaveAttribute("data-open", "true")
+    fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.closeLabel }))
+    expect(commentsSidebar).toHaveAttribute("data-open", "false")
+    expect(commentsSidebar).toHaveAttribute("aria-hidden", "true")
+    view.unmount()
+  },
+)
 
 it("discards stale comments and metadata edits when the checkout changes", async () => {
   let resolveOld!: (response: Response) => void

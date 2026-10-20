@@ -36,7 +36,7 @@ module ReviewCommentActions
   # @route PATCH /api/canvas/repositories/:repository_github_id/prototypes/:prototype_id/review_comments/:id (canvas_api_review_comment)
   # @route PUT /api/canvas/repositories/:repository_github_id/prototypes/:prototype_id/review_comments/:id (canvas_api_review_comment)
   def update
-    comment = @prototype.review_comments.find(params[:id])
+    comment = review_comments.find(params[:id])
     return head :forbidden if !comment.editable_by?(Current.user)
 
     comment.thread.edit_body! comment_body, actor: Current.user
@@ -46,7 +46,7 @@ module ReviewCommentActions
   # @route DELETE /repositories/:repository_github_id/prototypes/:prototype_id/review_comments/:id (repository_prototype_review_comment)
   # @route DELETE /api/canvas/repositories/:repository_github_id/prototypes/:prototype_id/review_comments/:id (canvas_api_review_comment)
   def destroy
-    comment = @prototype.review_comments.find(params[:id])
+    comment = review_comments.find(params[:id])
     return head :forbidden if comment.user_id != Current.user.id
 
     comment.thread.delete_body! actor: Current.user

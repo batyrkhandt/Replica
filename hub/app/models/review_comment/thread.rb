@@ -145,6 +145,8 @@ class ReviewComment::Thread < ActiveRecord::AssociatedObject
 
   # Uses the locked thread version to identify each real resolution transition.
   def record_resolution_event!(name, actor)
+    return unless record.published?
+
     record.prototype.repository.with_lock do
       Analytics::Event.record! \
         repository: record.prototype.repository,

@@ -9,7 +9,7 @@ class CanvasApi::ReviewCommentThreadsController < CanvasApi::BaseController
   # @route GET /api/canvas/repositories/:repository_github_id/prototypes/:prototype_id/review_comments/:id/thread (canvas_api_review_comment_thread)
   def show
     @prototype = @repository.reviewable_prototypes.find(params[:prototype_id])
-    @root = @prototype.review_comments.roots.includes(:build, :user, :resolved_by, :reactions).find(params[:id])
+    @root = @prototype.review_comments.published.roots.includes(:build, :user, :resolved_by, :reactions).find(params[:id])
     @activity_version = @root.activity_version
     @reply_count = @root.replies.not_deleted.count
     prepare_viewer_thread_reads([ @root ])
