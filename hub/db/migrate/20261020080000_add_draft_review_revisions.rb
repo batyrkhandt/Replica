@@ -1,4 +1,16 @@
 class AddDraftReviewRevisions < ActiveRecord::Migration[8.1]
+  disable_ddl_transaction!
+
+  # SQLite must disable foreign keys before opening the table-rebuild transaction.
+  def migrate(direction)
+    connection.disable_referential_integrity do
+      connection.transaction do
+        super
+        connection.check_all_foreign_keys_valid!
+      end
+    end
+  end
+
   def change
     create_table :draft_review_revisions do |table|
       table.references :prototype, null: false, foreign_key: { on_delete: :restrict }

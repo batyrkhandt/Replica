@@ -140,6 +140,7 @@ export function HubPanel({
   const [previewRoute, setPreviewRoute] = useState<ReviewRoute | null>(null)
   const [selected, setSelected] = useState<number | null>(null)
   const [error, setError] = useState("")
+  const [createError, setCreateError] = useState("")
   const [rateLimitMessage, setRateLimitMessage] = useState("")
   const [disconnectWarning, setDisconnectWarning] = useState("")
   const [loading, setLoading] = useState(false)
@@ -178,6 +179,8 @@ export function HubPanel({
   const mutationRef = useRef(false)
   const commentMutationRevisionRef = useRef(0)
   const commentMutationPendingRef = useRef(false)
+  const commentLoadRevisionRef = useRef(0)
+  const commentIdentityRef = useRef("")
   const bridgeNonceRef = useRef("")
   const selectionRevisionRef = useRef<HubStatus["reviewRevision"]>(undefined)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
@@ -185,6 +188,9 @@ export function HubPanel({
   const previousOpenRef = useRef(open)
   const refreshTimer = useRef<number | undefined>(undefined)
   const identity = `${status?.hubOrigin ?? ""}/${status?.repository ?? ""}/${status?.branch ?? ""}/${status?.state === "connected" ? (status.prototype?.id ?? "") : ""}`
+  const reviewRevision = status?.reviewRevision
+  const draftRevisionId = reviewRevision?.id
+  const commentIdentity = `${identity}/revision/${draftRevisionId ?? ""}`
   const selectedHubOrigin = status
     ? (status.discovery?.mismatch && status.discovery.origin) || status.hubOrigin || ""
     : null
@@ -221,8 +227,8 @@ export function HubPanel({
     token: config.token,
   })
   const comments = useMemo(
-    () => (commentState.identity === identity ? commentState.items : []),
-    [commentState, identity],
+    () => (commentState.identity === commentIdentity ? commentState.items : []),
+    [commentState, commentIdentity],
   )
   const threads = useMemo(() => groupReviewCommentsIntoThreads(comments), [comments])
   const participants = useMemo(() => {
@@ -283,8 +289,6 @@ export function HubPanel({
   const canManage = prototype?.canEdit && prototype.registered
   const prototypeId = prototype?.id
   const currentBuild = prototype?.build ?? null
-  const reviewRevision = status?.reviewRevision
-  const draftRevisionId = reviewRevision?.id
   const visibleThreads = useMemo(
     () =>
       prototype
@@ -293,6 +297,7 @@ export function HubPanel({
               filters,
               viewerLogin: prototype.viewerLogin,
               selectedBuildNumber: draftRevisionId ? null : currentBuild?.number,
+              selectedDraftRevisionId: draftRevisionId,
               route: previewRoute,
             }),
           )
@@ -329,6 +334,10 @@ export function HubPanel({
     identityRef.current = identity
     return () => window.clearTimeout(refreshTimer.current)
   }, [identity])
+  useLayoutEffect(() => {
+    commentIdentityRef.current = commentIdentity
+    commentLoadRevisionRef.current += 1
+  }, [commentIdentity])
   useLayoutEffect(() => {
     if (open) closeButtonRef.current?.focus({ preventScroll: true })
   }, [open])
@@ -368,10 +377,17 @@ export function HubPanel({
   )
 
   const loadComments = useCallback(async () => {
-    if (!prototypeId || commentMutationPendingRef.current) return
-    const requestedIdentity = identity
+    if (
+      !prototypeId ||
+      commentMutationPendingRef.current ||
+      commentIdentityRef.current !== commentIdentity
+    )
+      return
+    const requestedIdentity = commentIdentity
+    const loadRevision = ++commentLoadRevisionRef.current
     const commentMutationRevision = commentMutationRevisionRef.current
     setLoading(true)
+    setCommentsLoadFailed(false)
     try {
       const loaded: ReviewComment[] = []
       let nextCursor: string | null = null
@@ -395,7 +411,8 @@ export function HubPanel({
         if (pageNumber === 99) throw new Error("Too many review comment pages.")
       }
       if (
-        identityRef.current !== requestedIdentity ||
+        commentIdentityRef.current !== requestedIdentity ||
+        commentLoadRevisionRef.current !== loadRevision ||
         commentMutationRevisionRef.current !== commentMutationRevision
       )
         return
@@ -404,7 +421,8 @@ export function HubPanel({
       setError("")
     } catch (cause) {
       if (
-        identityRef.current === requestedIdentity &&
+        commentIdentityRef.current === requestedIdentity &&
+        commentLoadRevisionRef.current === loadRevision &&
         commentMutationRevisionRef.current === commentMutationRevision
       ) {
         setCommentsLoadFailed(true)
@@ -412,17 +430,22 @@ export function HubPanel({
       }
     } finally {
       if (
-        identityRef.current === requestedIdentity &&
+        commentIdentityRef.current === requestedIdentity &&
+        commentLoadRevisionRef.current === loadRevision &&
         commentMutationRevisionRef.current === commentMutationRevision
       ) {
         setLoading(false)
       }
     }
-  }, [config.token, draftRevisionId, prototypeId, identity])
+  }, [config.token, draftRevisionId, prototypeId, commentIdentity])
+  const loadCommentsRef = useRef(loadComments)
+  useLayoutEffect(() => {
+    loadCommentsRef.current = loadComments
+  }, [loadComments])
 
   useEffect(() => {
     const initial = window.setTimeout(() => {
-      setCommentState({ identity, items: [] })
+      setCommentState({ identity: commentIdentityRef.current, items: [] })
       setCommentsOpen(false)
       setFilters(DEFAULT_REVIEW_COMMENT_FILTERS)
       setShowPins(true)
@@ -442,6 +465,7 @@ export function HubPanel({
       setSelectionMode(null)
       setSelectedAnchor(null)
       setSelectionFailure(null)
+      setCreateError("")
       setRateLimitMessage("")
       setCommentsLoadFailed(false)
     }, 0)
@@ -522,6 +546,7 @@ export function HubPanel({
     (mode: "element" | "area") => {
       if (!bridgeReady || !canCreateComment || selectionBlocked) return
       selectionRevisionRef.current = reviewRevision
+      setCreateError("")
       setSelected(null)
       setSelectionFailure(null)
       setSelectionMode(mode)
@@ -541,6 +566,7 @@ export function HubPanel({
     sendBridge("replica:canvas:clear-selection")
     setSelectedAnchor(null)
     setSelectionFailure(null)
+    setCreateError("")
   }, [sendBridge])
 
   useEffect(() => {
@@ -745,6 +771,7 @@ export function HubPanel({
     action?: ReviewCommentMutation,
   ) {
     const requestedIdentity = identity
+    const requestedCommentIdentity = commentIdentity
     const updatesImmediately =
       action?.kind === "add-reaction" ||
       action?.kind === "remove-reaction" ||
@@ -768,15 +795,15 @@ export function HubPanel({
       if (updatesImmediately) {
         const changed = REVIEW_COMMENT_MUTATION_SCHEMA.parse(result)
         setCommentState((previous) => {
-          if (previous.identity !== requestedIdentity) return previous
+          if (previous.identity !== requestedCommentIdentity) return previous
           const merged = new Map(previous.items.map((comment) => [comment.id, comment]))
           for (const comment of changed.comments) merged.set(comment.id, comment)
-          return { identity: requestedIdentity, items: [...merged.values()] }
+          return { identity: requestedCommentIdentity, items: [...merged.values()] }
         })
       }
       // Let the conversation clear its saved draft before updating the thread.
       if (!updatesImmediately)
-        refreshTimer.current = window.setTimeout(() => void loadComments(), 0)
+        refreshTimer.current = window.setTimeout(() => void loadCommentsRef.current(), 0)
       return true
     } catch (cause) {
       if (identityRef.current === requestedIdentity) {
@@ -790,7 +817,7 @@ export function HubPanel({
         if (updatesImmediately) {
           commentMutationPendingRef.current = false
           commentMutationRevisionRef.current += 1
-          refreshTimer.current = window.setTimeout(() => void loadComments(), 0)
+          refreshTimer.current = window.setTimeout(() => void loadCommentsRef.current(), 0)
         }
         mutationRef.current = false
         setMutation(null)
@@ -802,9 +829,11 @@ export function HubPanel({
     const selectedRevision = selectionRevisionRef.current
     if (!selectedRevision || !selectedAnchor || mutationRef.current) return false
     const requestedIdentity = identity
+    const requestedCommentIdentity = commentIdentity
     mutationRef.current = true
     setMutation({ kind: "create" })
     setRateLimitMessage("")
+    setCreateError("")
     try {
       const result = REVIEW_COMMENT_MUTATION_SCHEMA.parse(
         await request("/api/hub/comments", config.token, {
@@ -822,17 +851,19 @@ export function HubPanel({
       const root = result.comments.find((comment) => comment.kind === "root")
       if (!root) return false
       setCommentState((previous) => {
-        if (previous.identity !== requestedIdentity) return previous
+        if (previous.identity !== requestedCommentIdentity) return previous
         const merged = new Map(previous.items.map((comment) => [comment.id, comment]))
         for (const comment of result.comments) merged.set(comment.id, comment)
-        return { identity: requestedIdentity, items: [...merged.values()] }
+        return { identity: requestedCommentIdentity, items: [...merged.values()] }
       })
       clearSelection()
       setSelected(root.id)
       return true
     } catch (cause) {
       if (identityRef.current === requestedIdentity) {
-        setError(cause instanceof Error ? cause.message : String(cause))
+        const message = cause instanceof Error ? cause.message : String(cause)
+        setError(message)
+        setCreateError(message)
         if (cause instanceof Error && "statusCode" in cause && cause.statusCode === 429)
           setRateLimitMessage(cause.message)
       }
@@ -1431,6 +1462,7 @@ export function HubPanel({
                 bodyMaximumBytes: 10_000,
                 copy: reviewCommentsCopy,
                 creating: mutation?.kind === "create",
+                submitError: createError,
                 onSubmit: createComment,
                 onDiscard: clearSelection,
               }

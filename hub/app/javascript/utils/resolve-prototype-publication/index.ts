@@ -91,9 +91,21 @@ export function resolvePublication(
     !prototype?.registered &&
     (!prototype || prototype.branch === stats.branch)
   ) {
-    const reason = hub.registrationReason || prototype?.registrationReason
+    const reportedReason = hub.registrationReason || prototype?.registrationReason
+    const waitingForFirstPush =
+      prototype?.draftOnly === true &&
+      prototype.canEdit &&
+      !prototype.build &&
+      !prototype.currentBuild &&
+      reportedReason === "remote_branch_missing"
+    const reason = waitingForFirstPush ? undefined : reportedReason
     const excludedDefault = stats.branch === hub.discovery?.defaultBranch
-    if (reason || hub.registrationError || prototype?.canRegister === false || excludedDefault) {
+    if (
+      reason ||
+      hub.registrationError ||
+      (prototype?.canRegister === false && !waitingForFirstPush) ||
+      excludedDefault
+    ) {
       const verifiedReason =
         reason ||
         (excludedDefault

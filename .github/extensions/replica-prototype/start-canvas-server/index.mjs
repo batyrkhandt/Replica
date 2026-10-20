@@ -59,6 +59,7 @@ export async function startCanvasServer(initialContext, session, options = {}) {
   const source = await readFile(new URL("../assets/canvas-bridge.js", import.meta.url), "utf8")
   const hubConnection = createHubConnection(() => context, options.hubOptions)
   const { hubClient, refreshDiscovery, selectHubOrigin, discoveries } = hubConnection
+  let reviewPreparation
   async function updateMetadata({ name, description, startPage }, expectedTarget) {
     const hub = await hubClient()
     if (!hub) throw httpError(409, "Enter a Hub URL before connecting.")
@@ -133,6 +134,14 @@ export async function startCanvasServer(initialContext, session, options = {}) {
         buildNumber: status.prototype.build?.number ?? 0,
       }
     }
+    if (
+      status.prototype.draftOnly === true &&
+      status.prototype.canEdit &&
+      !status.prototype.build &&
+      !status.prototype.currentBuild &&
+      status.registrationReason === "remote_branch_missing"
+    )
+      return { state: "undiscovered", buildNumber: 0 }
     if (!status.prototype.canRegister) {
       throw httpError(403, "This branch is not eligible for registration in Hub.")
     }
@@ -182,15 +191,36 @@ export async function startCanvasServer(initialContext, session, options = {}) {
           )
         let revision
         if (!snapshot.clean || status.prototype?.build?.commitSha !== snapshot.commitSha) {
-          revision = await hub.request("/api/canvas/draft_revision", {
-            method: "POST",
-            expectedTarget: status,
-            body: {
-              branch: status.branch,
-              tree_sha: snapshot.treeSha,
-              base_commit_sha: snapshot.commitSha,
-            },
-          })
+          const key = JSON.stringify([
+            hub.origin,
+            await hub.connectionKey(status.repository),
+            status.repository,
+            status.branch,
+            snapshot.commitSha,
+            snapshot.treeSha,
+          ])
+          if (
+            reviewPreparation?.key !== key ||
+            (status.prototype &&
+              reviewPreparation.prototypeId != null &&
+              reviewPreparation.prototypeId !== status.prototype.id)
+          ) {
+            reviewPreparation = {
+              key,
+              prototypeId: status.prototype?.id,
+              pending: hub.request("/api/canvas/draft_revision", {
+                method: "POST",
+                expectedTarget: status,
+                body: {
+                  branch: status.branch,
+                  tree_sha: snapshot.treeSha,
+                  base_commit_sha: snapshot.commitSha,
+                },
+              }),
+            }
+          }
+          const preparation = reviewPreparation
+          revision = await preparation.pending
           if (
             !Number.isSafeInteger(revision.id) ||
             revision.id < 1 ||
@@ -200,6 +230,7 @@ export async function startCanvasServer(initialContext, session, options = {}) {
           if (status.state !== "connected") status = await hub.status()
           if (revision.prototypeId !== status.prototype?.id)
             throw httpError(409, "The Hub prototype changed while preparing local comments.")
+          preparation.prototypeId = revision.prototypeId
         }
         status = {
           ...status,
@@ -210,8 +241,11 @@ export async function startCanvasServer(initialContext, session, options = {}) {
           },
         }
       } catch (error) {
+        reviewPreparation = undefined
         status = { ...status, reviewError: `Local comments unavailable: ${error.message}` }
       }
+    } else {
+      reviewPreparation = undefined
     }
     const ownsStartPage =
       status.state === "connected" &&

@@ -633,7 +633,11 @@ esac
     const calls = []
     const publishPrompts = []
     const prototypes = new Map()
+    const draftBranches = new Set()
+    let currentPrototypeId = 4
+    let accessToken = "rp_secret"
     let canRegister = true
+    let draftOnlyHistory = "fresh"
     let registrationError = false
     let registrationPending
     let releaseRegistration
@@ -656,18 +660,19 @@ esac
       let result
       if (request.url?.startsWith("/api/canvas/prototype?")) {
         const branch = new URL(request.url, "http://localhost").searchParams.get("branch")
-        if (branch === "prototype/second") {
+        if (branch === "prototype/second" && !draftBranches.has(branch)) {
           response.writeHead(404, { "Content-Type": "application/json" })
           response.end(JSON.stringify({ error: "Hub has not discovered this branch." }))
           return
         }
         result = {
-          id: 4,
+          id: currentPrototypeId,
           repositoryId: 5,
           repository: "github/replica",
           viewerLogin: "octocat",
           branch,
           registered: prototypes.has(branch),
+          canEdit: true,
           canRegister,
           canManageShareLinks: true,
           published: sharingPublished,
@@ -676,12 +681,22 @@ esac
           description: null,
           startPage: null,
           startPageSet,
+          ...(branch === "prototype/second"
+            ? {
+                registrationReason: "remote_branch_missing",
+                lifecycleState: draftOnlyHistory === "retired" ? "retired" : "active",
+                draftOnly: draftOnlyHistory === "fresh",
+                canRegister: false,
+                ...(draftOnlyHistory === "built" ? { build: { number: 2 } } : {}),
+              }
+            : {}),
         }
       } else if (request.url === "/api/canvas/draft_revision" && request.method === "POST") {
         const revision = JSON.parse(body)
+        draftBranches.add(revision.branch)
         result = {
           id: 11,
-          prototypeId: 4,
+          prototypeId: currentPrototypeId,
           treeSha: revision.tree_sha,
           baseCommitSha: revision.base_commit_sha,
           buildNumber: null,
@@ -703,13 +718,13 @@ esac
         result = {
           deviceCode: "device",
           userCode: "ABCD",
-          verificationUrl: `${process.env.REPLICA_HUB_ORIGIN}/canvas/pair/ABCD`,
+          verificationUrl: `http://${request.headers.host}/canvas/pair/ABCD`,
         }
       } else if (request.url === "/api/canvas/pairings/token" && request.method === "POST") {
         result = {
           status: "approved",
           repository: "github/replica",
-          accessToken: "rp_secret",
+          accessToken,
           expiresAt: new Date(Date.now() + 60_000).toISOString(),
         }
       } else if (request.url === "/api/canvas/connection") {
@@ -977,6 +992,22 @@ esac
       sharingPublished = false
       const status = (await send("/api/hub/status")).body
       assert.equal(status.prototype.id, 4)
+      function draftPreparations() {
+        return calls.filter(
+          ({ path, method }) => path === "/api/canvas/draft_revision" && method === "POST",
+        ).length
+      }
+      const prepared = draftPreparations()
+      await send("/api/hub/status")
+      await send("/api/hub/status")
+      assert.equal(draftPreparations(), prepared)
+      process.env.TEST_TREE = "4"
+      const editedSource = (await send("/api/hub/status")).body
+      assert.equal(editedSource.reviewRevision.treeSha, "4".padStart(40, "0"))
+      assert.equal(draftPreparations(), prepared + 1)
+      delete process.env.TEST_TREE
+      await send("/api/hub/status")
+      assert.equal(draftPreparations(), prepared + 2)
       await writeFile(path.join(workspace, ".prototype"), "{invalid")
       assert.match((await send("/api/hub/status")).body.localStartPageError, /Could not read/)
       startPageSet = true
@@ -1074,12 +1105,29 @@ esac
         (
           await send("/api/hub/comments", "POST", {
             review_revision: previousRevision,
-            review_comment: { body: "Stale target", anchor: { schemaVersion: 1 } },
+            review_comment: {
+              body: "Stale target",
+              anchor: { schemaVersion: 1 },
+            },
           })
         ).status,
         409,
       )
       delete process.env.TEST_TREE
+      currentPrototypeId = 9
+      assert.equal(
+        (
+          await send("/api/hub/comments", "POST", {
+            review_revision: previousRevision,
+            review_comment: {
+              body: "Stale Hub target",
+              anchor: { schemaVersion: 1 },
+            },
+          })
+        ).status,
+        409,
+      )
+      currentPrototypeId = 4
       assert.equal(
         calls.filter(({ path, method }) => path.endsWith("/review_comments") && method === "POST")
           .length,
@@ -1218,12 +1266,32 @@ esac
       const unpublishedRepositoryPage = await canvas.reviewAction("list_repository_comments", {})
       assert.equal(unpublishedRepositoryPage.scanComplete, true)
       assert.equal(unpublishedRepositoryPage.target.branch, "prototype/second")
+      const beforeBranchPreparation = draftPreparations()
+      const draftOnly = (await send("/api/hub/status")).body
+      assert.equal(draftPreparations(), beforeBranchPreparation + 1)
+      assert.equal(draftOnly.prototype.registered, false)
+      assert.equal(draftOnly.prototype.build, null)
+      assert.equal(draftOnly.prototype.currentBuild ?? null, null)
+      assert.equal(draftOnly.registrationReason, "remote_branch_missing")
+      assert.ok(draftOnly.reviewRevision.id)
       assert.equal((await send("/api/publish", "POST", {})).status, 202)
       assert.match(
         publishPrompts.at(-1).prompt,
         /If unregistered after discovery, call update_metadata/,
       )
       assert.equal(publishPrompts.at(-1).registrations, previousRegistrations)
+      const pushFirstPrompts = publishPrompts.length
+      for (const history of ["built", "retired"]) {
+        draftOnlyHistory = history
+        assert.equal((await send("/api/publish", "POST", {})).status, 403)
+        assert.equal(publishPrompts.length, pushFirstPrompts)
+        assert.equal(
+          calls.filter(({ path, method }) => path === "/api/canvas/prototype" && method === "PATCH")
+            .length,
+          previousRegistrations,
+        )
+      }
+      draftOnlyHistory = "fresh"
       process.env.TEST_BRANCH = "prototype/third"
       assert.equal((await send("/api/publish", "POST", {})).status, 202)
       assert.equal(prototypes.get("prototype/third")?.name, "third")
@@ -1267,6 +1335,23 @@ esac
       )
 
       const originalHub = process.env.REPLICA_HUB_ORIGIN
+      const otherHub = `http://localhost:${hub.address().port}`
+      const beforeHubPreparation = draftPreparations()
+      assert.equal((await send("/api/hub/origin", "POST", { origin: otherHub })).status, 200)
+      await send("/api/hub/pair", "POST", {})
+      await send("/api/hub/poll", "POST", {})
+      assert.equal((await send("/api/hub/status")).body.state, "connected")
+      assert.equal(draftPreparations(), beforeHubPreparation + 1)
+      await send("/api/hub/status")
+      assert.equal(draftPreparations(), beforeHubPreparation + 1)
+      await send("/api/hub/disconnect", "POST", {})
+      accessToken = "rp_reconnected"
+      await send("/api/hub/pair", "POST", {})
+      await send("/api/hub/poll", "POST", {})
+      assert.equal((await send("/api/hub/status")).body.state, "connected")
+      assert.equal(draftPreparations(), beforeHubPreparation + 2)
+      assert.equal((await send("/api/hub/origin", "POST", { origin: originalHub })).status, 200)
+      await send("/api/hub/status")
       const invalid = await send("/api/hub/origin", "POST", {
         origin: "http://hub.example.com",
       })
@@ -1327,6 +1412,7 @@ esac
       delete process.env.TEST_BRANCH
       delete process.env.TEST_REPOSITORY
       delete process.env.TEST_HEAD
+      delete process.env.TEST_TREE
       if (originalOrigin === undefined) delete process.env.REPLICA_HUB_ORIGIN
       else process.env.REPLICA_HUB_ORIGIN = originalOrigin
       await new Promise((resolve, reject) =>

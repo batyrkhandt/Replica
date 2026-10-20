@@ -82,6 +82,7 @@ export type HubPrototype = {
   startPageImportError?: string | null
   viewerLogin: string
   registered: boolean
+  draftOnly?: boolean
   canEdit: boolean
   canManageShareLinks?: boolean
   publicSharingEnabled?: boolean

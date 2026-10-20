@@ -5,5 +5,6 @@ export interface ReviewThreadFilterContext {
   filters: ReviewCommentFilters
   viewerLogin: string
   selectedBuildNumber?: number | null
+  selectedDraftRevisionId?: number | null
   route: ReviewRoute | null
 }

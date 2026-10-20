@@ -76,6 +76,42 @@ const DEFAULT_CONTEXT = {
 }
 
 describe("reviewThreadMatchesFilters()", () => {
+  it("keeps the selected draft revision visible after it is associated with a Build", () => {
+    const context = {
+      ...DEFAULT_CONTEXT,
+      selectedBuildNumber: null,
+      selectedDraftRevisionId: 11,
+      filters: { ...DEFAULT_CONTEXT.filters, currentBuildOnly: true },
+    }
+    for (const buildNumber of [null, 2]) {
+      expect(
+        reviewThreadMatchesFilters(
+          { ...THREAD, root: { ...THREAD.root, draftRevisionId: 11, buildNumber } },
+          context,
+        ),
+      ).toBe(true)
+    }
+    expect(
+      reviewThreadMatchesFilters(
+        { ...THREAD, root: { ...THREAD.root, draftRevisionId: 12, buildNumber: null } },
+        context,
+      ),
+    ).toBe(false)
+    expect(reviewThreadMatchesFilters(THREAD, context)).toBe(false)
+  })
+
+  it("continues filtering published comments by the selected Build without a draft revision", () => {
+    const context = {
+      ...DEFAULT_CONTEXT,
+      selectedDraftRevisionId: null,
+      filters: { ...DEFAULT_CONTEXT.filters, currentBuildOnly: true },
+    }
+    expect(reviewThreadMatchesFilters(THREAD, context)).toBe(true)
+    expect(
+      reviewThreadMatchesFilters({ ...THREAD, root: { ...THREAD.root, buildNumber: 3 } }, context),
+    ).toBe(false)
+  })
+
   it("searches root comments, replies, authors, and saved anchor context", () => {
     for (const search of ["save", "latest", "mona", "button"]) {
       expect(

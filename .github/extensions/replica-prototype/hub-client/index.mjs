@@ -299,6 +299,10 @@ export function createHubClient(context, options = {}) {
   return {
     origin: origin.origin,
     checkout,
+    async connectionKey(repository) {
+      const credential = await credentialFor(repository)
+      return credential ? connectionIdentity(credential) : null
+    },
     async status() {
       const target = await checkout()
       if (!target.repository) {

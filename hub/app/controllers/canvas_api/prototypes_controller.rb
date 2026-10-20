@@ -87,6 +87,7 @@ class CanvasApi::PrototypesController < CanvasApi::BaseController
       startPageImportError: prototype.start_page_import_error,
       viewerLogin: Current.user.login,
       registered: prototype.registered?,
+      draftOnly: prototype.draft_only?,
       canEdit: @repository.authorization.sufficient?(@repository_permission, minimum: :write),
       canManageShareLinks: can_manage_share_links,
       publicSharingEnabled: SharingSetting.enabled?,

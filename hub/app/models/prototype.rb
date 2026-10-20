@@ -83,6 +83,12 @@ class Prototype < ApplicationRecord
   validate :first_publication_is_unchanged, on: :update
   validates :registered_at, absence: true, if: :replica?
 
+  # Distinguishes local-only review storage from a branch previously discovered by Hub.
+  def draft_only?
+    branch_deleted_at.nil? && !registered? && current_build_id.nil? &&
+      head_observation_revision.zero? && builds.none? && draft_review_revisions.exists?
+  end
+
   # Registers a branch, or edits its metadata unless registration-only intent was supplied.
   def register!(name: self.name, description: self.description, start_page: UNCHANGED_START_PAGE, author: nil,
     registration_only: false)
