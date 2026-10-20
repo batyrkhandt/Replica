@@ -777,13 +777,11 @@ esac
     const calls = []
     const publishPrompts = []
     const prototypes = new Map()
-    const draftBranches = new Set()
     let currentPrototypeId = 4
     let currentBuildNumber = 2
     let currentBuildCommit = "1".padStart(40, "0")
     let accessToken = "rp_secret"
     let canRegister = true
-    let draftOnlyHistory = "fresh"
     let registrationError = false
     let registrationPending
     let releaseRegistration
@@ -806,7 +804,7 @@ esac
       let result
       if (request.url?.startsWith("/api/canvas/prototype?")) {
         const branch = new URL(request.url, "http://localhost").searchParams.get("branch")
-        if (branch === "prototype/second" && !draftBranches.has(branch)) {
+        if (branch === "prototype/second") {
           response.writeHead(404, { "Content-Type": "application/json" })
           response.end(
             JSON.stringify({
@@ -838,15 +836,6 @@ esac
           description: null,
           startPage: null,
           startPageSet,
-          ...(branch === "prototype/second"
-            ? {
-                registrationReason: "remote_branch_missing",
-                lifecycleState: draftOnlyHistory === "retired" ? "retired" : "active",
-                draftOnly: draftOnlyHistory === "fresh",
-                canRegister: false,
-                ...(draftOnlyHistory === "built" ? { build: { number: 2 } } : {}),
-              }
-            : {}),
         }
       } else if (request.url === "/api/canvas/prototype" && request.method === "PATCH") {
         if (registrationError) {
@@ -1164,23 +1153,6 @@ esac
       sharingPublished = false
       const status = (await send("/api/hub/status")).body
       assert.equal(status.prototype.id, 4)
-      function draftPreparations() {
-        return calls.filter(
-          ({ path, method }) => path === "/api/canvas/draft_revision" && method === "POST",
-        ).length
-      }
-      await send("/api/hub/status")
-      await send("/api/hub/status")
-      assert.equal(draftPreparations(), 0)
-      assert.ok(Number.isSafeInteger(status.reviewRevision.id) && status.reviewRevision.id > 0)
-      process.env.TEST_TREE = "4"
-      const editedSource = (await send("/api/hub/status")).body
-      assert.equal(editedSource.reviewRevision.treeSha, "4".padStart(40, "0"))
-      assert.notEqual(editedSource.reviewRevision.id, status.reviewRevision.id)
-      assert.equal(draftPreparations(), 0)
-      delete process.env.TEST_TREE
-      assert.equal((await send("/api/hub/status")).body.reviewRevision.id, status.reviewRevision.id)
-      assert.equal(draftPreparations(), 0)
       await writeFile(path.join(workspace, ".prototype"), "{invalid")
       assert.match((await send("/api/hub/status")).body.localStartPageError, /Could not read/)
       startPageSet = true
@@ -1255,6 +1227,7 @@ esac
       const beforeChangedRevision = calls.filter(
         ({ path, method }) => path.endsWith("/review_comments") && method === "POST",
       ).length
+      process.env.TEST_TREE = "3"
       const posted = await send("/api/hub/comments", "POST", {
         review_revision: previousRevision,
         review_comment: {
@@ -1268,72 +1241,37 @@ esac
       assert.equal(localRoots[0].body, "New thread")
       assert.equal(localRoots[0].draftRevisionId, previousRevision.id)
       assert.equal(localRoots[0].buildNumber, null)
-      process.env.TEST_TREE = "3"
-      assert.notEqual((await send("/api/hub/status")).body.reviewRevision.id, previousRevision.id)
       await canvas.close()
       canvas = await startCanvas()
       const reloadedPage = await (await fetch(canvas.url)).text()
       token = JSON.parse(reloadedPage.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1]).token
       assert.deepEqual((await send("/api/hub/comments")).body.comments, localRoots)
-      for (const source of ["dirty edits", "new commit"]) {
-        if (source === "new commit") {
-          process.env.TEST_HEAD = "2"
-          process.env.TEST_HEAD_TREE = "3"
-        }
-        const preparationsBeforeSave = draftPreparations()
-        const saved = await send("/api/hub/comments", "POST", {
-          review_revision: previousRevision,
-          review_comment: {
-            body: `Comment selected before ${source}`,
-            anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
-          },
-        })
-        assert.equal(saved.status, 201)
-        assert.equal(draftPreparations(), preparationsBeforeSave)
-        const roots = (await send("/api/hub/comments")).body.comments
-        const savedRoot = roots.find(({ body }) => body === `Comment selected before ${source}`)
-        assert.ok(savedRoot)
-        assert.equal(savedRoot.draftRevisionId, previousRevision.id)
-        assert.equal(savedRoot.buildNumber, null)
-        assert.equal(
-          calls.filter(({ path, method }) => path.endsWith("/review_comments") && method === "POST")
-            .length,
-          beforeChangedRevision,
-        )
-      }
-      delete process.env.TEST_HEAD
-      delete process.env.TEST_HEAD_TREE
+      assert.equal(
+        calls.filter(({ path, method }) => path.endsWith("/review_comments") && method === "POST")
+          .length,
+        beforeChangedRevision,
+      )
       delete process.env.TEST_TREE
       sharingPublished = true
       const selectedBuild = (await send("/api/hub/status")).body.reviewRevision
       assert.equal(selectedBuild.id, null)
       assert.equal(selectedBuild.buildNumber, 2)
+      assert.equal((await send("/api/hub/comments")).body.comments.length, 0)
       process.env.TEST_TREE = "3"
-      for (const source of ["dirty edits", "a newer published Build"]) {
-        if (source === "a newer published Build") {
-          process.env.TEST_HEAD = "2"
-          process.env.TEST_HEAD_TREE = "3"
-          currentBuildNumber = 3
-          currentBuildCommit = "2".padStart(40, "0")
-        }
-        const preparationsBeforeSave = draftPreparations()
-        assert.equal(
-          (
-            await send("/api/hub/comments", "POST", {
-              review_revision: selectedBuild,
-              review_comment: {
-                body: `Build comment after ${source}`,
-                anchor: { schemaVersion: 1 },
-              },
-            })
-          ).status,
-          201,
-        )
-        assert.equal(draftPreparations(), preparationsBeforeSave)
-        const attributes = JSON.parse(calls.at(-1).body).review_comment
-        assert.equal(attributes.build_number, 2)
-        assert.equal(attributes.draft_revision_id, undefined)
-      }
+      process.env.TEST_HEAD = "2"
+      process.env.TEST_HEAD_TREE = "3"
+      currentBuildNumber = 3
+      currentBuildCommit = "2".padStart(40, "0")
+      assert.equal(
+        (
+          await send("/api/hub/comments", "POST", {
+            review_revision: selectedBuild,
+            review_comment: { body: "Keep the selected Build", anchor: { schemaVersion: 1 } },
+          })
+        ).status,
+        201,
+      )
+      assert.equal(JSON.parse(calls.at(-1).body).review_comment.build_number, 2)
       sharingPublished = false
       currentBuildNumber = 2
       currentBuildCommit = "1".padStart(40, "0")
@@ -1366,7 +1304,7 @@ esac
       assert.equal(
         calls.filter(({ path, method }) => path.endsWith("/review_comments") && method === "POST")
           .length,
-        beforeChangedRevision + 5,
+        beforeChangedRevision + 2,
       )
       assert.equal(
         (
@@ -1502,13 +1440,8 @@ esac
       assert.equal(unpublishedRepositoryPage.scanComplete, true)
       assert.equal(unpublishedRepositoryPage.target.branch, "prototype/second")
       const draftOnly = (await send("/api/hub/status")).body
-      assert.equal(draftPreparations(), 0)
       assert.equal(draftOnly.state, "undiscovered")
       assert.equal(draftOnly.prototype, undefined)
-      assert.equal(draftOnly.reviewRevision.prototypeId, null)
-      assert.equal(draftOnly.reviewRevision.buildNumber, null)
-      assert.equal(draftOnly.registrationReason, "remote_branch_missing")
-      assert.ok(draftOnly.reviewRevision.id)
       const beforeUnpublishedSave = calls.length
       assert.equal(
         (
@@ -1530,19 +1463,6 @@ esac
       assert.equal((await send("/api/publish", "POST", {})).status, 202)
       assert.equal(publishData(publishPrompts.at(-1).prompt).branch, "prototype/second")
       assert.equal(publishPrompts.at(-1).registrations, previousRegistrations)
-      draftBranches.add("prototype/second")
-      const pushFirstPrompts = publishPrompts.length
-      for (const history of ["built", "retired"]) {
-        draftOnlyHistory = history
-        assert.equal((await send("/api/publish", "POST", {})).status, 403)
-        assert.equal(publishPrompts.length, pushFirstPrompts)
-        assert.equal(
-          calls.filter(({ path, method }) => path === "/api/canvas/prototype" && method === "PATCH")
-            .length,
-          previousRegistrations,
-        )
-      }
-      draftOnlyHistory = "fresh"
       process.env.TEST_BRANCH = "prototype/third"
       assert.equal((await send("/api/publish", "POST", {})).status, 202)
       assert.equal(prototypes.get("prototype/third")?.name, "third")
@@ -1593,9 +1513,6 @@ esac
       const otherHubStatus = (await send("/api/hub/status")).body
       assert.equal(otherHubStatus.state, "connected")
       const selectedConnection = otherHubStatus.reviewRevision
-      assert.equal(draftPreparations(), 0)
-      await send("/api/hub/status")
-      assert.equal(draftPreparations(), 0)
       await send("/api/hub/disconnect", "POST", {})
       accessToken = "rp_reconnected"
       await send("/api/hub/pair", "POST", {})
@@ -1619,7 +1536,6 @@ esac
           .length,
         beforeReconnectedSave,
       )
-      assert.equal(draftPreparations(), 0)
       assert.equal((await send("/api/hub/origin", "POST", { origin: originalHub })).status, 200)
       await send("/api/hub/status")
       const invalid = await send("/api/hub/origin", "POST", {

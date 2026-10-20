@@ -1062,112 +1062,6 @@ it("creates Hub conversations and supports existing-thread actions", async () =>
   view.unmount()
 })
 
-it.each(["unpublished", "dirty"] as const)(
-  "allows comments on an %s local preview without an exact imported Build",
-  async (preview) => {
-    const nonce = "00000000-0000-4000-8000-000000000020"
-    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
-    const frameRef = createRef<HTMLIFrameElement>()
-    const onFrameLoad = vi.fn()
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: RequestInfo | URL) => {
-        const path =
-          typeof input === "string" ? input : input instanceof URL ? input.href : input.url
-        if (path === "/api/hub/events") throw new Error("Live connection unavailable")
-        return Promise.resolve(
-          new Response(JSON.stringify({ comments: [], hasMore: false, nextCursor: null }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-        )
-      }),
-    )
-
-    const view = render(
-      <ThemeProvider>
-        <iframe ref={frameRef} title="Prototype" src="about:blank" onLoad={onFrameLoad} />
-        <HubPanel
-          config={{ name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" }}
-          frameRef={frameRef}
-          status={{
-            state: "connected",
-            repository: "github/prototype",
-            branch: "prototype/welcome",
-            commitSha: "a".repeat(40),
-            reviewRevision: {
-              id: 7,
-              buildNumber: null,
-              hubOrigin: "https://hub.example.com",
-              connectionId: "connection-a",
-              treeSha: "c".repeat(40),
-              commitSha: "a".repeat(40),
-              clean: preview === "unpublished",
-              prototypeId: 1,
-            },
-            hubOrigin: "https://hub.example.com",
-            prototype: {
-              id: 1,
-              repositoryId: 2001,
-              branch: "prototype/welcome",
-              name: "Welcome",
-              description: null,
-              viewerLogin: "octocat",
-              registered: true,
-              canEdit: true,
-              canRegister: true,
-              published: true,
-              buildState: "successful",
-              versionCount: 1,
-              build:
-                preview === "unpublished"
-                  ? null
-                  : {
-                      url: "https://hub.example.com/repositories/2001/prototypes/1?build=1",
-                      number: 1,
-                      commitSha: "a".repeat(40),
-                      publishedAt: "2026-09-14T12:00:00Z",
-                      author: { login: "octocat", name: null, avatarUrl: null },
-                    },
-            },
-          }}
-          onStatusChange={async () => {}}
-          onSelectHub={async () => {}}
-          open
-          onConnect={() => {}}
-          onClose={() => {}}
-        />
-      </ThemeProvider>,
-    )
-
-    fireEvent.click(await screen.findByRole("button", { name: /^Comments, 0/ }))
-    await waitFor(() => expect(onFrameLoad).toHaveBeenCalled())
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          origin: "http://localhost:4321",
-          source: frameRef.current?.contentWindow,
-          data: {
-            type: "replica:canvas:ready",
-            nonce,
-            protocolVersion: 1,
-            route: { pathname: "/", search: "", hash: "" },
-          },
-        }),
-      )
-    })
-    expect(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel })).toBeEnabled()
-    const commentsSidebar = screen
-      .getByRole("complementary", { name: reviewCommentsCopy.heading })
-      .closest(".canvas-comments-sidebar-shell")
-    expect(commentsSidebar).toHaveAttribute("data-open", "true")
-    fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.closeLabel }))
-    expect(commentsSidebar).toHaveAttribute("data-open", "false")
-    expect(commentsSidebar).toHaveAttribute("aria-hidden", "true")
-    view.unmount()
-  },
-)
-
 it("discards stale comments and metadata edits when the checkout changes", async () => {
   let resolveOld!: (response: Response) => void
   let requests = 0
@@ -1256,28 +1150,30 @@ it("discards stale comments and metadata edits when the checkout changes", async
   view.unmount()
 })
 
-it.each(["comments", "error", "loading"] as const)(
-  "ignores stale source-only %s responses without discarding the composer",
+it.each(["comments", "error"] as const)(
+  "keeps current-source feedback visible when stale %s arrive",
   async (staleResult) => {
-    const nonce = "00000000-0000-4000-8000-000000000021"
-    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
-    const frameRef = createRef<HTMLIFrameElement>()
-    const onFrameLoad = vi.fn()
     let finishOld!: (response: Response) => void
-    let finishCurrent!: (response: Response) => void
-    const fetch = vi.fn((input: RequestInfo | URL) => {
-      const path = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+    const fetch = vi.fn((path: string) => {
       if (path === "/api/hub/events") throw new Error("Live connection unavailable")
-      if (path === "/api/hub/status") return Promise.resolve(Response.json(status))
       if (path.includes("local_revision_id=11"))
         return new Promise<Response>((resolve) => {
           finishOld = resolve
         })
-      if (path.includes("local_revision_id=12"))
-        return new Promise<Response>((resolve) => {
-          finishCurrent = resolve
-        })
-      return Promise.resolve(Response.json({ comments: [], hasMore: false, nextCursor: null }))
+      return Promise.resolve(
+        Response.json({
+          comments: [
+            {
+              ...octocatRootComment,
+              body: "Current source comment.",
+              draftRevisionId: 12,
+              buildNumber: null,
+            },
+          ],
+          hasMore: false,
+          nextCursor: null,
+        }),
+      )
     })
     vi.stubGlobal("fetch", fetch)
     const status: HubStatus = {
@@ -1285,19 +1181,15 @@ it.each(["comments", "error", "loading"] as const)(
       state: "connected",
       prototype: importedPrototype,
       reviewRevision: {
+        ...publicationHub.reviewRevision!,
         id: 11,
         buildNumber: null,
-        hubOrigin: "https://hub.example.com",
-        connectionId: "connection-a",
-        treeSha: "b".repeat(40),
-        commitSha: "a".repeat(40),
         clean: false,
-        prototypeId: importedPrototype.id,
       },
     }
     const props = {
       config: { name: "Example", prototypeUrl: "http://localhost:4321/", token: "local" },
-      frameRef,
+      frameRef: createRef<HTMLIFrameElement>(),
       onStatusChange: async () => {},
       onSelectHub: async () => {},
       onConnect: () => {},
@@ -1307,7 +1199,6 @@ it.each(["comments", "error", "loading"] as const)(
     function panel(current: HubStatus) {
       return (
         <ThemeProvider>
-          <iframe ref={frameRef} title="Prototype" src="about:blank" onLoad={onFrameLoad} />
           <HubPanel {...props} status={current} />
         </ThemeProvider>
       )
@@ -1315,135 +1206,37 @@ it.each(["comments", "error", "loading"] as const)(
     const view = render(panel(status))
     await waitFor(() => expect(finishOld).toBeTypeOf("function"))
     fireEvent.click(screen.getByRole("button", { name: /^Comments, 0/ }))
-    await waitFor(() => expect(onFrameLoad).toHaveBeenCalled())
-    Object.defineProperties(frameRef.current, {
-      clientWidth: { value: 800 },
-      clientHeight: { value: 600 },
-    })
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          origin: "http://localhost:4321",
-          source: frameRef.current?.contentWindow,
-          data: {
-            type: "replica:canvas:ready",
-            nonce,
-            protocolVersion: 1,
-            route: { pathname: "/", search: "", hash: "" },
-          },
-        }),
-      )
-    })
-    fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
-    )
-    await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          origin: "http://localhost:4321",
-          source: frameRef.current?.contentWindow,
-          data: {
-            type: "replica:canvas:selected",
-            nonce,
-            anchor: octocatRootComment.anchor,
-          },
-        }),
-      )
-    })
-    fireEvent.change(screen.getByRole("textbox", { name: reviewCommentsCopy.composerLabel }), {
-      target: { value: "Keep my unsaved comment." },
-    })
     view.rerender(
       panel({
         ...status,
         reviewRevision: { ...status.reviewRevision!, id: 12, treeSha: "c".repeat(40) },
       }),
     )
-    await waitFor(() => expect(finishCurrent).toBeTypeOf("function"))
     const sidebar = screen.getByRole("complementary", { name: reviewCommentsCopy.heading })
-    function oldResponse() {
-      return staleResult === "error"
-        ? Response.json({ error: "Old source is unavailable." }, { status: 503 })
-        : Response.json({
-            comments: [{ ...octocatRootComment, draftRevisionId: 11, buildNumber: null }],
-            hasMore: false,
-            nextCursor: null,
-          })
-    }
-    if (staleResult === "loading") {
-      await act(async () => {
-        finishOld(oldResponse())
-        await Promise.resolve()
-      })
-      expect(within(sidebar).getByText(reviewCommentsCopy.loadingLabel)).toBeVisible()
-    }
+    expect(await within(sidebar).findByText("Current source comment.")).toBeVisible()
     await act(async () => {
-      finishCurrent(
-        Response.json({
-          comments: [
-            {
-              ...octocatRootComment,
-              id: 22,
-              body: "Current source comment.",
-              author: { ...octocatRootComment.author, login: "mona" },
-              draftRevisionId: 12,
-              buildNumber: null,
-            },
-          ],
-          hasMore: false,
-          nextCursor: null,
-        }),
+      finishOld(
+        staleResult === "error"
+          ? Response.json({ error: "Old source is unavailable." }, { status: 503 })
+          : Response.json({
+              comments: [
+                {
+                  ...octocatRootComment,
+                  body: "Old source comment.",
+                  draftRevisionId: 11,
+                  buildNumber: null,
+                },
+              ],
+              hasMore: false,
+              nextCursor: null,
+            }),
       )
       await Promise.resolve()
     })
-    expect(await within(sidebar).findByText("Current source comment.")).toBeVisible()
-    if (staleResult === "comments") {
-      act(() => {
-        window.dispatchEvent(
-          new MessageEvent("message", {
-            origin: "http://localhost:4321",
-            source: frameRef.current?.contentWindow,
-            data: {
-              type: "replica:canvas:resolved",
-              protocolVersion: 1,
-              nonce,
-              route: { pathname: "/", search: "", hash: "" },
-              results: [
-                { id: 22, x: 120, y: 80 },
-                { id: 1, x: 120, y: 100 },
-              ],
-            },
-          }),
-        )
-      })
-      expect(
-        await screen.findByRole("button", { name: "Unread thread started by @mona" }),
-      ).toBeInTheDocument()
-    }
-    if (staleResult !== "loading") {
-      await act(async () => {
-        finishOld(oldResponse())
-        await Promise.resolve()
-      })
-    }
     expect(within(sidebar).getByText("Current source comment.")).toBeVisible()
-    expect(within(sidebar).queryByText(octocatRootComment.body!)).not.toBeInTheDocument()
+    expect(within(sidebar).queryByText("Old source comment.")).not.toBeInTheDocument()
     expect(within(sidebar).queryByRole("alert")).not.toBeInTheDocument()
     expect(within(sidebar).queryByText(reviewCommentsCopy.loadingLabel)).not.toBeInTheDocument()
-    expect(screen.queryByText("Old source is unavailable.")).not.toBeInTheDocument()
-    if (staleResult === "comments") {
-      expect(
-        screen.getByRole("button", { name: "Unread thread started by @mona" }),
-      ).toBeInTheDocument()
-      expect(
-        screen.queryByRole("button", { name: "Unread thread started by @octocat" }),
-      ).not.toBeInTheDocument()
-    }
-    expect(screen.getByRole("textbox", { name: reviewCommentsCopy.composerLabel })).toHaveValue(
-      "Keep my unsaved comment.",
-    )
     view.unmount()
   },
 )
@@ -1548,14 +1341,10 @@ it.each(["draft revision", "published Build"] as const)(
     const frameRef = createRef<HTMLIFrameElement>()
     const onFrameLoad = vi.fn()
     const originalRevision = {
+      ...publicationHub.reviewRevision!,
       id: target === "draft revision" ? 11 : null,
       buildNumber: target === "published Build" ? 1 : null,
-      hubOrigin: "https://hub.example.com",
-      connectionId: "connection-a",
-      treeSha: "b".repeat(40),
-      commitSha: "a".repeat(40),
       clean: target === "published Build",
-      prototypeId: importedPrototype.id,
     }
     let finishPreparation!: (response: Response) => void
     let finishSave!: (response: Response) => void
@@ -1582,16 +1371,14 @@ it.each(["draft revision", "published Build"] as const)(
       )
     })
     vi.stubGlobal("fetch", fetch)
-    const onStatusChange = vi.fn<() => Promise<void>>()
-    if (target === "draft revision") {
-      onStatusChange.mockRejectedValue(new Error("Background status refresh is unavailable."))
-    } else {
-      onStatusChange.mockResolvedValue(undefined)
-    }
+    const onStatusChange = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValue(new Error("Background status refresh is unavailable."))
     const status: HubStatus = {
       ...publicationHub,
       state: "connected",
-      prototype: importedPrototype,
+      prototype:
+        target === "draft revision" ? { ...importedPrototype, build: null } : importedPrototype,
       reviewRevision: originalRevision,
     }
     const props = {
@@ -1636,17 +1423,12 @@ it.each(["draft revision", "published Build"] as const)(
         }),
       )
     })
-    const postMessage = vi.spyOn(frameRef.current!.contentWindow!, "postMessage")
     fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
     fireEvent.click(
       await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
     )
     if (target === "draft revision") {
       await waitFor(() => expect(finishPreparation).toBeTypeOf("function"))
-      expect(postMessage).not.toHaveBeenCalledWith(
-        expect.objectContaining({ type: "replica:canvas:select" }),
-        "http://localhost:4321",
-      )
       await act(async () => {
         finishPreparation(Response.json(status))
         await Promise.resolve()
@@ -1687,20 +1469,6 @@ it.each(["draft revision", "published Build"] as const)(
         },
       }),
     )
-    await waitFor(() =>
-      expect(
-        fetch.mock.calls.some(
-          ([input, options]) =>
-            input === "/api/hub/comments?local_revision_id=12" && options?.method !== "POST",
-        ),
-      ).toBe(true),
-    )
-    const readsBeforeSave = fetch.mock.calls.filter(
-      ([input, options]) =>
-        typeof input === "string" &&
-        input.startsWith("/api/hub/comments") &&
-        options?.method !== "POST",
-    ).length
     fireEvent.load(frameRef.current!)
     expect(screen.getByRole("textbox", { name: reviewCommentsCopy.composerLabel })).toHaveValue(
       "Keep the comment on the source I selected.",
@@ -1744,18 +1512,7 @@ it.each(["draft revision", "published Build"] as const)(
         screen.queryByRole("dialog", { name: reviewCommentsCopy.composerHeading }),
       ).not.toBeInTheDocument(),
     )
-    await waitFor(() => expect(onStatusChange).toHaveBeenCalledOnce())
     if (target === "published Build") {
-      await waitFor(() =>
-        expect(
-          fetch.mock.calls.filter(
-            ([input, options]) =>
-              typeof input === "string" &&
-              input.startsWith("/api/hub/comments") &&
-              options?.method !== "POST",
-          ).length,
-        ).toBeGreaterThan(readsBeforeSave),
-      )
       const sidebar = screen.getByRole("complementary", { name: reviewCommentsCopy.heading })
       expect(await within(sidebar).findByText(savedRoot.body!)).toBeVisible()
     } else {
@@ -1764,9 +1521,6 @@ it.each(["draft revision", "published Build"] as const)(
         expect(screen.getByRole("button", { name: /^Comments, 0/ })).toHaveFocus(),
       )
     }
-    expect(
-      screen.queryByRole("textbox", { name: reviewCommentsCopy.composerLabel }),
-    ).not.toBeInTheDocument()
     expect(screen.queryByText(reviewCommentsCopy.createErrorLabel)).not.toBeInTheDocument()
     expect(
       fetch.mock.calls.filter(

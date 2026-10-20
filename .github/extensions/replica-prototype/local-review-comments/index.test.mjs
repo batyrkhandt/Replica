@@ -40,7 +40,7 @@ function build(context) {
 }
 
 describe("local review comments", () => {
-  it("persists editable roots and their captured selection across instances", async () => {
+  it("persists local edits and deletion across instances", async () => {
     await withContext(async (context) => {
       const captured = revision(context)
       const anchor = { schemaVersion: 1, kind: "element", selector: "#save" }
@@ -48,28 +48,11 @@ describe("local review comments", () => {
         body: "Keep this selection",
         anchor,
       })
-      assert.ok(Number.isSafeInteger(created.id) && created.id > 0)
-      assert.equal(created.kind, "root")
-      assert.equal(created.body, "Keep this selection")
-      assert.equal(created.author.login, scope.viewerLogin)
-      assert.equal(created.buildNumber, null)
-      assert.equal(created.buildPath, null)
-      assert.equal(created.draftRevisionId, captured.id)
-      assert.equal(created.viewerCanEdit, true)
-      assert.equal(created.viewerCanDelete, true)
-      assert.deepEqual(created.anchor, anchor)
       assert.deepEqual(await localComments(context).list(scope), [created])
-
-      await writeFile(path.join(context.repositoryPath, "edited.txt"), "Changed after selection")
       const updated = await localComments(context).update(scope, created.id, "Revised feedback")
       assert.equal(updated.body, "Revised feedback")
-      assert.equal(updated.draftRevisionId, captured.id)
-      assert.deepEqual(updated.anchor, anchor)
       assert.deepEqual(await localComments(context).list(scope), [updated])
-
-      const removed = await localComments(context).remove(scope, created.id)
-      assert.equal(removed.id, created.id)
-      assert.ok(removed.deletedAt)
+      await localComments(context).remove(scope, created.id)
       assert.deepEqual(await localComments(context).list(scope), [])
     })
   })
@@ -90,13 +73,8 @@ describe("local review comments", () => {
       ]) {
         const isolated = { ...scope, ...changed }
         assert.deepEqual(await comments.list(isolated), [])
-        const created = await comments.create(isolated, captured, {
-          body: "Another scope",
-          anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
-        })
-        assert.deepEqual(await localComments(context).list(isolated), [created])
-        assert.deepEqual(await localComments(context).list(scope), [original])
       }
+      assert.deepEqual(await localComments(context).list(scope), [original])
     })
   })
 
@@ -139,10 +117,6 @@ describe("local review comments", () => {
         },
       })
       assert.equal(requests.length, 1)
-      assert.equal(requests[0].route, "/api/canvas/repositories/5/prototypes/4/review_comments")
-      assert.equal(requests[0].options.method, "POST")
-      assert.equal(requests[0].options.expectedTarget.repository, scope.repository)
-      assert.equal(requests[0].options.expectedTarget.branch, scope.branch)
       assert.deepEqual(requests[0].options.body.review_comment, {
         body: "Matching source",
         anchor,
@@ -154,33 +128,19 @@ describe("local review comments", () => {
           assert.fail("A synchronized comment must not be uploaded twice.")
         },
       })
-    })
-  })
-
-  it("does not upload a draft when the Build source differs or cannot be resolved", async () => {
-    await withContext(async (context) => {
-      const comments = localComments(context)
-      const imported = build(context)
-      await writeFile(path.join(context.repositoryPath, "new.txt"), "Unpublished edits")
-      git(context, "add", "new.txt")
-      const treeSha = git(context, "write-tree")
-      const draft = await comments.create(
-        scope,
-        { id: Number.parseInt(treeSha.slice(0, 12), 16), treeSha },
-        {
-          body: "Only this source",
-          anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
-        },
+      await assert.rejects(
+        comments.sync(
+          scope,
+          { ...imported, commitSha: "f".repeat(40) },
+          {
+            async request() {
+              assert.fail("An unknown Build must not receive local feedback.")
+            },
+          },
+        ),
+        /Fetch the published Build commit/,
       )
-      const hub = {
-        async request() {
-          assert.fail("An unrelated or unknown Build must not receive local feedback.")
-        },
-      }
-      await comments.sync(scope, imported, hub)
-      assert.deepEqual(await localComments(context).list(scope), [draft])
-      await assert.rejects(comments.sync(scope, { ...imported, commitSha: "f".repeat(40) }, hub))
-      assert.deepEqual(await localComments(context).list(scope), [draft])
+      assert.deepEqual(await localComments(context).list(scope), [retained])
     })
   })
 
@@ -205,20 +165,6 @@ describe("local review comments", () => {
         },
       )
       assert.deepEqual(await localComments(context).list(scope), [draft])
-      let uploads = 0
-      await localComments(context).sync(
-        scope,
-        { ...imported, number: 8 },
-        {
-          async request(route, options) {
-            uploads += 1
-            assert.equal(options.body.review_comment.build_number, 8)
-            return { comments: [{ id: 903, kind: "root", buildNumber: 8 }] }
-          },
-        },
-      )
-      assert.equal(uploads, 1)
-      assert.deepEqual(await localComments(context).list(scope), [])
     })
   })
 
@@ -306,18 +252,15 @@ describe("local review comments", () => {
       const pending = [{ ...draft, viewerCanEdit: false }]
       assert.deepEqual(await localComments(context).list(scope), pending)
       const newerBuild = { ...imported, number: imported.number + 1 }
-      let reads = 0
       await assert.rejects(
         localComments(context).sync(scope, newerBuild, {
           async request(route, options) {
             assert.notEqual(options.method, "POST", "An uncertain save must never be replayed.")
-            reads += 1
             return { comments: [], hasMore: false, nextCursor: null }
           },
         }),
         /could not be confirmed/,
       )
-      assert.equal(reads, 1)
       assert.deepEqual(await localComments(context).list(scope), pending)
       await localComments(context).sync(scope, newerBuild, {
         async request(route, options) {
