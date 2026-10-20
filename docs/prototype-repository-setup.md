@@ -41,6 +41,8 @@ bash scripts/create-prototype-repo.sh ../my-prototype
 
 Both paths create an independent, uncommitted Git repository with no remote. They copy the starter without Replica's source history, require no GitHub credentials, and publish nothing. The installer does not install Node.js or app dependencies.
 
+Before asking the user to accept the copied repository's Copilot app configuration, review `.github/github-app.yml` and the startup details in the copied `README.md`. Explain that session startup can install Copilot CLI globally when missing, install or enable the Replica plugin, and will run `npm ci`.
+
 Add the new directory to the Copilot app using **Projects → + → Local folder or repository**, then start a fresh session there. The session in the Replica checkout cannot discover the copied local skills.
 
 Before ending the originating session, provide a paste-ready kickoff message headed **Prompt 1: Continue prototype repository setup**. Tell the user to paste it into the fresh session; a new session does not inherit the previous conversation. Include the user's goal, repository path, supplied references, requested milestone, settled decisions and approvals, completed actions, blockers, and next step.
@@ -51,7 +53,7 @@ The kickoff must tell the new session to follow the copied repository's `AGENTS.
 
 Check `node --version` against `engines.node` in the copied `package.json`. Reuse a compatible installed runtime. On macOS or Linux, obtain approval before installing Node.js, nodenv, or node-build, or changing shell configuration.
 
-Review the copied repository's startup configuration before approving it. Session startup can install Copilot CLI globally when missing, install or enable the Replica plugin, and run `npm ci`. Check its output before repeating those operations. Dependency installation success does not prove that the current session loaded the canvas.
+The fresh session does not receive the setup output, so ask the user to inspect it and report any failures before repeating setup. Dependency installation success does not prove that the current session loaded the canvas.
 
 Follow the copied README's **Connect the Replica canvas** and **Canvas preflight** sections for plugin activation and recovery. Complete that preflight before starting a preview. Use its **Run it** commands, reuse an existing responsive server when appropriate, and open the actual printed URL. Verify that the included app renders; a successful dependency install or HTTP response alone is not a rendered check.
 
@@ -65,7 +67,7 @@ This milestone checks the existing starter page without building product UI. Rep
 | Product or design-system setup | Run the new repository's `/setup-skills` with the supplied sources. Reuse prior answers. Follow its source intake, installation approval, draft review, and separate activation steps. |
 | Reference-based starting UI | Complete the applicable guidance setup, then use the local `create-prototype` skill to build the requested shell or page. Establish whether components come from an installable package, permitted source reuse, or newly authored components. Verify the rendered result against the authorized reference. |
 | Shared team baseline | Complete the applicable guidance setup, [prepare useful starting pages](prototype-environment.md#3-prepare-useful-starting-pages), and review them together. Then [share the baseline on GitHub](#share-the-baseline-on-github). |
-| Hosted publishing and comments | Follow [deploy the hub](prototype-environment.md#4-deploy-the-hub) and the remaining environment setup steps, or connect to an existing team Hub. |
+| Hosted publishing and comments | First [share the reviewed baseline on GitHub and verify it on the actual default branch](#share-the-baseline-on-github), then follow [deploy the hub](prototype-environment.md#4-deploy-the-hub) and the remaining environment setup steps, or connect to an existing team Hub. |
 
 Guidance drafts are not active guidance. Installed tokens or packages are not proof that reference components are usable or that a shell resembles the reference. Keep those outcomes distinct.
 
