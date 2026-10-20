@@ -153,7 +153,7 @@ try {
         assert.doesNotMatch(await button.textContent(), /[()]/)
         assert.equal(await counter.getAttribute("aria-hidden"), "true")
         const geometry = await button.evaluate((element) => {
-          const label = element.querySelector('[data-testid="Button-trailing-visual"]')
+          const label = element.querySelector(".thread-sample__fix-label")
           const badge = element.querySelector(".hub-counter").getBoundingClientRect()
           const box = element.getBoundingClientRect()
           return {
@@ -187,12 +187,17 @@ try {
             foreground: rgba(badge.color),
             buttonForeground: rgba(getComputedStyle(element).color),
             parentForeground: rgba(getComputedStyle(counter.parentElement).color),
+            labelForeground: element.querySelector(".thread-sample__fix-label")
+              ? rgba(getComputedStyle(element.querySelector(".thread-sample__fix-label")).color)
+              : null,
             neutral: rgba(badge.getPropertyValue("--hub-fg-default")),
             opacity: badge.opacity,
             appearance: element.closest("[data-color-mode]")?.getAttribute("data-color-mode"),
           }
         })
-        if (enabled)
+        if (colors.labelForeground)
+          assert.deepEqual(colors.foreground, colors.labelForeground, JSON.stringify(colors))
+        else if (enabled)
           assert.deepEqual(colors.foreground, colors.parentForeground, JSON.stringify(colors))
         assert.equal(colors.opacity, "1")
         assert.ok(Math.abs(colors.background[3] / 255 - 0.1) < 0.005, JSON.stringify(colors))
@@ -215,20 +220,25 @@ try {
         const count = await button.locator(".hub-counter").textContent()
         const bounds = await button.locator(".hub-counter").boundingBox()
         const states = { rest: rest.background }
+        const foregroundStates = { rest: rest.foreground }
         if (enabled) {
           await button.hover()
-          states.hover = (await counterColors(button, true)).background
+          const hover = await counterColors(button, true)
+          states.hover = hover.background
+          foregroundStates.hover = hover.foreground
           await page.mouse.down()
-          states.pressed = (await counterColors(button, true)).background
+          const pressed = await counterColors(button, true)
+          states.pressed = pressed.background
+          foregroundStates.pressed = pressed.foreground
           await page.mouse.move(0, 0)
           await page.mouse.up()
-          await button.evaluate((element) => {
-            element.disabled = true
-          })
-          states.disabled = (await counterColors(button, false)).background
-          await button.evaluate((element) => {
-            element.disabled = false
-          })
+          for (const attribute of ["disabled", "aria-disabled"]) {
+            await button.evaluate((element, name) => element.setAttribute(name, "true"), attribute)
+            const disabled = await counterColors(button, false)
+            states[attribute] = disabled.background
+            foregroundStates[attribute] = disabled.foreground
+            await button.evaluate((element, name) => element.removeAttribute(name), attribute)
+          }
         }
         const after = await button.locator(".hub-counter").boundingBox()
         assert.equal(after.width, bounds.width)
@@ -242,6 +252,7 @@ try {
           appearance: rest.appearance,
           enabled,
           states,
+          foregroundStates,
         }
       }
       async function copilotAvatars(dialog) {
@@ -972,13 +983,7 @@ try {
               })
               .click()
             await page.mouse.move(0, 0)
-            await counterColors(fix, true)
-            await fix.hover()
-            await counterColors(fix, true)
-            await page.mouse.down()
-            await counterColors(fix, true)
-            await page.mouse.move(0, 0)
-            await page.mouse.up()
+            console.log(JSON.stringify({ fixAllCounter: await counterStates(fix) }))
           }
           assert.equal(await fix.count(), 1)
           assert.ok(
@@ -1658,6 +1663,26 @@ try {
           await deletion
             .getByText("The improvement could not be deleted.", { exact: true })
             .waitFor({ state: "visible" })
+          const alerts = await page.getByRole("alert").evaluateAll((elements) =>
+            elements.map((element) => {
+              const style = getComputedStyle(element)
+              return {
+                padding: [
+                  style.paddingTop,
+                  style.paddingRight,
+                  style.paddingBottom,
+                  style.paddingLeft,
+                ],
+                visible: element.getBoundingClientRect().height > 0,
+              }
+            }),
+          )
+          assert.equal(alerts.length, 3)
+          for (const alert of alerts) {
+            assert.deepEqual(alert.padding, ["8px", "8px", "8px", "8px"])
+            assert.ok(alert.visible)
+          }
+          console.log(JSON.stringify({ improvementErrorInsets: alerts }))
           assert.equal(await dialog.count(), 1)
           assert.equal((await store.load()).notes.length, 1)
           holdDelete = true

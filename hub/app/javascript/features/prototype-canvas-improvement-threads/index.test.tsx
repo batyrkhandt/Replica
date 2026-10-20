@@ -74,6 +74,10 @@ describe("ImprovementThreads()", () => {
         expect(screen.getByRole("dialog", { name: copy.conversation })).toBeInTheDocument()
         expect(screen.getByRole("dialog", { name: copy.deleteTitle })).toBeInTheDocument()
         expect(confirmation).toHaveTextContent("The improvement could not be deleted.")
+        for (const alert of screen.getAllByRole("alert")) {
+          expect(alert).toBeVisible()
+          expect(alert).toHaveClass("thread-sample__error")
+        }
         expect(screen.getByRole("button", { name: copy.point(1) })).toHaveAttribute(
           "aria-expanded",
           "true",
@@ -170,6 +174,11 @@ describe("ImprovementThreads()", () => {
       const fix = screen.getByRole("button", { name: copy.simulate(count) })
       expect(fix.querySelector(".hub-counter")).toHaveTextContent(String(count))
       expect(fix.querySelector(".hub-counter")).toHaveAttribute("aria-hidden", "true")
+      expect(fix.querySelector(".hub-counter")?.parentElement).toHaveClass(
+        "thread-sample__fix-label",
+      )
+      expect(fix.querySelector(".hub-counter")?.parentElement).toHaveTextContent(copy.fix)
+      expect(fix.querySelector('[data-testid="Button-trailing-visual"]')).toBeNull()
       expect(fix).not.toHaveTextContent(/[()]/)
       if (count) expect(fix).toBeEnabled()
       else expect(fix).toBeDisabled()

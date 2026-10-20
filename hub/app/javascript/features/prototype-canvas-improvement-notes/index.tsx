@@ -773,11 +773,25 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
             }}
           >
             {saved.error && (!selection || !notesAvailable) ? (
-              <p role="alert">{saved.error}</p>
+              <p role="alert" className="improvement-demo__notice">
+                {saved.error}
+              </p>
             ) : null}
-            {syncError ? <p role="status">{syncError}</p> : null}
-            {canvas?.token && !saved.state ? <p role="status">{copy.storageLoading}</p> : null}
-            {embedded && !preview.ready ? <p role="status">{copy.bridgeUnavailable}</p> : null}
+            {syncError ? (
+              <p role="status" className="improvement-demo__notice">
+                {syncError}
+              </p>
+            ) : null}
+            {canvas?.token && !saved.state ? (
+              <p role="status" className="improvement-demo__notice">
+                {copy.storageLoading}
+              </p>
+            ) : null}
+            {embedded && !preview.ready ? (
+              <p role="status" className="improvement-demo__notice">
+                {copy.bridgeUnavailable}
+              </p>
+            ) : null}
             <div className="improvement-demo__filters">
               <ActionMenu
                 size="small"
@@ -1122,9 +1136,21 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
           onClose={closeComposer}
           className="improvement-demo__composer"
         >
-          {saved.error ? <p role="alert">{saved.error}</p> : null}
-          {selectionChanged ? <p role="alert">{copy.branchChanged}</p> : null}
-          {editingReady ? <p role="alert">{copy.readyReadOnly}</p> : null}
+          {saved.error ? (
+            <p role="alert" className="improvement-demo__notice">
+              {saved.error}
+            </p>
+          ) : null}
+          {selectionChanged ? (
+            <p role="alert" className="improvement-demo__notice">
+              {copy.branchChanged}
+            </p>
+          ) : null}
+          {editingReady ? (
+            <p role="alert" className="improvement-demo__notice">
+              {copy.readyReadOnly}
+            </p>
+          ) : null}
           <form
             onSubmit={(event) => {
               event.preventDefault()

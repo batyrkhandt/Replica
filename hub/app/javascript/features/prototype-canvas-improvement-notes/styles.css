@@ -268,6 +268,13 @@
   line-height: 1.5;
 }
 
+.improvement-demo__notice {
+  flex: none;
+  margin: 0;
+  padding: var(--hub-space-8);
+  overflow-wrap: anywhere;
+}
+
 .improvement-demo__filters {
   display: flex;
   align-items: center;

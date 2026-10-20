@@ -297,7 +297,6 @@ export function ImprovementThreads({
                 variant="primary"
                 className="thread-sample__fix-all"
                 leadingVisual={<SparkleIcon size={16} />}
-                trailingVisual={<HubCounter aria-hidden="true">{pending}</HubCounter>}
                 disabled={!pending || Boolean(draft.trim()) || discarding || busy || activeBatch}
                 aria-busy={busy}
                 aria-label={copy.simulate(pending)}
@@ -305,7 +304,10 @@ export function ImprovementThreads({
                   void onFix()
                 }}
               >
-                {copy.fix}
+                <span className="thread-sample__fix-label">
+                  {copy.fix}
+                  <HubCounter aria-hidden="true">{pending}</HubCounter>
+                </span>
               </Button>
             ) : null}
           </div>
@@ -361,9 +363,21 @@ export function ImprovementThreads({
                       onClick={requestClose}
                     />
                   </header>
-                  {changedIdentity ? <p role="alert">{copy.changedIdentity}</p> : null}
-                  {removed ? <p role="alert">{copy.removed}</p> : null}
-                  {error ? <p role="alert">{error}</p> : null}
+                  {changedIdentity ? (
+                    <p role="alert" className="thread-sample__error">
+                      {copy.changedIdentity}
+                    </p>
+                  ) : null}
+                  {removed ? (
+                    <p role="alert" className="thread-sample__error">
+                      {copy.removed}
+                    </p>
+                  ) : null}
+                  {error ? (
+                    <p role="alert" className="thread-sample__error">
+                      {error}
+                    </p>
+                  ) : null}
                   {!thread.point ? (
                     <p role="status" className="thread-sample__target-status">
                       {copy.targetUnavailable}
@@ -602,9 +616,21 @@ export function ImprovementThreads({
           onClose={() => setDeleting(null)}
           returnFocusRef={opener}
         >
-          {changedIdentity ? <p role="alert">{copy.changedIdentity}</p> : null}
-          {deletionRemoved ? <p role="alert">{copy.removed}</p> : null}
-          {error ? <p role="alert">{error}</p> : null}
+          {changedIdentity ? (
+            <p role="alert" className="thread-sample__error">
+              {copy.changedIdentity}
+            </p>
+          ) : null}
+          {deletionRemoved ? (
+            <p role="alert" className="thread-sample__error">
+              {copy.removed}
+            </p>
+          ) : null}
+          {error ? (
+            <p role="alert" className="thread-sample__error">
+              {error}
+            </p>
+          ) : null}
           <blockquote className="thread-sample__quote">{deleting.body}</blockquote>
           <div className="thread-sample__delete-actions">
             <Button size="small" variant="secondary" onClick={() => setDeleting(null)}>

@@ -123,6 +123,52 @@ function savedNotesFixture() {
 }
 
 describe("App()", () => {
+  it("keeps a failed save visible inside the padded composer with the draft intact", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+    const { fetch, saved } = savedNotesFixture()
+    const original = fetch.getMockImplementation()!
+    fetch.mockImplementation((path, options) =>
+      path === "/api/improvement-notes" && options?.method === "POST"
+        ? Promise.resolve(Response.json({ error: "Notes could not be saved." }, { status: 503 }))
+        : original(path, options),
+    )
+    render(
+      <App
+        config={{
+          name: "Demo",
+          prototypeUrl: `${origin}/settings?tab=account#profile`,
+          token: "local",
+          pickAndPolish: true,
+        }}
+      />,
+    )
+    const frame = screen.getByTitle("Demo prototype")
+    if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
+    const annotate = await screen.findByRole("button", { name: copy.annotate })
+    receive(frame, {
+      type: "replica:canvas:ready",
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
+    await waitFor(() => expect(annotate).toBeEnabled())
+    fireEvent.click(annotate)
+    receive(frame, { type: "replica:canvas:selected", anchor })
+    const composer = within(screen.getByRole("dialog", { name: copy.add }))
+    fireEvent.change(composer.getByRole("textbox", { name: copy.label }), {
+      target: { value: "Keep the save action visible." },
+    })
+    fireEvent.click(composer.getByRole("button", { name: copy.save }))
+    const alert = await composer.findByRole("alert")
+    expect(alert).toBeVisible()
+    expect(alert).toHaveTextContent("Notes could not be saved.")
+    expect(alert).toHaveClass("improvement-demo__notice")
+    expect(composer.getByRole("textbox", { name: copy.label })).toHaveValue(
+      "Keep the save action visible.",
+    )
+    expect(saved.notes).toHaveLength(0)
+  })
+
   it("keeps saved pins and their protected conversation available in selection mode without a sidebar", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
     const { saved, fetch } = savedNotesFixture()
@@ -212,6 +258,10 @@ describe("App()", () => {
     ["Notes are saved locally until Hub discovers this branch.", false],
     ["Hub sync failed: Upgrade Hub to synchronize improvement conversations.", true],
     ["Hub sync failed: Connection refused. Your notes remain saved locally.", true],
+    [
+      "Upgrade Hub to confirm the connected author's account ID. Author attribution is unavailable.",
+      true,
+    ],
   ])("only hides the informational branch-discovery notice: %s", async (syncError, visible) => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
     const { saved } = savedNotesFixture()
@@ -229,8 +279,11 @@ describe("App()", () => {
       route: { pathname: "/", search: "", hash: "" },
     })
     await waitFor(() => expect(screen.getByRole("button", { name: copy.annotate })).toBeEnabled())
-    if (visible) expect(await screen.findByText(syncError)).toHaveAttribute("role", "alert")
-    else {
+    if (visible) {
+      const alert = await screen.findByText(syncError)
+      expect(alert).toHaveAttribute("role", "alert")
+      expect(alert).toHaveClass("thread-sample__error")
+    } else {
       expect(screen.queryByText(syncError)).not.toBeInTheDocument()
       expect(view.container.querySelector(".thread-sample__error")).toBeNull()
     }

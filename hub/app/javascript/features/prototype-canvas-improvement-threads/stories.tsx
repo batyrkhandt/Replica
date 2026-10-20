@@ -64,3 +64,18 @@ export const CopilotAnswer: Story = {
     ],
   },
 }
+
+export const AuthorIdentityUnavailable: Story = {
+  args: {
+    open: true,
+    error:
+      "Upgrade Hub to confirm the connected author's account ID. Author attribution is unavailable.",
+  },
+}
+
+export const NoPendingRequests: Story = {
+  args: {
+    open: true,
+    threads: [],
+  },
+}

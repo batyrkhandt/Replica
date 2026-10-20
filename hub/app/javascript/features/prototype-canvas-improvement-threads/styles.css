@@ -33,14 +33,19 @@
   color: var(--hub-fg-muted);
 }
 
-.thread-sample__fix-all .hub-counter {
-  color: inherit;
+.thread-sample__fix-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hub-space-8);
 }
 
 .thread-sample__error,
 .thread-sample__target-status {
-  padding: var(--base-size-8);
+  flex: none;
+  margin: 0;
+  padding: var(--hub-space-8);
   color: var(--hub-fg-muted);
+  overflow-wrap: anywhere;
 }
 
 .thread-sample__list {

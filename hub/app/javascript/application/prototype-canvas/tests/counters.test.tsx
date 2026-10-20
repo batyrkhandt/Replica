@@ -14,6 +14,6 @@ describe("canvas counters", () => {
     expect(reactionStyles).toContain("background: var(--hub-counter-background, transparent)")
     expect(improvementStyles).not.toContain(".improvement-demo__fix-all .hub-counter")
     expect(improvementStyles).not.toContain(".improvement-demo__fix-all:disabled .hub-counter")
-    expect(threadStyles).toContain(".thread-sample__fix-all .hub-counter {\n  color: inherit;")
+    expect(threadStyles).not.toContain(".thread-sample__fix-all .hub-counter")
   })
 })
