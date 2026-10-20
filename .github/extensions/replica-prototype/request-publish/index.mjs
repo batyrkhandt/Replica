@@ -96,6 +96,7 @@ async function sendPublish(
     commitSha,
     mode,
     target,
+    canvasInstanceId: canvasInstanceId ?? null,
     remoteState: state.stats.remoteBranch?.state,
     remoteSha: state.stats.remoteBranch?.remoteSha,
     workflowRunId: state.stats.workflow?.run?.databaseId ?? null,
