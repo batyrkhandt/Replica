@@ -51,7 +51,10 @@ function targetFromPrompt(prompt) {
 
 function assertSkillRequest(prompt, mode) {
   assert.match(prompt, /\/replica-publish-prototype\b/)
-  assert.match(prompt, /If the skill is unavailable, follow the complete fallback procedure below/)
+  assert.match(
+    prompt,
+    /The skill is unavailable in this session\. Follow the complete fallback procedure below/,
+  )
   assert.ok(
     prompt.includes(publishInstructions),
     "The complete bundled publishing skill is present.",
@@ -60,6 +63,75 @@ function assertSkillRequest(prompt, mode) {
 }
 
 describe("requestPublish()", () => {
+  for (const { label, skills, fallback } of [
+    {
+      label: "enabled",
+      skills: [{ name: "replica-publish-prototype", enabled: true }],
+      fallback: false,
+    },
+    {
+      label: "disabled",
+      skills: [{ name: "replica-publish-prototype", enabled: false }],
+      fallback: true,
+    },
+    { label: "missing", skills: [], fallback: true },
+    {
+      label: "registered with a canonical command name",
+      skills: [
+        {
+          name: "plugin:replica-publish-prototype",
+          commandName: "replica-publish-prototype",
+          enabled: true,
+        },
+      ],
+      fallback: false,
+    },
+  ]) {
+    it(`selects the correct prompt when the publishing skill is ${label}`, async () => {
+      await withContext(async (context) => {
+        let prompt
+        await requestPublish(
+          context,
+          {
+            rpc: {
+              skills: {
+                list: async () => ({ skills }),
+              },
+            },
+            send(message) {
+              prompt = message.prompt
+              return "skill-dispatch"
+            },
+          },
+          { instanceId: "demo-preview" },
+        )
+        assert.match(prompt, /\/replica-publish-prototype\b/)
+        assert.equal(prompt.includes(publishInstructions), fallback)
+        assert.equal(prompt.includes("Fallback publishing procedure:"), fallback)
+        assert.equal(requestDataFromPrompt(prompt).mode, "committed-only")
+      })
+    })
+  }
+
+  it("does not dispatch when session skill discovery fails", async () => {
+    await withContext(async (context) => {
+      await assert.rejects(
+        requestPublish(context, {
+          rpc: {
+            skills: {
+              list: async () => {
+                throw new Error("Skill discovery failed")
+              },
+            },
+          },
+          send: () => assert.fail("Must not dispatch"),
+        }),
+        /Skill discovery failed/,
+      )
+      assert.equal((await readState(context)).publishRequest.state, "idle")
+    })
+  })
+
   it("keeps the required publishing safeguards in the bundled procedure", () => {
     assert.match(
       publishInstructions,
