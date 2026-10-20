@@ -15,7 +15,7 @@ export const prototypeListing: PrototypeListing = {
     me: "Me",
     allAuthors: "All authors",
     searchAuthors: "Search authors",
-    moreAuthors: "Next authors",
+    moreAuthors: "More",
     firstAuthors: "First authors",
     noAuthors: "No matching authors",
     loading: "Loading authors",

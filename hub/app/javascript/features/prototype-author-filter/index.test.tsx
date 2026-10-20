@@ -70,7 +70,7 @@ describe("PrototypeAuthorFilter()", () => {
     )
     fireEvent.click(screen.getByRole("button", { name: "Author: All authors" }))
     expect(await screen.findByRole("menuitemradio", { name: "@octocat" })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: "Next authors" }))
+    fireEvent.click(screen.getByRole("button", { name: "More" }))
     expect(await screen.findByRole("menuitemradio", { name: "@mona" })).toBeInTheDocument()
     expect(screen.queryByRole("menuitemradio", { name: "@octocat" })).not.toBeInTheDocument()
     onSearch.mockReturnValueOnce(oldSearch)

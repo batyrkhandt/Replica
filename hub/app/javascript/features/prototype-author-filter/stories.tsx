@@ -66,10 +66,10 @@ export const LongAuthor: Story = {
       author: "2",
       authorLabel: `${mona.name} (@${mona.login})`.repeat(5),
     },
-    onSearch: fn(() =>
+    onSearch: fn((_query: string, cursor: string | null) =>
       Promise.resolve({
         authors: [{ id: "2", ...mona, name: mona.name.repeat(10) }],
-        nextCursor: null,
+        nextCursor: cursor ? null : "next",
       }),
     ),
   },

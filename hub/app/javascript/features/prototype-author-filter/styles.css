@@ -12,6 +12,7 @@
 .prototype-author-filter [role="menuitemradio"] {
   min-width: 0;
   grid-template-columns: min-content minmax(0, 1fr);
+  padding-inline-end: var(--brand-control-small-paddingInline-condensed);
 }
 
 .prototype-author-filter [aria-haspopup] {
@@ -60,6 +61,7 @@
 
 .prototype-author-filter__paging {
   display: flex;
+  justify-content: center;
   flex-wrap: wrap;
   gap: var(--base-size-8);
   margin-top: var(--base-size-8);
