@@ -108,13 +108,8 @@ class ReviewComment::NoteThreadContract < ActiveRecord::AssociatedObject
   def validate_author(author)
     unless author.is_a?(Hash) && author.keys.sort == %w[avatarUrl id login] &&
         author["id"].is_a?(Integer) && author["id"] == record.user_id &&
-        author["login"].is_a?(String) && /\A[a-z0-9][a-z0-9-]{0,38}\z/i.match?(author["login"])
+        author["login"].is_a?(String) && /\A[a-z0-9][a-z0-9_-]{0,38}\z/i.match?(author["login"])
       return invalid("author snapshots must identify this note's owner")
-    end
-    previous = record.note_thread_in_database
-    saved = [ previous&.dig("originalAuthor"), *previous&.fetch("messages", [])&.filter_map { _1["author"] } ].compact
-    unless author["login"] == record.user.login || saved.include?(author)
-      return invalid("new author snapshots must use the authenticated owner's login")
     end
     avatar = author["avatarUrl"]
     return true if avatar.nil?
