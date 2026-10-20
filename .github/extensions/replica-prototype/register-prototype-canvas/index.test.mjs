@@ -7,6 +7,7 @@ import path from "node:path"
 import { describe, it } from "node:test"
 
 import { withContext } from "../test-support/with-context/index.mjs"
+import { createCanvasContext } from "../create-canvas-context/index.mjs"
 import { checkPrototypeServer } from "../check-prototype-server/index.mjs"
 import { readState } from "../read-state/index.mjs"
 import { requestPublish } from "../request-publish/index.mjs"
@@ -184,6 +185,74 @@ async function register(
 }
 
 describe("registerPrototypeCanvas()", () => {
+  it("retains context for flag-only reopen but drops stale target hints for an explicit URL", async () => {
+    await withContext(async (context) => {
+      execFileSync("git", ["remote", "add", "origin", "https://github.com/github/replica.git"], {
+        cwd: context.repositoryPath,
+      })
+      const oldCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: context.repositoryPath,
+        encoding: "utf8",
+      }).trim()
+      const canvas = await register(context, [])
+      const ctx = {
+        instanceId: "explicit-reopen",
+        sessionId: "test-session",
+        session: { workingDirectory: context.repositoryPath },
+      }
+      try {
+        const opened = await canvas.open({
+          ...ctx,
+          input: {
+            prototypeUrl: context.normalizedUrl,
+            name: "Previous prototype",
+            repository: "github/replica",
+            branch: "prototype",
+            commitSha: oldCommit,
+            publishedUrl: "https://hub.example.com/previous",
+          },
+        })
+        await canvas.open({ ...ctx, input: { improvementThreadsSample: true } })
+        let rendererUrl = (await fetch(opened.url)).url
+        let state = await (await fetch(new URL("/api/state", rendererUrl))).json()
+        assert.equal(state.name, "Previous prototype")
+        assert.match(await (await fetch(opened.url)).text(), /"improvementThreadsSample":true/)
+        assert.equal(state.stats.publishedUrl, "https://hub.example.com/previous")
+        execFileSync("git", ["checkout", "-qb", "replacement"], { cwd: context.repositoryPath })
+        execFileSync(
+          "git",
+          ["remote", "set-url", "origin", "https://github.com/example/replacement.git"],
+          {
+            cwd: context.repositoryPath,
+          },
+        )
+        const replacement = await canvas.open({
+          ...ctx,
+          input: { prototypeUrl: "http://localhost:4321/new" },
+        })
+        const expectedContext = await createCanvasContext({
+          prototypeUrl: "http://localhost:4321/new",
+          repositoryPath: context.repositoryPath,
+          sessionWorkspacePath: context.sessionWorkspacePath,
+          sessionId: ctx.sessionId,
+        })
+        rendererUrl = (await fetch(replacement.url)).url
+        state = await (await fetch(new URL("/api/state", rendererUrl))).json()
+        assert.equal(state.stateId, expectedContext.stateId)
+        assert.equal(state.name, "localhost")
+        assert.equal(state.stats.repository, "example/replacement")
+        assert.equal(state.stats.branch, "replacement")
+        assert.equal(state.stats.publishedUrl, null)
+        assert.doesNotMatch(
+          await (await fetch(replacement.url)).text(),
+          /"improvementThreadsSample":true/,
+        )
+      } finally {
+        await canvas.onClose(ctx)
+      }
+    })
+  })
+
   it("toggles isolated thread samples on the same panel without sending work", async () => {
     await withContext(async (context) => {
       const prompts = []
