@@ -131,6 +131,8 @@ export function usePreviewSelection({
         onProblem(data.reason === "area-too-small" ? copy.regionSmall : copy.bridgeUnavailable)
       } else if (data.type === "replica:canvas:selection-cancelled") {
         if (data.reason !== "command") onCancel()
+      } else if (data.type === "replica:canvas:conversation-dismiss-requested") {
+        window.dispatchEvent(new Event("replica:review-dismiss"))
       }
     }
     frame.addEventListener("load", loaded)

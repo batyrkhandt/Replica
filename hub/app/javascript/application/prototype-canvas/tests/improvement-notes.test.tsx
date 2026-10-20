@@ -123,6 +123,113 @@ function savedNotesFixture() {
 }
 
 describe("App()", () => {
+  it("only dismisses saved conversations through the current authenticated preview connection and protects drafts", async () => {
+    const { saved } = savedNotesFixture()
+    saved.notes.push({
+      id: 1,
+      kind: "improvement_note",
+      author: "local",
+      body: "Make the save action clearer.",
+      route: "/settings?tab=account#profile",
+      target: "Save",
+      selector: "#save",
+      rect: anchor.rect,
+      capture: "",
+      anchor: REVIEW_ANCHOR_SCHEMA.parse(anchor),
+      status: "open",
+      sync: "local",
+      revision: 1,
+    })
+    const view = render(
+      <App
+        config={{
+          name: "Demo",
+          prototypeUrl: `${origin}/settings?tab=account#profile`,
+          previewUrl: "http://127.0.0.1:6789/settings?tab=account#profile",
+          token: "local",
+          pickAndPolish: true,
+        }}
+      />,
+    )
+    const card = await screen.findByRole("button", {
+      name: "Open improvement: Make the save action clearer.",
+    })
+    const frame = screen.getByTitle("Demo prototype")
+    if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
+    const post = vi.spyOn(frame.contentWindow!, "postMessage")
+    function selectionNonce() {
+      for (const [data] of [...post.mock.calls].reverse()) {
+        const message: unknown = data
+        if (
+          message &&
+          typeof message === "object" &&
+          "type" in message &&
+          message.type === "replica:canvas:resolve" &&
+          "anchors" in message &&
+          Array.isArray(message.anchors) &&
+          message.anchors.length === 1 &&
+          "nonce" in message &&
+          typeof message.nonce === "string"
+        )
+          return message.nonce
+      }
+      throw new Error("Expected a nonce for the saved improvement anchor.")
+    }
+    fireEvent.load(frame)
+    const staleNonce = selectionNonce()
+    fireEvent.load(frame)
+    const currentNonce = selectionNonce()
+    expect(currentNonce).not.toBe(staleNonce)
+    receive(frame, {
+      type: "replica:canvas:ready",
+      nonce: currentNonce,
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
+    await waitFor(() => expect(screen.getByRole("button", { name: copy.annotate })).toBeEnabled())
+    receive(frame, {
+      type: "replica:canvas:resolved",
+      nonce: currentNonce,
+      results: [{ id: 1, x: 80, y: 50 }],
+    })
+    fireEvent.click(card)
+    const dismiss = { type: "replica:canvas:conversation-dismiss-requested", nonce: currentNonce }
+    receive(frame, dismiss, origin)
+    expect(screen.getByRole("dialog", { name: threadCopy.conversation })).toBeVisible()
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: window,
+          origin: new URL(frame.src).origin,
+          data: dismiss,
+        }),
+      )
+    })
+    expect(screen.getByRole("dialog", { name: threadCopy.conversation })).toBeVisible()
+    receive(frame, { ...dismiss, nonce: staleNonce })
+    expect(screen.getByRole("dialog", { name: threadCopy.conversation })).toBeVisible()
+    receive(frame, dismiss)
+    expect(screen.queryByRole("dialog", { name: threadCopy.conversation })).not.toBeInTheDocument()
+    expect(card).toHaveFocus()
+
+    fireEvent.click(card)
+    fireEvent.change(screen.getByRole("textbox", { name: threadCopy.comments.replyLabel }), {
+      target: { value: "Keep this unsent follow-up" },
+    })
+    receive(frame, dismiss)
+    expect(screen.getByText(threadCopy.comments.threadDiscardPromptLabel)).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: threadCopy.comments.keepLabel }))
+    expect(screen.getByRole("textbox", { name: threadCopy.comments.replyLabel })).toHaveValue(
+      "Keep this unsent follow-up",
+    )
+    receive(frame, dismiss)
+    fireEvent.click(screen.getByRole("button", { name: threadCopy.comments.discardButtonLabel }))
+    expect(screen.queryByRole("dialog", { name: threadCopy.conversation })).not.toBeInTheDocument()
+    expect(card).toHaveFocus()
+    view.unmount()
+  })
+
   it("keeps a failed save visible inside the padded composer with the draft intact", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
     const { fetch, saved } = savedNotesFixture()

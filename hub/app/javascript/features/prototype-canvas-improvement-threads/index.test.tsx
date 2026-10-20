@@ -275,6 +275,85 @@ describe("ImprovementThreads()", () => {
     },
   )
 
+  it.each([
+    ["blocked", copy.retry],
+    ["sent", copy.returnToActive],
+  ] as const)("dispatches %s work from an unchanged menu", (status, action) => {
+    const thread: ImprovementThread = {
+      id: 1,
+      revision: 1,
+      author: "You",
+      body: "Original request",
+      target: "Save",
+      path: "/projects",
+      status,
+      retryStatus: status,
+      originalPending: false,
+      messages: [],
+    }
+    const onRetry = vi.fn().mockResolvedValue(true)
+    const props = {
+      threads: [thread],
+      identity: "branch",
+      open: true,
+      onOpen: vi.fn(),
+      onClose: vi.fn(),
+      onFollowUp: vi.fn().mockResolvedValue(true),
+      onResolve: vi.fn().mockResolvedValue(true),
+      onDelete: vi.fn().mockResolvedValue(true),
+      onFix: vi.fn().mockResolvedValue(true),
+      onRetry,
+    }
+    const view = render(<ImprovementThreads {...props} />)
+    fireEvent.click(screen.getByRole("button", { name: "Improvement actions: 1" }))
+    view.rerender(<ImprovementThreads {...props} threads={[{ ...thread }]} />)
+    fireEvent.click(screen.getByRole("menuitem", { name: action }))
+    expect(onRetry).toHaveBeenCalledExactlyOnceWith(thread)
+  })
+
+  it.each([
+    ["identity", "blocked", copy.retry],
+    ["revision", "sent", copy.returnToActive],
+    ["busy", "blocked", copy.retry],
+  ] as const)("blocks %s changes after opening a %s work menu", (change, status, action) => {
+    const thread: ImprovementThread = {
+      id: 1,
+      revision: 1,
+      author: "You",
+      body: "Original request",
+      target: "Save",
+      path: "/projects",
+      status,
+      retryStatus: status,
+      originalPending: false,
+      messages: [],
+    }
+    const props = {
+      threads: [thread],
+      identity: "first",
+      open: true,
+      onOpen: vi.fn(),
+      onClose: vi.fn(),
+      onFollowUp: vi.fn().mockResolvedValue(true),
+      onResolve: vi.fn().mockResolvedValue(true),
+      onDelete: vi.fn().mockResolvedValue(true),
+      onFix: vi.fn().mockResolvedValue(true),
+      onRetry: vi.fn().mockResolvedValue(true),
+    }
+    const view = render(<ImprovementThreads {...props} />)
+    fireEvent.click(screen.getByRole("button", { name: "Improvement actions: 1" }))
+    view.rerender(
+      <ImprovementThreads
+        {...props}
+        identity={change === "identity" ? "second" : props.identity}
+        threads={change === "revision" ? [{ ...thread, revision: 2 }] : props.threads}
+        busy={change === "busy"}
+      />,
+    )
+    fireEvent.click(screen.getByRole("menuitem", { name: action }))
+    expect(props.onRetry).not.toHaveBeenCalled()
+  })
+
   it("keeps the focused composer and newer draft text while an earlier follow-up is saving", async () => {
     const thread: ImprovementThread = {
       id: 1,

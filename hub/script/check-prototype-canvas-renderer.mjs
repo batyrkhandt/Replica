@@ -1465,6 +1465,7 @@ try {
           await firstFix.evaluate((button) => button.click())
           assert.equal(dispatched.length, 0)
           await page.getByRole("button", { name: "Improvement actions: 1", exact: true }).click()
+          await page.clock.runFor(300)
           const disabledDelete = page.getByRole("menuitem", {
             name: "Delete improvement",
             exact: true,
@@ -1492,9 +1493,23 @@ try {
           assert.equal(await page.locator(".thread-sample__error").count(), 0)
           assert.equal(await cards.count(), 1)
           assert.equal(await dialog.locator("xpath=ancestor::aside").count(), 0)
+          phase = "preview Escape closes saved conversation"
+          await target.press("Escape")
+          await dialog.waitFor({ state: "hidden" })
+          await cards.first().click()
           await dialog
             .getByRole("textbox", { name: "Follow-up", exact: true })
             .fill("Keep the existing shortcut.")
+          phase = "preview Escape protects follow-up draft"
+          await target.press("Escape")
+          await dialog
+            .getByText("Your unsaved follow-up will be lost.", { exact: true })
+            .waitFor({ state: "visible" })
+          await dialog.getByRole("button", { name: "Keep", exact: true }).click()
+          assert.equal(
+            await dialog.getByRole("textbox", { name: "Follow-up", exact: true }).inputValue(),
+            "Keep the existing shortcut.",
+          )
           const realAnchor = await marker.boundingBox()
           for (const [label, count] of [
             ["Ready to review", 0],

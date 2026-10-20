@@ -216,6 +216,21 @@ export function ImprovementThreads({
     if ((await onResolve(item)) && !returnFocus?.isConnected) fallbackFocus.current?.focus()
   }
 
+  async function retryFromMenu(item: ImprovementThread) {
+    if (
+      menuThread.current?.identity !== identity ||
+      menuThread.current.id !== item.id ||
+      menuThread.current.revision !== item.revision ||
+      !onRetry ||
+      !item.retryStatus ||
+      busy ||
+      draft.trim() ||
+      discarding
+    )
+      return
+    await onRetry(item)
+  }
+
   const toolbarControl = (
     <Button
       ref={trigger}
@@ -533,7 +548,7 @@ export function ImprovementThreads({
                           disabled={busy}
                           className="thread-sample__menu-item"
                           onClick={() => {
-                            void onRetry(item)
+                            void retryFromMenu(item)
                           }}
                         >
                           {item.retryStatus === "sent" ? copy.returnToActive : copy.retry}
