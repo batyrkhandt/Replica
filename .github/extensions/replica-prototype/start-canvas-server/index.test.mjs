@@ -21,6 +21,61 @@ function publishData(prompt) {
 }
 
 describe("startCanvasServer()", () => {
+  it("protects saved notes with the canvas token and restores them after reopening", async () => {
+    await withContext(async (context) => {
+      const options = {
+        improvementNotesDirectory: path.join(context.sessionWorkspacePath, "notes"),
+        hubOptions: {
+          directory: path.join(context.sessionWorkspacePath, "credentials"),
+        },
+      }
+      let canvas = await startCanvasServer(context, { send: assert.fail }, options)
+      try {
+        const html = await (await fetch(canvas.url)).text()
+        const { token } = JSON.parse(html.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
+        const headers = { "X-Replica-Canvas-Token": token }
+        const endpoint = new URL("/api/improvement-notes", canvas.url)
+        assert.equal((await fetch(endpoint)).status, 403)
+        const state = await (await fetch(endpoint, { headers })).json()
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            identity: state.identity,
+            revision: state.revision,
+            operation: "create",
+            body: "Improve the selected button.",
+            anchor: {
+              schemaVersion: 1,
+              kind: "element",
+              route: { pathname: "/", search: "", hash: "" },
+              selector: "#save",
+              accessibleName: "Save",
+              tagName: "button",
+              selectedText: "",
+              rect: { x: 20, y: 30, width: 100, height: 32 },
+              viewport: { width: 960, height: 560, scrollX: 0, scrollY: 0 },
+              elementOffset: { x: 0.5, y: 0.5 },
+            },
+          }),
+        })
+        const saved = await response.json()
+        assert.equal(response.status, 200, JSON.stringify(saved))
+        await canvas.close()
+        canvas = await startCanvasServer(context, { send: assert.fail }, options)
+        const reopenedHtml = await (await fetch(canvas.url)).text()
+        const reopened = JSON.parse(reopenedHtml.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
+        const restored = await fetch(new URL("/api/improvement-notes", canvas.url), {
+          headers: { "X-Replica-Canvas-Token": reopened.token },
+        })
+        assert.equal(restored.status, 200)
+        assert.deepEqual((await restored.json()).notes, saved.notes)
+      } finally {
+        await canvas.close()
+      }
+    })
+  })
+
   it("checks changes on click, requires a publish choice, saves branch permission and rejects stale targets", async () => {
     await withContext(async (context) => {
       const directory = path.join(context.sessionWorkspacePath, "publish-settings")
