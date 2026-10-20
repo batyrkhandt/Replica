@@ -38,8 +38,6 @@ export interface RepositoriesShowPageData extends RepositoryWorkspaceData {
   prototypes: PrototypeCardData[]
   prototypesCountLabel: string
   prototypesHeading: string
-  prototypeCountUnitOne: string
-  prototypeCountUnitOther: string
   searchLabel: string
   viewLabel: string
   workflowInstallation?: WorkflowInstallationData

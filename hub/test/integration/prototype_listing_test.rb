@@ -19,7 +19,6 @@ class PrototypeListingTest < ActionDispatch::IntegrationTest
     first = listing(repository, q: "nEeDlE", author: user.id.to_s)
     assert_equal expected.first(24), first.fetch("prototypes").pluck("id")
     assert_equal 49, first.fetch("listing").fetch("matchingCount")
-    assert_equal 75, first.fetch("listing").fetch("totalCount")
     assert_nil first.fetch("listing").fetch("previousPath")
     newest = registered_prototype(repository, author: user, name: "Needle added", at: time + 1.second)
 
@@ -71,12 +70,12 @@ class PrototypeListingTest < ActionDispatch::IntegrationTest
 
     cards = data.fetch("prototypes")
     assert_equal records.reverse.first(24).map { _1.id.to_s }, cards.pluck("id")
-    assert_equal 60, data.fetch("listing").fetch("totalCount")
+    assert_equal 60, data.fetch("listing").fetch("matchingCount")
     cards.each do |card|
       assert_equal "queued", card.fetch("latestBuild").fetch("state")
       assert_equal 1, card.fetch("reviewBuild").fetch("number")
     end
-    assert_operator instantiated.fetch("Prototype"), :<=, 25
+    assert_operator instantiated.fetch("Prototype"), :<=, 24
     assert_operator instantiated.fetch("Build"), :<=, 24 * 2
   end
 
@@ -154,7 +153,6 @@ class PrototypeListingTest < ActionDispatch::IntegrationTest
 
     assert_empty stale.fetch("prototypes")
     assert_equal 24, stale.fetch("listing").fetch("matchingCount")
-    assert_equal 24, stale.fetch("listing").fetch("totalCount")
     newest_path = stale.fetch("listing").fetch("newestPath")
     assert_filters newest_path, q: "Needle", author: "me"
     newest = listing_at(newest_path)

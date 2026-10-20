@@ -6,7 +6,7 @@ class Repository::PrototypeListing < ActiveRecord::AssociatedObject
   AUTHORS_PAGE_SIZE = 20
   QUERY_MAXIMUM_LENGTH = 200
   Page = Data.define \
-    :prototypes, :query, :author, :author_user, :matching_count, :total_count,
+    :prototypes, :query, :author, :author_user, :matching_count,
     :previous_cursor, :next_cursor
 
   # Filters before paging, leaving Build hydration to the selected records.
@@ -23,8 +23,7 @@ class Repository::PrototypeListing < ActiveRecord::AssociatedObject
           "OR users.name LIKE :query ESCAPE '\\'",
         query: "%#{Prototype.sanitize_sql_like(query)}%"
     end
-    total_count = base.count
-    matching_count = query.empty? && author.empty? ? total_count : relation.count
+    matching_count = relation.count
     scope = cursor_scope(user, "prototypes", query:, author:)
     boundary = read_cursor(cursor, scope)
     selected = relation
@@ -33,7 +32,7 @@ class Repository::PrototypeListing < ActiveRecord::AssociatedObject
     end
     newer = boundary&.fetch("direction") == "previous"
     rows = selected.order(registered_at: newer ? :asc : :desc, id: newer ? :asc : :desc)
-      .limit(PAGE_SIZE + 1).to_a.first(PAGE_SIZE)
+      .limit(PAGE_SIZE).to_a
     rows.reverse! if newer
 
     previous_cursor = nil
@@ -51,7 +50,6 @@ class Repository::PrototypeListing < ActiveRecord::AssociatedObject
       author:,
       author_user: author_id && User.where(id: base.select(:author_id)).find_by(id: author_id),
       matching_count:,
-      total_count:,
       previous_cursor:,
       next_cursor:
   end

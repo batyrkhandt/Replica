@@ -40,8 +40,6 @@ json.prototypesHeading t("repositories.show.prototypes_heading")
 json.alert flash[:alert]
 json.notice flash[:notice]
 json.prototypesCountLabel t("repositories.show.prototype_count", count: @listing.matching_count)
-json.prototypeCountUnitOne t("repositories.show.prototype_count_unit_one")
-json.prototypeCountUnitOther t("repositories.show.prototype_count_unit_other")
 json.searchLabel t("repositories.show.search")
 json.clearSearchLabel t("repositories.show.clear_search")
 json.noSearchResultsHeading t("repositories.show.no_search_results_heading")
@@ -74,7 +72,6 @@ json.listing do
   end
   json.authorLabel author_label
   json.matchingCount @listing.matching_count
-  json.totalCount @listing.total_count
   previous_path = @listing.previous_cursor &&
     repository_path(@repository.route_id, **listing_params, cursor: @listing.previous_cursor)
   next_path = @listing.next_cursor &&

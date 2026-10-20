@@ -61,8 +61,6 @@ const PAGE_DATA: RepositoriesShowPageData = {
     },
   ],
   prototypesCountLabel: "1 prototype",
-  prototypeCountUnitOne: "prototype",
-  prototypeCountUnitOther: "prototypes",
   prototypesHeading: "Prototypes",
   prototypesLabel: "Prototypes",
   prototypesPath: "/repositories/2001",

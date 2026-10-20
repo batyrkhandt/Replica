@@ -18,8 +18,6 @@ en:
       prototype_count:
         one: 1 prototype
         other: "%{count} prototypes"
-      prototype_count_unit_one: prototype
-      prototype_count_unit_other: prototypes
       search: Search prototypes
       clear_search: Clear search
       no_search_results_heading: No prototypes found

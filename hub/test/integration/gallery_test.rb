@@ -125,7 +125,6 @@ class GalleryTest < ActionDispatch::IntegrationTest
     data = JSON.parse(response.body).fetch("data")
     assert_empty data.fetch("prototypes")
     assert_equal 0, data.fetch("listing").fetch("matchingCount")
-    assert_equal 0, data.fetch("listing").fetch("totalCount")
     %w[previousPath nextPath newestPath].each do |key|
       assert_nil data.fetch("listing").fetch(key)
     end

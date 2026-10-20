@@ -138,7 +138,7 @@ Local repositories omit workflow installation. Hub checks committed local branch
 
 The Prototypes page orders prototypes by when they were first added to Hub, newest first. New prototypes appear at the top left of the gallery and at the top of the list. Editing details or publishing another Build does not change that order.
 
-The Prototypes page filters the current repository's gallery and list as you type in the header search. Search matches prototype names, descriptions, branch names, and owners; Command K (or Control K) focuses the field. The count above the collection reflects matching prototypes, and clearing the search restores the full list.
+Command K (or Control K) focuses the Prototypes search field. Clearing search keeps the selected author; **Clear filters** restores the unfiltered collection.
 
 Opening a prototype from its card or list row uses in-app navigation rather than reloading the document. List links use normal text colors without underlines. Hovering or focusing an owner's profile link underlines the name; selecting it opens that profile instead of the prototype. The **passing** and **not passing** badges use lowercase text and have no icons. The review shell opens the latest successful Build. Its controls stay above the rounded preview.
 Gallery cards and Build details show the top of each full-height screenshot in a fixed preview. Hovering a preview scrolls through the remaining image; on touch devices or with reduced motion enabled, scroll the preview manually. In those modes, list screenshots remain manual scroll areas while the rest of each row opens the prototype. Older viewport-height screenshots stay at the top without scrolling.

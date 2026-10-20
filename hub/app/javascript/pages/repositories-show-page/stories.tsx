@@ -10,7 +10,7 @@ import { RepositoriesShowPage } from "."
 import type { RepositoriesShowPageData } from "./types"
 
 const data: RepositoriesShowPageData = {
-  listing: { ...prototypeListing, matchingCount: 0, totalCount: 0 },
+  listing: { ...prototypeListing, matchingCount: 0 },
   ...authenticatedHeaderData,
   alert: null,
   collapseNavigationLabel: "Collapse sidebar",
@@ -38,8 +38,6 @@ const data: RepositoriesShowPageData = {
   pageTitle: "github/prototype",
   prototypes: [],
   prototypesCountLabel: "0 prototypes",
-  prototypeCountUnitOne: "prototype",
-  prototypeCountUnitOther: "prototypes",
   prototypesHeading: "Prototypes",
   prototypesLabel: "Prototypes",
   prototypesPath: "/repositories/2001",
@@ -238,7 +236,6 @@ export const Paginated: Story = {
       listing: {
         ...prototypeListing,
         matchingCount: 50,
-        totalCount: 50,
         nextPath: "/repositories/2001?cursor=next",
         copy: { ...prototypeListing.copy, shown: "2 shown" },
       },

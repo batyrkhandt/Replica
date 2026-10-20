@@ -32,7 +32,6 @@ export interface PrototypeListing {
   author: string
   authorLabel: string
   matchingCount: number
-  totalCount: number
   previousPath: string | null
   nextPath: string | null
   newestPath: string | null

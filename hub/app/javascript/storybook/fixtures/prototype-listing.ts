@@ -5,7 +5,6 @@ export const prototypeListing: PrototypeListing = {
   author: "",
   authorLabel: "All authors",
   matchingCount: 1,
-  totalCount: 1,
   previousPath: null,
   nextPath: null,
   newestPath: null,

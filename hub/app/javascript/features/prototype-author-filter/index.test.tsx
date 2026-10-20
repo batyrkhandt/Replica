@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import { prototypeListing } from "@/storybook/fixtures/prototype-listing"
@@ -45,7 +45,15 @@ describe("PrototypeAuthorFilter()", () => {
     expect(trigger).toHaveFocus()
   })
 
-  it("replaces author option pages and cancels stale searches when the query changes", async () => {
+  it("replaces author pages and ignores stale results after the search changes", async () => {
+    let finishOldSearch!: (
+      results: Awaited<ReturnType<PrototypeListingControls["loadAuthors"]>>,
+    ) => void
+    const oldSearch = new Promise<Awaited<ReturnType<PrototypeListingControls["loadAuthors"]>>>(
+      (resolve) => {
+        finishOldSearch = resolve
+      },
+    )
     const onSearch = vi
       .fn<PrototypeListingControls["loadAuthors"]>(() =>
         Promise.resolve({
@@ -62,18 +70,30 @@ describe("PrototypeAuthorFilter()", () => {
     )
     fireEvent.click(screen.getByRole("button", { name: "Author: All authors" }))
     expect(await screen.findByRole("menuitemradio", { name: "@octocat" })).toBeInTheDocument()
-    const firstSignal = onSearch.mock.calls[0]?.[2]
     fireEvent.click(screen.getByRole("button", { name: "Next authors" }))
     expect(await screen.findByRole("menuitemradio", { name: "@mona" })).toBeInTheDocument()
     expect(screen.queryByRole("menuitemradio", { name: "@octocat" })).not.toBeInTheDocument()
-    expect(firstSignal?.aborted).toBe(true)
+    onSearch.mockReturnValueOnce(oldSearch)
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "old" } })
+    await waitFor(() =>
+      expect(onSearch).toHaveBeenLastCalledWith("old", null, expect.any(AbortSignal)),
+    )
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "mona" } })
     await waitFor(() =>
       expect(onSearch).toHaveBeenLastCalledWith("mona", null, expect.any(AbortSignal)),
     )
+    expect(await screen.findByRole("menuitemradio", { name: "@mona" })).toBeInTheDocument()
+    await act(async () => {
+      finishOldSearch({
+        authors: [{ id: "3", login: "outdated", name: null, avatarUrl: null }],
+        nextCursor: null,
+      })
+      await oldSearch
+    })
+    expect(screen.queryByRole("menuitemradio", { name: "@outdated" })).not.toBeInTheDocument()
+    expect(screen.getByRole("menuitemradio", { name: "@mona" })).toBeInTheDocument()
     fireEvent.keyDown(screen.getByRole("searchbox"), { key: "Escape" })
     expect(screen.queryByRole("menu")).not.toBeInTheDocument()
-    expect(onSearch.mock.calls.at(-1)?.[2].aborted).toBe(true)
   })
 
   it("reports lookup failures and retries without losing the pinned Me option", async () => {
