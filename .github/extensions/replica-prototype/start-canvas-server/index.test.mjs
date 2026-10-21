@@ -973,6 +973,17 @@ esac
 `,
         { mode: 0o755 },
       )
+      await writeFile(
+        path.join(workspace, "gh"),
+        `#!/bin/sh
+if [ "$*" = "api --hostname github.com user" ]; then
+  printf '%s\\n' '{"login":"octocat","name":"The Octocat","avatar_url":"https://avatars.githubusercontent.com/u/583231"}'
+  exit 0
+fi
+exit 1
+`,
+        { mode: 0o755 },
+      )
       process.env.PATH = `${workspace}:${originalPath}`
       process.env.REPLICA_HUB_ORIGIN = `http://127.0.0.1:${hub.address().port}`
       const context = await createCanvasContext({
@@ -1266,7 +1277,10 @@ esac
         (
           await send("/api/hub/comments", "POST", {
             review_revision: selectedBuild,
-            review_comment: { body: "Keep the selected Build", anchor: { schemaVersion: 1 } },
+            review_comment: {
+              body: "Keep the selected Build",
+              anchor: { schemaVersion: 1 },
+            },
           })
         ).status,
         201,
@@ -1281,7 +1295,10 @@ esac
       assert.equal(
         (
           await send("/api/hub/comments", "POST", {
-            review_revision: { ...previousRevision, hubOrigin: "https://another-hub.example.com" },
+            review_revision: {
+              ...previousRevision,
+              hubOrigin: "https://another-hub.example.com",
+            },
             review_comment: { body: "Wrong Hub", anchor: { schemaVersion: 1 } },
           })
         ).status,
@@ -1455,7 +1472,13 @@ esac
         ).status,
         201,
       )
-      assert.equal((await send("/api/hub/comments")).body.comments[0].buildNumber, null)
+      const localComment = (await send("/api/hub/comments")).body.comments[0]
+      assert.equal(localComment.buildNumber, null)
+      assert.deepEqual(localComment.author, {
+        login: "octocat",
+        name: "The Octocat",
+        avatarUrl: "https://avatars.githubusercontent.com/u/583231",
+      })
       assert.ok(
         calls.slice(beforeUnpublishedSave).every(({ method }) => method === "GET"),
         "Saving unpublished feedback must not create any Hub records.",
@@ -1528,7 +1551,10 @@ esac
       ).length
       const reconnectedSave = await send("/api/hub/comments", "POST", {
         review_revision: selectedConnection,
-        review_comment: { body: "Old connection", anchor: { schemaVersion: 1 } },
+        review_comment: {
+          body: "Old connection",
+          anchor: { schemaVersion: 1 },
+        },
       })
       assert.equal(reconnectedSave.status, 409, JSON.stringify(reconnectedSave.body))
       assert.equal(
@@ -1642,6 +1668,23 @@ esac
       assert.match(html, /window\.__REPLICA_CANVAS__/)
       assert.match(page.headers.get("content-security-policy"), /frame-src http: https:/)
       assert.match(page.headers.get("content-security-policy"), /avatars\.githubusercontent\.com/)
+      assert.equal(
+        page.headers
+          .get("content-security-policy")
+          .split("; ")
+          .find((directive) => directive.startsWith("img-src ")),
+        "img-src 'self' data: https://avatars.githubusercontent.com",
+      )
+      const placeholder = await fetch(new URL("/avatar-placeholder.svg", server.url))
+      assert.equal(placeholder.status, 200)
+      assert.equal(placeholder.headers.get("content-type"), "image/svg+xml")
+      assert.equal(
+        await placeholder.text(),
+        await readFile(
+          new URL("../../../../hub/public/avatar-placeholder.svg", import.meta.url),
+          "utf8",
+        ),
+      )
       const asset = await fetch(new URL("/assets/renderer.js", server.url))
       assert.equal(asset.status, 200)
       assert.match(await asset.text(), /renderer-vendor\.js/)
