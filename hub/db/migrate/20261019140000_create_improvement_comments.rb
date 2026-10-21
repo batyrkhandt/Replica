@@ -13,10 +13,8 @@ class CreateImprovementComments < ActiveRecord::Migration[8.1]
       t.text :body
       t.json :author_snapshot
       t.json :anchor
-      t.text :capture
       t.integer :note_revision
       t.string :note_status
-      t.integer :thread_version
       t.datetime :deleted_at
       t.timestamps
     end
@@ -33,7 +31,7 @@ class CreateImprovementComments < ActiveRecord::Migration[8.1]
       primary_key: %i[id prototype_id user_id local_id], on_delete: :restrict
     add_check_constraint :improvement_comments,
       "(root_id IS NULL AND position = 0 AND role = 'author' AND thread_key = local_id AND build_id IS NOT NULL AND anchor IS NOT NULL AND note_revision > 0 AND note_revision IS NOT NULL AND note_status IN ('open', 'sent', 'ready', 'resolved', 'blocked') AND note_status IS NOT NULL) OR " \
-      "(root_id IS NOT NULL AND root_id <> id AND position > 0 AND build_id IS NULL AND anchor IS NULL AND capture IS NULL AND note_revision IS NULL AND note_status IS NULL AND thread_version IS NULL)",
+      "(root_id IS NOT NULL AND root_id <> id AND position > 0 AND build_id IS NULL AND anchor IS NULL AND note_revision IS NULL AND note_status IS NULL)",
       name: "improvement_comments_shape"
     add_check_constraint :improvement_comments,
       "(role = 'author' AND status IN ('open', 'sent', 'ready', 'blocked')) OR (role = 'copilot' AND status IN ('ready', 'blocked') AND author_snapshot IS NULL)",
@@ -42,8 +40,6 @@ class CreateImprovementComments < ActiveRecord::Migration[8.1]
       "CASE WHEN deleted_at IS NULL THEN body IS NOT NULL AND length(trim(body)) > 0 AND length(CAST(body AS BLOB)) <= 10000 ELSE body IS NULL AND author_snapshot IS NULL END",
       name: "improvement_comments_body"
     add_check_constraint :improvement_comments,
-      "thread_version IS NULL OR thread_version IN (1, 2)", name: "improvement_comments_thread_version"
-    add_check_constraint :improvement_comments,
       "length(local_id) = 36 AND length(thread_key) = 36", name: "improvement_comments_local_id"
     add_check_constraint :improvement_comments,
       "anchor IS NULL OR (json_valid(anchor) AND json_type(anchor) = 'object' AND length(CAST(anchor AS BLOB)) <= 16384)",
@@ -51,8 +47,6 @@ class CreateImprovementComments < ActiveRecord::Migration[8.1]
     add_check_constraint :improvement_comments,
       "author_snapshot IS NULL OR (json_valid(author_snapshot) AND json_type(author_snapshot) = 'object')",
       name: "improvement_comments_author"
-    add_check_constraint :improvement_comments,
-      "capture IS NULL OR length(CAST(capture AS BLOB)) <= 1500000", name: "improvement_comments_capture"
 
     create_table :improvement_comment_replies do |t|
       t.integer :response_id, null: false

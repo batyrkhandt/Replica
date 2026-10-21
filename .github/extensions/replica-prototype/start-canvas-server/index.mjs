@@ -25,6 +25,7 @@ import { createShareLinks } from "../share-links/index.mjs"
 import { startPreviewProxy } from "../start-preview-proxy/index.mjs"
 import { captureReviewRevision } from "../capture-review-revision/index.mjs"
 import { createLocalReviewComments } from "../create-local-review-comments/index.mjs"
+import { uuidInputPattern } from "../identity-patterns/index.mjs"
 
 const ASSET_PATHS = new Map([
   [
@@ -588,21 +589,16 @@ async function routeRequest(
     const status = await hub.status()
     if (!status.repositoryAuthorized) throw httpError(403, "Connect to Hub before commenting.")
     const scope = await localScope(hub, status)
-    const cursor = requestUrl.searchParams.get("cursor")
-    const page = status.prototype
-      ? await hub.request(
-          `${await reviewPath(hub)}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
-        )
+    const collection = status.prototype
+      ? await hub.request(await reviewPath(hub))
       : { comments: [], hasMore: false, nextCursor: null }
     const revision = requestUrl.searchParams.get("local_revision_id")
-    const drafts = cursor
-      ? []
-      : (await localComments.list(scope)).filter(
-          (comment) => !revision || comment.draftRevisionId === Number(revision),
-        )
+    const drafts = (await localComments.list(scope)).filter(
+      (comment) => !revision || comment.draftRevisionId === Number(revision),
+    )
     sendJson(response, 200, {
-      ...page,
-      comments: [...page.comments, ...drafts],
+      ...collection,
+      comments: [...collection.comments, ...drafts],
     })
     return
   }
@@ -905,11 +901,7 @@ function validRoute(route) {
 }
 
 function validAgentResult(result) {
-  if (
-    !boundedString(result.id, 36) ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.id)
-  )
-    return false
+  if (!boundedString(result.id, 36) || !uuidInputPattern.test(result.id)) return false
   if (result.ok === false)
     return (
       hasKeys(result, ["id", "ok", "error"]) &&

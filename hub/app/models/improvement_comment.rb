@@ -7,7 +7,6 @@
 #  anchor          :json
 #  author_snapshot :json
 #  body            :text
-#  capture         :text
 #  deleted_at      :datetime
 #  note_revision   :integer
 #  note_status     :string
@@ -15,7 +14,6 @@
 #  role            :string           default("author"), not null
 #  status          :string           default("open"), not null
 #  thread_key      :string           not null
-#  thread_version  :integer
 #  created_at      :datetime         not null
 #  updated_at      :datetime         not null
 #  build_id        :integer
@@ -44,19 +42,16 @@
 #
 # Check Constraints
 #
-#  improvement_comments_anchor          (anchor IS NULL OR (json_valid(anchor) AND json_type(anchor) = 'object' AND length(CAST(anchor AS BLOB)) <= 16384))
-#  improvement_comments_author          (author_snapshot IS NULL OR (json_valid(author_snapshot) AND json_type(author_snapshot) = 'object'))
-#  improvement_comments_body            (CASE WHEN deleted_at IS NULL THEN body IS NOT NULL AND length(trim(body)) > 0 AND length(CAST(body AS BLOB)) <= 10000 ELSE body IS NULL AND author_snapshot IS NULL END)
-#  improvement_comments_capture         (capture IS NULL OR length(CAST(capture AS BLOB)) <= 1500000)
-#  improvement_comments_local_id        (length(local_id) = 36 AND length(thread_key) = 36)
-#  improvement_comments_role_status     ((role = 'author' AND status IN ('open', 'sent', 'ready', 'blocked')) OR (role = 'copilot' AND status IN ('ready', 'blocked') AND author_snapshot IS NULL))
-#  improvement_comments_shape           ((root_id IS NULL AND position = 0 AND role = 'author' AND thread_key = local_id AND build_id IS NOT NULL AND anchor IS NOT NULL AND note_revision > 0 AND note_revision IS NOT NULL AND note_status IN ('open', 'sent', 'ready', 'resolved', 'blocked') AND note_status IS NOT NULL) OR (root_id IS NOT NULL AND root_id <> id AND position > 0 AND build_id IS NULL AND anchor IS NULL AND capture IS NULL AND note_revision IS NULL AND note_status IS NULL AND thread_version IS NULL))
-#  improvement_comments_thread_version  (thread_version IS NULL OR thread_version IN (1, 2))
+#  improvement_comments_anchor       (anchor IS NULL OR (json_valid(anchor) AND json_type(anchor) = 'object' AND length(CAST(anchor AS BLOB)) <= 16384))
+#  improvement_comments_author       (author_snapshot IS NULL OR (json_valid(author_snapshot) AND json_type(author_snapshot) = 'object'))
+#  improvement_comments_body         (CASE WHEN deleted_at IS NULL THEN body IS NOT NULL AND length(trim(body)) > 0 AND length(CAST(body AS BLOB)) <= 10000 ELSE body IS NULL AND author_snapshot IS NULL END)
+#  improvement_comments_local_id     (length(local_id) = 36 AND length(thread_key) = 36)
+#  improvement_comments_role_status  ((role = 'author' AND status IN ('open', 'sent', 'ready', 'blocked')) OR (role = 'copilot' AND status IN ('ready', 'blocked') AND author_snapshot IS NULL))
+#  improvement_comments_shape        ((root_id IS NULL AND position = 0 AND role = 'author' AND thread_key = local_id AND build_id IS NOT NULL AND anchor IS NOT NULL AND note_revision > 0 AND note_revision IS NOT NULL AND note_status IN ('open', 'sent', 'ready', 'resolved', 'blocked') AND note_status IS NOT NULL) OR (root_id IS NOT NULL AND root_id <> id AND position > 0 AND build_id IS NULL AND anchor IS NULL AND note_revision IS NULL AND note_status IS NULL))
 #
-# Stores one private improvement request or agent response, independently of reviews.
+# Stores one improvement request or agent response, independently of reviews.
 class ImprovementComment < ApplicationRecord
-  PAGE_MAXIMUM_BYTES = 2 * 1024 * 1024
-  MAXIMUM_NOTES = 200
+  UUID = /\A[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\z/
 
   class Conflict < StandardError; end
 
@@ -77,36 +72,28 @@ class ImprovementComment < ApplicationRecord
   has_many :responses, through: :response_links
 
   has_object :thread_contract
+  has_object :message_contract
 
   before_validation :set_thread_identity, on: :create
-  before_save :clear_deleted_snapshot
-  after_save :save_conversation, if: :root_comment?
 
   scope :roots, -> { where(root_id: nil) }
 
-  validates :local_id, format: { with: ImprovementComment::ThreadContract::UUID }
-  validates :role, inclusion: { in: %w[author copilot] }
-  validates :status, inclusion: { in: %w[open sent ready blocked] }
+  validates :local_id, format: { with: UUID }
   validates :note_status, inclusion: { in: %w[open sent ready resolved blocked] }, if: :root_comment?
   validates :note_revision, numericality: { only_integer: true, greater_than: 0 }, if: :root_comment?
   validates :build, presence: true, if: :root_comment?
-  validates :body, presence: true, if: -> { deleted_at.nil? }
-  validates :body, absence: true, if: -> { deleted_at.present? }
   validates :position, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   validate :validate_message
   validate :validate_identity, on: :update
-  validate -> { thread_contract.validate_record }, if: :root_comment?
+  validate -> { message_contract.validate(role:, body:, status:, author: author_snapshot, deleted: deleted_at.present?) }
 
   # Saves one complete client revision and its response links in a single transaction.
   def self.synchronize!(prototype:, user:, attributes:)
     prototype.with_lock do
       note = prototype.improvement_notes.find_or_initialize_by(user:, local_id: attributes[:local_id])
       revision = attributes.fetch(:revision)
-      thread = attributes[:thread]
+      thread = attributes.fetch(:thread)
       deleted = attributes.fetch(:deleted)
-      if note.note_thread.present? && !attributes.key?(:thread)
-        raise Conflict, "Upgrade the client to preserve this note's thread."
-      end
       if note.persisted? && note.anchor != attributes[:anchor]
         raise Conflict, "A saved note's target cannot change."
       end
@@ -119,14 +106,11 @@ class ImprovementComment < ApplicationRecord
       if note.persisted? && revision == note.note_revision
         if note.deleted_at.present? && thread
           retry_note = note.dup
-          retry_note.assign_attributes(note_thread: thread, note_status: attributes[:status])
-          retry_note.thread_contract.validate_record
-          raise ActiveRecord::RecordInvalid, retry_note if retry_note.errors.any?
+          retry_note.thread_contract.validate!(thread, previous: nil)
         end
         same = note.body == (deleted ? nil : attributes[:body]) &&
           note.note_status == attributes[:status] &&
           note.deleted_at.present? == deleted &&
-          note.capture == attributes[:capture] &&
           note.note_thread == (deleted ? nil : thread)
         raise Conflict, "This note revision has different content." unless same
 
@@ -136,10 +120,6 @@ class ImprovementComment < ApplicationRecord
       if attributes[:previous_revision] != (note.persisted? ? note.note_revision : 0)
         raise Conflict, "The Hub note changed since its last synchronization."
       end
-      if note.new_record? && prototype.improvement_notes.where(user:).count >= MAXIMUM_NOTES
-        raise Conflict, "Too many improvement notes."
-      end
-
       if note.new_record?
         note.anchor = attributes[:anchor]
         note.build = prototype.builds.find_by(number: attributes[:build_number])
@@ -147,11 +127,9 @@ class ImprovementComment < ApplicationRecord
       note.assign_attributes \
         body: deleted ? nil : attributes[:body],
         note_revision: revision,
-        note_status: attributes[:status],
-        note_thread: thread,
-        capture: attributes[:capture]
+        note_status: attributes[:status]
       note.deleted_at = Time.current if deleted
-      note.save!
+      note.save_conversation!(thread)
       note
     end
   end
@@ -166,34 +144,26 @@ class ImprovementComment < ApplicationRecord
     actor.present? && actor.id == user_id && deleted_at.nil?
   end
 
-  # Accepts the existing wire format without storing a JSON conversation.
-  def note_thread=(value)
-    @incoming_thread = value
-  end
-
-  # Reconstructs the wire conversation from message rows and ordered response links.
+  # Reconstructs the conversation from message rows and ordered response links.
   def note_thread
-    return @incoming_thread if instance_variable_defined?(:@incoming_thread)
+    return if deleted_at.present?
 
-    conversation_payload(thread_version, status, author_snapshot)
+    conversation_payload(status, author_snapshot)
   end
 
-  # Reads the saved conversation for append-only validation before accepting a revision.
-  def note_thread_in_database
-    return if new_record?
-
-    conversation_payload(thread_version_in_database, status_in_database, author_snapshot_in_database)
+  # Validates and writes the root, messages and answer links as one explicit operation.
+  def save_conversation!(thread)
+    self.class.transaction do
+      previous = conversation_payload(status_in_database, author_snapshot_in_database) if persisted?
+      thread_contract.validate!(thread, previous:)
+      self.status = thread.fetch("originalStatus")
+      self.author_snapshot = deleted_at ? nil : thread["originalAuthor"]
+      save!
+      save_messages(thread)
+    end
   end
 
   private
-
-  # Clears display history before the database checks the tombstone.
-  def clear_deleted_snapshot
-    return if deleted_at.nil?
-
-    self.author_snapshot = nil
-    self.thread_version = nil
-  end
 
   # Uses the root UUID to enforce conversation boundaries on both foreign keys of a reply link.
   def set_thread_identity
@@ -217,22 +187,9 @@ class ImprovementComment < ApplicationRecord
       end
       errors.add(:root, "cannot accept replies after deletion") if root&.deleted_at.present? && deleted_at.nil?
       errors.add(:position, "must be positive for a reply") unless position&.positive?
-      %i[build_id anchor capture note_revision note_status thread_version].each do |attribute|
+      %i[build_id anchor note_revision note_status].each do |attribute|
         errors.add(attribute, "must be absent for replies") if public_send(attribute).present?
       end
-    end
-    if body && body.bytesize > ReviewComment::BODY_MAXIMUM_BYTES
-      errors.add(:body, "must be #{ReviewComment::BODY_MAXIMUM_BYTES} UTF-8 bytes or fewer")
-    end
-    if role == "copilot"
-      errors.add(:author_snapshot, "must be absent for agent responses") if author_snapshot.present?
-      errors.add(:status, "must be ready or blocked") unless %w[ready blocked].include?(status)
-      if body && body.encode(Encoding::UTF_16LE).bytesize > 4_000
-        errors.add(:body, "must be 2000 UTF-16 code units or fewer")
-      end
-    end
-    if capture.present? && (capture.bytesize > 1_500_000 || !capture.match?(/\Adata:image\/png;base64,[A-Za-z0-9+\/]+=*\z/))
-      errors.add(:capture, "must be a bounded PNG capture")
     end
   end
 
@@ -244,21 +201,20 @@ class ImprovementComment < ApplicationRecord
     if deleted_at_in_database && will_save_change_to_deleted_at?
       errors.add(:deleted_at, "cannot change")
     end
-    return if root_comment? || deleted_at.present?
+    return if deleted_at.present?
 
     errors.add(:body, "cannot change") if will_save_change_to_body?
-    errors.add(:status, "cannot change on agent responses") if role == "copilot" && will_save_change_to_status?
     if author_snapshot_in_database.present? && will_save_change_to_author_snapshot?
       errors.add(:author_snapshot, "cannot change")
     end
+    if role == "copilot" && will_save_change_to_status?
+      errors.add(:status, "cannot change on agent responses")
+    end
   end
 
-  # Preserves exact wire order, including the order of requests answered by an agent.
-  def conversation_payload(version, original_status, original_author)
-    return if version.nil?
-
+  # Preserves conversation order, including the requests answered by each agent response.
+  def conversation_payload(original_status, original_author)
     payload = {
-      "version" => version,
       "originalStatus" => original_status,
       "messages" => replies.map do |message|
         value = { "id" => message.local_id, "role" => message.role, "body" => message.body, "status" => message.status }
@@ -272,15 +228,10 @@ class ImprovementComment < ApplicationRecord
   end
 
   # Persists validated message changes with the root's revision; deleted rows retain no text.
-  def save_conversation
+  def save_messages(thread)
     if deleted_at.present?
       replies.update_all(body: nil, author_snapshot: nil, deleted_at:, updated_at: Time.current)
-    elsif instance_variable_defined?(:@incoming_thread) && @incoming_thread
-      thread = @incoming_thread
-      update_columns \
-        thread_version: thread["version"],
-        status: thread["originalStatus"],
-        author_snapshot: thread["originalAuthor"]
+    else
       messages = { local_id => self }
       thread["messages"].each_with_index do |input, index|
         message = replies.find_or_initialize_by(local_id: input["id"])
@@ -297,7 +248,6 @@ class ImprovementComment < ApplicationRecord
         messages[message.local_id] = message
       end
     end
-    remove_instance_variable(:@incoming_thread) if instance_variable_defined?(:@incoming_thread)
     replies.reset
   end
 end
