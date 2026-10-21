@@ -162,10 +162,6 @@ export function PrototypeWorkspaceHeader({
         <span className="review-shell__controls-toolbar" ref={onControlsToolbarMount} />
       ) : null}
 
-      {!data.browseReplica && reviewControls ? (
-        <PrototypeReviewControls {...reviewControls} noBuild={!data.selectedBuild} />
-      ) : null}
-
       {!data.browseReplica && data.buildOptions.length > 0 ? (
         <div
           className="review-shell__build-menu"
@@ -263,6 +259,10 @@ export function PrototypeWorkspaceHeader({
             </ActionMenu.Overlay>
           </ActionMenu>
         </div>
+      ) : null}
+
+      {!data.browseReplica && reviewControls ? (
+        <PrototypeReviewControls {...reviewControls} noBuild={!data.selectedBuild} />
       ) : null}
 
       {!data.browseReplica ? (
