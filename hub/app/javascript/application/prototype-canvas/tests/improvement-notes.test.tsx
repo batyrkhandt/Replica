@@ -40,7 +40,7 @@ function receive(
   })
 }
 
-function savedNotesFixture() {
+function savedNotesFixture(captureFails = false) {
   const { fetch } = sharingFixture()
   const original = fetch.getMockImplementation()!
   const saved = {
@@ -52,6 +52,10 @@ function savedNotesFixture() {
   }
   fetch.mockImplementation(async (path, options) => {
     if (!path.startsWith("/api/improvement-notes")) return original(path, options)
+    if (path.endsWith("/capture"))
+      return captureFails
+        ? Response.json({ error: "Source capture unavailable." }, { status: 409 })
+        : Response.json({ identity: saved.identity, sourceId: "selected-source" })
     if (options?.method === "POST") {
       if (typeof options.body !== "string") throw new Error("Expected a JSON notes request.")
       const input: unknown = JSON.parse(options.body)
@@ -260,6 +264,7 @@ describe("App()", () => {
     })
     await waitFor(() => expect(annotate).toBeEnabled())
     fireEvent.click(annotate)
+    await waitFor(() => expect(annotate).toHaveAttribute("aria-pressed", "true"))
     receive(frame, { type: "replica:canvas:selected", anchor })
     const composer = within(screen.getByRole("dialog", { name: copy.add }))
     fireEvent.change(composer.getByRole("textbox", { name: copy.label }), {
@@ -325,7 +330,7 @@ describe("App()", () => {
     fireEvent.click(screen.getByRole("button", { name: threadCopy.close }))
     expect(screen.queryByRole("button", { name: threadCopy.point(1) })).not.toBeInTheDocument()
     fireEvent.click(picker)
-    expect(picker).toHaveAttribute("aria-pressed", "true")
+    await waitFor(() => expect(picker).toHaveAttribute("aria-pressed", "true"))
     expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
     const marker = screen.getByRole("button", { name: threadCopy.point(1) })
     expect(marker).toBeVisible()
@@ -350,6 +355,7 @@ describe("App()", () => {
     fireEvent.click(picker)
     expect(screen.queryByRole("button", { name: threadCopy.point(1) })).not.toBeInTheDocument()
     fireEvent.click(picker)
+    await waitFor(() => expect(picker).toHaveAttribute("aria-pressed", "true"))
     expect(screen.getByRole("button", { name: threadCopy.point(1) })).toBeVisible()
     receive(frame, { type: "replica:canvas:resolved", results: [] })
     expect(screen.queryByRole("button", { name: threadCopy.point(1) })).not.toBeInTheDocument()
@@ -476,6 +482,7 @@ describe("App()", () => {
       await waitFor(() => expect(annotate).toBeEnabled())
       const post = vi.spyOn(frame.contentWindow!, "postMessage")
       fireEvent.click(annotate)
+      await waitFor(() => expect(annotate).toHaveAttribute("aria-pressed", "true"))
       expect(post).toHaveBeenCalledWith(
         { type: "replica:canvas:select", nonce, mode: "improvement" },
         previewOrigin,
@@ -560,13 +567,50 @@ describe("App()", () => {
         .filter(([, options]) => options?.method === "POST")
         .slice(initialWrites.length)
       expect(writes.map(([path]) => path)).toEqual([
+        "/api/improvement-notes/capture",
         "/api/improvement-notes",
         "/api/improvement-notes/fix",
       ])
+      const savedBody = writes.find(([path]) => path === "/api/improvement-notes")?.[1]?.body
+      if (typeof savedBody !== "string") throw new Error("Expected a serialized improvement.")
+      expect(JSON.parse(savedBody)).toMatchObject({ sourceId: "selected-source", anchor })
       expect(saved.notes[0]).toMatchObject({ capture: "", anchor, body: "Clarify this action." })
       view.unmount()
     },
   )
+
+  it("explains capture failure while still allowing an improvement to be saved privately", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+    const { fetch, saved } = savedNotesFixture(true)
+    render(
+      <App config={{ name: "Demo", prototypeUrl: origin, token: "local", pickAndPolish: true }} />,
+    )
+    const frame = screen.getByTitle("Demo prototype")
+    if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
+    const picker = await screen.findByRole("button", { name: copy.annotate })
+    receive(frame, {
+      type: "replica:canvas:ready",
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
+    await waitFor(() => expect(picker).toBeEnabled())
+    fireEvent.click(picker)
+    await waitFor(() => expect(picker).toHaveAttribute("aria-pressed", "true"))
+    receive(frame, { type: "replica:canvas:selected", anchor })
+    const composer = within(screen.getByRole("dialog", { name: copy.add }))
+    expect(composer.getByRole("alert")).toHaveTextContent(copy.sourceUnavailable)
+    fireEvent.change(composer.getByRole("textbox", { name: copy.label }), {
+      target: { value: "Keep this private local request" },
+    })
+    fireEvent.click(composer.getByRole("button", { name: copy.save }))
+    await waitFor(() => expect(saved.notes).toHaveLength(1))
+    const write = fetch.mock.calls.find(
+      ([path, options]) => path === "/api/improvement-notes" && options?.method === "POST",
+    )
+    if (typeof write?.[1]?.body !== "string") throw new Error("Expected a local save.")
+    expect(JSON.parse(write[1].body)).not.toHaveProperty("sourceId")
+  })
 
   it("preserves images already stored with saved notes", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)

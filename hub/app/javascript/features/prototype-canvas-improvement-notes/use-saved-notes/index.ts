@@ -132,5 +132,18 @@ export function useSavedNotes(token: string | undefined) {
     }
   }
 
-  return { state, error: error || refreshError, busy, change }
+  async function capture(): Promise<{ identity: string; sourceId: string } | null> {
+    if (!token) return null
+    setError("")
+    try {
+      return await request("/api/improvement-notes/capture", token, { method: "POST" })
+    } catch (problem) {
+      setError(
+        `${problem instanceof Error ? problem.message : String(problem)} ${copy.sourceUnavailable}`,
+      )
+      return null
+    }
+  }
+
+  return { state, error: error || refreshError, busy, change, capture }
 }

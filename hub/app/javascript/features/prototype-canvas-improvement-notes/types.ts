@@ -51,4 +51,4 @@ export type Note = {
 export type Selection = Pick<
   Note,
   "route" | "target" | "selector" | "rect" | "capture" | "anchor" | "capturePlaceholder"
-> & { identity?: string; noteRevision?: number; originalBody?: string }
+> & { identity?: string; sourceId?: string; noteRevision?: number; originalBody?: string }

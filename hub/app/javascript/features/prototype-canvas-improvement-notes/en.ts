@@ -11,6 +11,8 @@ export const copy = {
   bridgeUnavailable:
     "Annotation needs the updated Replica preview bridge. Reconnect or reload the preview after updating the canvas.",
   capturePlaceholder: "UI-only capture placeholder",
+  sourceUnavailable:
+    "You can still save this improvement locally, but it cannot sync without a captured source.",
   annotate: "Pick & polish",
   fix: "Fix all",
   openNotes: (count: number) => `Open improvement notes (${count})`,

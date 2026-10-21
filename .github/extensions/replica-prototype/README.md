@@ -70,6 +70,8 @@ Contributors can load uncommitted changes from a local Replica checkout with `co
 
 ## Pick & polish
 
+New improvements remain local until their captured source matches a successful published Build, including on branches with an older Build. Target selection captures the source without changing the real Git index. Capture failures and older notes without provenance still allow local use but cannot synchronize. Once uploaded, later changes retain the original Build identity and remain private owner notes.
+
 **Fix all** invokes the bundled, model-discoverable [`/replica-pick-and-polish` skill](skills/replica-pick-and-polish/SKILL.md) with the verified checkout, branch, batch ID, and thread count. Notes, conversation history, and images are retrieved separately from the immutable batch. When the skill is missing or disabled, or the runtime has no skill catalog, the request includes the same bundled procedure inline. Catalog or fallback-file errors stop preparation without sending work or leaving a batch awaiting results. See the [Pick & polish guide](../../../hub/docs/prototype-canvas.md#pick--polish) for saved-note and recovery behavior.
 
 ## Learnings

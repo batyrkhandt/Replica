@@ -36,6 +36,9 @@ describe("startCanvasServer()", () => {
         const headers = { "X-Replica-Canvas-Token": token }
         const endpoint = new URL("/api/improvement-notes", canvas.url)
         assert.equal((await fetch(endpoint)).status, 403)
+        const captureEndpoint = new URL("/api/improvement-notes/capture", canvas.url)
+        assert.equal((await fetch(captureEndpoint, { method: "POST" })).status, 403)
+        const captured = await (await fetch(captureEndpoint, { method: "POST", headers })).json()
         const state = await (await fetch(endpoint, { headers })).json()
         const response = await fetch(endpoint, {
           method: "POST",
@@ -44,6 +47,7 @@ describe("startCanvasServer()", () => {
             identity: state.identity,
             revision: state.revision,
             operation: "create",
+            sourceId: captured.sourceId,
             body: "Improve the selected button.",
             anchor: {
               schemaVersion: 1,
@@ -61,6 +65,7 @@ describe("startCanvasServer()", () => {
         })
         const saved = await response.json()
         assert.equal(response.status, 200, JSON.stringify(saved))
+        assert.match(saved.notes[0].source.treeSha, /^[0-9a-f]{40}$/)
         await canvas.close()
         canvas = await startCanvasServer(context, { send: assert.fail }, options)
         const reopenedHtml = await (await fetch(canvas.url)).text()

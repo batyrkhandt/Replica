@@ -74,6 +74,12 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
   const notes = canvas?.token ? (saved.state?.notes ?? []) : demoNotes
   const [route, setRoute] = useState<Route>("/projects")
   const [annotating, setAnnotating] = useState(false)
+  const [capturingSource, setCapturingSource] = useState(false)
+  const [selectedSource, setSelectedSource] = useState<{
+    identity: string
+    sourceId: string
+  } | null>(null)
+  const captureGeneration = useRef(0)
   const [panelOpen, setPanelOpen] = useState(true)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [editing, setEditing] = useState<number | null>(null)
@@ -140,7 +146,8 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
       const target =
         anchor.kind === "element" ? anchor.accessibleName || anchor.tagName : copy.regionTarget
       setSelection({
-        identity: saved.state?.identity,
+        identity: selectedSource?.identity ?? saved.state?.identity,
+        sourceId: selectedSource?.sourceId,
         anchor,
         route: anchor.route.pathname + anchor.route.search + anchor.route.hash,
         target,
@@ -152,12 +159,28 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
       setEditing(null)
       setDraft("")
     },
-    [saved.state?.identity],
+    [saved.state?.identity, selectedSource],
   )
   const cancelPreviewSelection = useCallback(() => {
+    captureGeneration.current++
+    setCapturingSource(false)
     if (annotateRef.current?.getAttribute("aria-pressed") === "true") annotateRef.current.focus()
     setAnnotating(false)
   }, [])
+  async function beginSelection() {
+    const generation = ++captureGeneration.current
+    setCapturingSource(true)
+    const source = canvas?.token ? await saved.capture() : null
+    if (generation !== captureGeneration.current) return
+    setCapturingSource(false)
+    setSelectedSource(source)
+    setAnnotating(true)
+    setPanelOpen(false)
+    setMessage(copy.selectHint)
+    setRegionMode(false)
+    setFirstCorner(null)
+    setDragRect(null)
+  }
   const canvasFrameRef = canvas?.frameRef
   const preview = usePreviewSelection({
     frameRef: canvasFrameRef,
@@ -246,6 +269,7 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
     }
     setSelection(null)
     setEditing(null)
+    if (canvas?.token) cancelPreviewSelection()
   }
 
   async function save() {
@@ -259,6 +283,7 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
         !(await saved.change(editing === null ? "create" : "edit", {
           id: editing,
           identity: selection.identity,
+          sourceId: selection.sourceId,
           expectedNoteRevision: selection.noteRevision,
           body: draft.trim(),
           anchor: selection.anchor,
@@ -268,6 +293,7 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
         return
       setFilter("active")
       openNotes()
+      cancelPreviewSelection()
       setSelection(null)
       setEditing(null)
       setMessage(copy.saved)
@@ -376,16 +402,13 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
           title={copy.annotate}
           leadingVisual={<CrosshairsIcon />}
           aria-pressed={annotating}
-          disabled={embedded && (!preview.ready || (Boolean(canvas?.token) && !saved.state))}
+          disabled={
+            capturingSource ||
+            (embedded && (!preview.ready || (Boolean(canvas?.token) && !saved.state)))
+          }
           onClick={() => {
-            setAnnotating(!annotating)
-            if (!annotating) {
-              setPanelOpen(false)
-              setMessage(copy.selectHint)
-            }
-            setRegionMode(false)
-            setFirstCorner(null)
-            setDragRect(null)
+            if (annotating) cancelPreviewSelection()
+            else void beginSelection()
           }}
         >
           <span className="canvas-toolbar-button-label">{copy.annotate}</span>
@@ -859,10 +882,11 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
                         size="small"
                         variant="secondary"
                         leadingVisual={<CrosshairsIcon />}
-                        disabled={embedded && (!preview.ready || !notesAvailable)}
+                        disabled={
+                          capturingSource || (embedded && (!preview.ready || !notesAvailable))
+                        }
                         onClick={() => {
-                          setAnnotating(true)
-                          setPanelOpen(false)
+                          void beginSelection()
                           annotateRef.current?.focus()
                         }}
                       >
@@ -1203,6 +1227,7 @@ export function ImprovementNotesPrototype({ initial = "empty", canvas }: Props) 
                 setSelection(null)
                 setEditing(null)
                 setDraft("")
+                if (canvas?.token) cancelPreviewSelection()
               }}
             >
               {copy.discard}
