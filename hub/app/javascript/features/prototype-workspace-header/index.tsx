@@ -10,7 +10,7 @@ import {
   SunIcon,
   XIcon,
 } from "@primer/octicons-react"
-import { ActionMenu, Button, Tooltip } from "@primer/react-brand"
+import { ActionMenu, Tooltip } from "@primer/react-brand"
 import { NavigationContext } from "@thoughtbot/superglue"
 import { useContext, useState } from "react"
 import type { CSSProperties, KeyboardEvent, MouseEvent } from "react"
@@ -301,22 +301,18 @@ export function PrototypeWorkspaceHeader({
       ) : null}
 
       <div className="review-shell__actions-scroller">
-        <Tooltip text={data.closeLabel} type="description">
-          <Button
-            as="a"
-            href={data.closePath ? controlPath(data.closePath) : data.repositoryPath}
-            data-sg-visit="true"
-            aria-label={
-              data.closePath ? data.closeLabel : "Close and return to the prototype gallery"
-            }
-            variant="secondary"
-            size="small"
-            className="review-shell__close-action"
-            trailingVisual={<XIcon />}
-          >
-            <span className="review-shell__action-label">{data.closeLabel}</span>
-          </Button>
-        </Tooltip>
+        <HubIconButton
+          as="a"
+          href={data.closePath ? controlPath(data.closePath) : data.repositoryPath}
+          icon={XIcon}
+          size="small"
+          className="review-shell__close-action"
+          data-sg-visit="true"
+          aria-label={
+            data.closePath ? data.closeLabel : "Close and return to the prototype gallery"
+          }
+          description={data.closeLabel}
+        />
       </div>
     </PrototypeWorkspaceHeaderLayout>
   )
