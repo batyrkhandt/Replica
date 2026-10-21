@@ -8,7 +8,10 @@ import { createLocalReviewComments } from "./index.mjs"
 import { withContext } from "../test-support/with-context/index.mjs"
 
 function git(context, ...args) {
-  return execFileSync("git", args, { cwd: context.repositoryPath, encoding: "utf8" }).trim()
+  return execFileSync("git", args, {
+    cwd: context.repositoryPath,
+    encoding: "utf8",
+  }).trim()
 }
 
 function revision(context) {
@@ -32,16 +35,23 @@ function build(context) {
   }
 }
 
-describe("createLocalReviewComments()", () => {
-  it("persists local edits and deletion across instances", async () => {
-    const scope = {
+function fixture(context) {
+  return {
+    scope: {
       hubOrigin: "https://hub.example.com",
       repository: "github/replica",
       branch: "prototype",
       viewerLogin: "octocat",
-    }
+    },
+    comments: localComments(context),
+    captured: revision(context),
+  }
+}
+
+describe("createLocalReviewComments()", () => {
+  it("persists local edits and deletion across instances", async () => {
     await withContext(async (context) => {
-      const captured = revision(context)
+      const { scope, captured } = fixture(context)
       const anchor = { schemaVersion: 1, kind: "element", selector: "#save" }
       const created = await localComments(context).create(scope, captured, {
         body: "Keep this selection",
@@ -57,15 +67,8 @@ describe("createLocalReviewComments()", () => {
   })
 
   it("isolates comments by Hub, repository, branch and reviewer", async () => {
-    const scope = {
-      hubOrigin: "https://hub.example.com",
-      repository: "github/replica",
-      branch: "prototype",
-      viewerLogin: "octocat",
-    }
     await withContext(async (context) => {
-      const comments = localComments(context)
-      const captured = revision(context)
+      const { comments, captured, scope } = fixture(context)
       const original = await comments.create(scope, captured, {
         body: "Original reviewer",
         anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
@@ -84,22 +87,25 @@ describe("createLocalReviewComments()", () => {
   })
 
   it("uploads only matching source to an imported Build even when its commit differs", async () => {
-    const scope = {
-      hubOrigin: "https://hub.example.com",
-      repository: "github/replica",
-      branch: "prototype",
-      viewerLogin: "octocat",
-    }
     await withContext(async (context) => {
-      const comments = localComments(context)
-      const captured = revision(context)
+      const { comments, captured, scope } = fixture(context)
       const originalCommit = git(context, "rev-parse", "HEAD")
-      const anchor = { schemaVersion: 1, kind: "element", selector: "#original" }
-      await comments.create(scope, captured, { body: "Matching source", anchor })
+      const anchor = {
+        schemaVersion: 1,
+        kind: "element",
+        selector: "#original",
+      }
+      await comments.create(scope, captured, {
+        body: "Matching source",
+        anchor,
+      })
       await writeFile(path.join(context.repositoryPath, "new.txt"), "Different source")
       git(context, "add", "new.txt")
       const otherTree = git(context, "write-tree")
-      const other = { id: Number.parseInt(otherTree.slice(0, 12), 16), treeSha: otherTree }
+      const other = {
+        id: Number.parseInt(otherTree.slice(0, 12), 16),
+        treeSha: otherTree,
+      }
       const retained = await comments.create(scope, other, {
         body: "Not in this Build",
         anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
@@ -124,7 +130,9 @@ describe("createLocalReviewComments()", () => {
       await comments.sync(scope, imported, {
         async request(route, options) {
           requests.push({ route, options })
-          return { comments: [{ id: 900, kind: "root", buildNumber: imported.number }] }
+          return {
+            comments: [{ id: 900, kind: "root", buildNumber: imported.number }],
+          }
         },
       })
       assert.equal(requests.length, 1)
@@ -156,16 +164,10 @@ describe("createLocalReviewComments()", () => {
   })
 
   it("does not attach new feedback to an older Build with the same source tree", async () => {
-    const scope = {
-      hubOrigin: "https://hub.example.com",
-      repository: "github/replica",
-      branch: "prototype",
-      viewerLogin: "octocat",
-    }
     await withContext(async (context) => {
-      const comments = localComments(context)
+      const { comments, captured, scope } = fixture(context)
       const imported = build(context)
-      const draft = await comments.create(scope, revision(context), {
+      const draft = await comments.create(scope, captured, {
         body: "Feedback captured after the old Build",
         anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
       })
@@ -186,19 +188,15 @@ describe("createLocalReviewComments()", () => {
   })
 
   it("retains rejected uploads for a later retry and propagates the Hub error", async () => {
-    const scope = {
-      hubOrigin: "https://hub.example.com",
-      repository: "github/replica",
-      branch: "prototype",
-      viewerLogin: "octocat",
-    }
     await withContext(async (context) => {
-      const comments = localComments(context)
-      const draft = await comments.create(scope, revision(context), {
+      const { comments, captured, scope } = fixture(context)
+      const draft = await comments.create(scope, captured, {
         body: "Retry this feedback",
         anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
       })
-      const failure = Object.assign(new Error("Hub denied the request"), { statusCode: 403 })
+      const failure = Object.assign(new Error("Hub denied the request"), {
+        statusCode: 403,
+      })
       await assert.rejects(
         comments.sync(scope, build(context), {
           async request() {
@@ -221,15 +219,8 @@ describe("createLocalReviewComments()", () => {
   })
 
   it("keeps previous Prototype feedback separate even when a new history has the same source", async () => {
-    const scope = {
-      hubOrigin: "https://hub.example.com",
-      repository: "github/replica",
-      branch: "prototype",
-      viewerLogin: "octocat",
-    }
     await withContext(async (context) => {
-      const comments = localComments(context)
-      const captured = revision(context)
+      const { comments, captured, scope } = fixture(context)
       const previous = await comments.create(
         scope,
         { ...captured, prototypeId: 4 },
@@ -253,7 +244,9 @@ describe("createLocalReviewComments()", () => {
           uploads += 1
           assert.equal(route, "/api/canvas/repositories/5/prototypes/9/review_comments")
           assert.equal(options.body.review_comment.body, "Feedback for the current history")
-          return { comments: [{ id: 904, kind: "root", buildNumber: imported.number }] }
+          return {
+            comments: [{ id: 904, kind: "root", buildNumber: imported.number }],
+          }
         },
       })
       assert.equal(uploads, 1)
@@ -262,15 +255,9 @@ describe("createLocalReviewComments()", () => {
   })
 
   it("reconciles an ambiguous upload to its original Build after a newer Build arrives", async () => {
-    const scope = {
-      hubOrigin: "https://hub.example.com",
-      repository: "github/replica",
-      branch: "prototype",
-      viewerLogin: "octocat",
-    }
     await withContext(async (context) => {
-      const comments = localComments(context)
-      const draft = await comments.create(scope, revision(context), {
+      const { comments, captured, scope } = fixture(context)
+      const draft = await comments.create(scope, captured, {
         body: "Response was lost",
         anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
       })
