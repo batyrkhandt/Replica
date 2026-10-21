@@ -156,7 +156,6 @@ describe("ShareLinksIndexPage()", () => {
     expect(screen.getByLabelText("Label")).toHaveAttribute("maxlength", "100")
     expect(screen.getByLabelText("Expires after")).toHaveValue("seven_days")
     expect(container.querySelector('input[name="share_link[build_number]"]')).toHaveValue("2")
-    expect(container.querySelector('input[name="management_build"]')).toHaveValue("2")
     const form = screen.getByLabelText("Label").closest("form")
     expect(form).toHaveAttribute("action", PAGE_DATA.form.createPath)
     expect(form).toHaveAttribute("method", "post")
@@ -165,6 +164,15 @@ describe("ShareLinksIndexPage()", () => {
     )
     expect(form?.querySelector('input[name="management_build"]')).toHaveValue("2")
     expect(screen.getByRole("button", { name: "Create share link" })).toBeInTheDocument()
+  })
+
+  it("omits management selection from every default-view mutation form", () => {
+    const { container } = render(
+      <ShareLinksIndexPage data={{ ...PAGE_DATA, managementBuildNumber: undefined }} />,
+      { wrapper: HubThemeProvider },
+    )
+
+    expect(container.querySelectorAll('input[name="management_build"]')).toHaveLength(0)
   })
 
   it("shows verification success and leaves creation to the user", () => {
@@ -227,6 +235,7 @@ describe("ShareLinksIndexPage()", () => {
     expect(form?.querySelector('input[name="authenticity_token"]')).toHaveValue(
       PAGE_DATA.authenticityToken,
     )
+    expect(form?.querySelector('input[name="management_build"]')).toHaveValue("2")
     expect(fireEvent.submit(form!)).toBe(false)
     expect(fireEvent.submit(form!)).toBe(true)
     expect(confirm).toHaveBeenCalledWith(link.deletePrompt)

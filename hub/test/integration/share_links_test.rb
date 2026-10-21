@@ -171,6 +171,49 @@ class ShareLinksTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "fresh authorization returns to Controls with the same default or explicit Build selection" do
+    control_query = URI.encode_www_form("rc.page.title" => '"Configured"')
+    session = Session.order(:id).last
+    session.update!(fresh_authorized_at: FreshAuthorization::FRESHNESS.ago)
+    assert_not FreshAuthorization.fresh?(session)
+
+    with_share_link_maximum_lifetime(nil) do
+      assert_no_difference "ShareLink.count" do
+        post @path, params: {
+          control_query:,
+          share_link: { build_number: @build.number, label: "Default proof", expiration: "never" }
+        }
+      end
+      default_challenge = FreshAuthorization.order(:id).last
+      assert_redirected_to fresh_authorization_path(default_challenge.public_id)
+      assert_equal \
+        repository_prototype_share_links_path(
+          @repository.github_id,
+          @prototype,
+          "rc.page.title" => '"Configured"'
+        ),
+        default_challenge.return_to
+
+      assert_no_difference "ShareLink.count" do
+        post @path, params: {
+          control_query:,
+          management_build: @build.number,
+          share_link: { build_number: @build.number, label: "Pinned proof", expiration: "never" }
+        }
+      end
+      pinned_challenge = FreshAuthorization.order(:id).last
+      assert_redirected_to fresh_authorization_path(pinned_challenge.public_id)
+      assert_equal \
+        repository_prototype_share_links_path(
+          @repository.github_id,
+          @prototype,
+          build: @build.number,
+          "rc.page.title" => '"Configured"'
+        ),
+        pinned_challenge.return_to
+    end
+  end
+
   test "lets an author of an older successful Build share the selected Build" do
     newer = builds.create_successful \
       prototype: @prototype,
