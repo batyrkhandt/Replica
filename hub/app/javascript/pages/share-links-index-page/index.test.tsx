@@ -17,6 +17,7 @@ const PAGE_DATA: ShareLinksIndexPageData = {
     ...story.args.data.form,
     buildLabel: "Build 2",
   },
+  managementBuildNumber: 2,
   buildOptions: [
     {
       number: 2,
@@ -155,12 +156,14 @@ describe("ShareLinksIndexPage()", () => {
     expect(screen.getByLabelText("Label")).toHaveAttribute("maxlength", "100")
     expect(screen.getByLabelText("Expires after")).toHaveValue("seven_days")
     expect(container.querySelector('input[name="share_link[build_number]"]')).toHaveValue("2")
+    expect(container.querySelector('input[name="management_build"]')).toHaveValue("2")
     const form = screen.getByLabelText("Label").closest("form")
     expect(form).toHaveAttribute("action", PAGE_DATA.form.createPath)
     expect(form).toHaveAttribute("method", "post")
     expect(form?.querySelector('input[name="authenticity_token"]')).toHaveValue(
       PAGE_DATA.authenticityToken,
     )
+    expect(form?.querySelector('input[name="management_build"]')).toHaveValue("2")
     expect(screen.getByRole("button", { name: "Create share link" })).toBeInTheDocument()
   })
 

@@ -20,6 +20,7 @@ json.signedInAsLabel t("authenticated.signed_in_as", login: Current.user.login)
 json.signOutPath session_path
 json.authenticityToken form_authenticity_token
 json.controlSettingsIdentity "#{@repository.route_id}:#{@prototype.id}"
+json.managementBuildNumber @selected_build.number if params.key?(:build) && @selected_build
 json.controlSettingsCopy do
   json.label t("share_links.index.controls.label")
   json.description t("share_links.index.controls.description")

@@ -11,12 +11,12 @@ class ShareLinksTest < ActionDispatch::IntegrationTest
     }
     link = ShareLink.find_by!(label: "Configured")
     assert_redirected_to repository_prototype_share_links_path(
-      @repository.github_id, @prototype, build: @build.number, "rc.page.title" => '"Configured"'
+      @repository.github_id, @prototype, "rc.page.title" => '"Configured"'
     )
     delete repository_prototype_share_link_path(@repository.github_id, @prototype, link),
       params: { control_query: control_query }
     assert_redirected_to repository_prototype_share_links_path(
-      @repository.github_id, @prototype, build: @build.number, "rc.page.title" => '"Configured"'
+      @repository.github_id, @prototype, "rc.page.title" => '"Configured"'
     )
   end
 
@@ -102,6 +102,7 @@ class ShareLinksTest < ActionDispatch::IntegrationTest
 
       post @path,
         params: {
+          management_build: @build.number,
           share_link: {
             build_number: @build.number,
             label: "Usability review",
@@ -121,7 +122,8 @@ class ShareLinksTest < ActionDispatch::IntegrationTest
       follow_redirect!
       assert_includes response.body, shared_build_path(share_link.public_id)
 
-      delete repository_prototype_share_link_path(@repository.github_id, @prototype, share_link)
+      delete repository_prototype_share_link_path(@repository.github_id, @prototype, share_link),
+        params: { management_build: @build.number }
 
       assert_redirected_to repository_prototype_share_links_path \
         @repository.github_id,
@@ -234,6 +236,7 @@ class ShareLinksTest < ActionDispatch::IntegrationTest
     assert_equal repository_prototype_path(@repository.github_id, @prototype), data.fetch("branchPath")
     assert_equal data.fetch("branchPath"), data.fetch("closePath")
     assert_equal @path, data.fetch("shareLinksPath")
+    assert_not data.key?("managementBuildNumber")
 
     get @path, params: { build: older.number }, headers: { "Accept" => "application/json" }
 
@@ -252,6 +255,7 @@ class ShareLinksTest < ActionDispatch::IntegrationTest
       repository_prototype_path(@repository.github_id, @prototype, build: older.number),
       data.fetch("closePath")
     assert_equal @path + "?build=#{older.number}", data.fetch("shareLinksPath")
+    assert_equal older.number, data.fetch("managementBuildNumber")
     assert_equal %w[detailsLabel detailsPath number], data.fetch("selectedBuild").keys.sort
     assert_not data.key?("reviewComments")
   end
@@ -322,10 +326,56 @@ class ShareLinksTest < ActionDispatch::IntegrationTest
       end
       assert_redirected_to repository_prototype_share_links_path \
         @repository.github_id,
-        @prototype,
-        build: @build.number
+        @prototype
       assert flash[:alert].present?
     end
+  end
+
+  test "keeps default mutations unpinned and explicit management selections pinned" do
+    newer = builds.create_successful \
+      prototype: @prototype,
+      number: 2,
+      commit_sha: "b" * 40
+
+    post @path, params: {
+      share_link: { build_number: @build.number, label: "Default management" }
+    }
+    default_link = ShareLink.find_by!(label: "Default management")
+    assert_redirected_to @path
+    follow_redirect!(headers: { "Accept" => "application/json" })
+    default_data = JSON.parse(response.body).fetch("data")
+    assert_equal newer.number, default_data.fetch("selectedBuild").fetch("number")
+    assert_equal repository_prototype_path(@repository.github_id, @prototype),
+      default_data.fetch("closePath")
+
+    delete repository_prototype_share_link_path(@repository.github_id, @prototype, default_link)
+    assert_redirected_to @path
+    follow_redirect!(headers: { "Accept" => "application/json" })
+    assert_equal repository_prototype_path(@repository.github_id, @prototype),
+      JSON.parse(response.body).fetch("data").fetch("closePath")
+
+    post @path, params: {
+      management_build: @build.number,
+      share_link: { build_number: newer.number, label: "Pinned management" }
+    }
+    pinned_link = ShareLink.find_by!(label: "Pinned management")
+    pinned_path = repository_prototype_share_links_path \
+      @repository.github_id,
+      @prototype,
+      build: @build.number
+    assert_redirected_to pinned_path
+    follow_redirect!(headers: { "Accept" => "application/json" })
+    pinned_data = JSON.parse(response.body).fetch("data")
+    assert_equal @build.number, pinned_data.fetch("selectedBuild").fetch("number")
+    assert_equal repository_prototype_path(@repository.github_id, @prototype, build: @build.number),
+      pinned_data.fetch("closePath")
+
+    delete repository_prototype_share_link_path(@repository.github_id, @prototype, pinned_link),
+      params: { management_build: @build.number }
+    assert_redirected_to pinned_path
+    follow_redirect!(headers: { "Accept" => "application/json" })
+    assert_equal repository_prototype_path(@repository.github_id, @prototype, build: @build.number),
+      JSON.parse(response.body).fetch("data").fetch("closePath")
   end
 
   private
