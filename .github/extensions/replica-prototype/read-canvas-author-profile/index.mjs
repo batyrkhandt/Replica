@@ -1,9 +1,10 @@
 import { runCommand } from "../run-command/index.mjs"
 import { readCanvasRepository } from "../read-canvas-repository/index.mjs"
+import { githubLoginPattern } from "../identity-patterns/index.mjs"
 
 export async function readCanvasAuthorProfile(context, login, command = runCommand) {
   const repository = await readCanvasRepository(context)
-  if (!repository.githubRepository || !/^[a-z0-9][a-z0-9-]{0,38}$/i.test(login))
+  if (!repository.githubRepository || typeof login !== "string" || !githubLoginPattern.test(login))
     return {
       avatarUrl: null,
       error: "The connected author's GitHub profile is unavailable.",

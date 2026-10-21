@@ -6,6 +6,7 @@ import { readCanvasRepository } from "../read-canvas-repository/index.mjs"
 import { runCommand } from "../run-command/index.mjs"
 import { createPrivateStore } from "../private-store/index.mjs"
 import { normalizeHubOrigin } from "../normalize-hub-origin/index.mjs"
+import { githubLoginPattern } from "../identity-patterns/index.mjs"
 
 function registrationReason(value) {
   if (value == null) return undefined
@@ -20,7 +21,7 @@ function connectionViewer(connection) {
     !Number.isSafeInteger(connection.viewerId) ||
     connection.viewerId < 1 ||
     typeof connection.viewerLogin !== "string" ||
-    !/^[a-z0-9][a-z0-9-]{0,38}$/i.test(connection.viewerLogin)
+    !githubLoginPattern.test(connection.viewerLogin)
   )
     throw new Error("Hub returned an invalid connected author.")
   return { viewerId: connection.viewerId, viewerLogin: connection.viewerLogin }

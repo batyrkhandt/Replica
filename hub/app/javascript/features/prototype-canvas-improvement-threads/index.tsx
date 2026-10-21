@@ -515,13 +515,6 @@ export function ImprovementThreads({
                   <span aria-hidden="true">·</span>
                   <code>{item.path}</code>
                 </div>
-                {item.capture ? (
-                  <img
-                    className="thread-sample__capture"
-                    src={item.capture}
-                    alt={`${copy.capture}: ${item.target}`}
-                  />
-                ) : null}
                 {count > 0 ? (
                   <span className="thread-sample__follow-ups">
                     <ReplyIcon size={12} aria-hidden="true" />

@@ -9,7 +9,6 @@ export const copy = {
   back: "Close improvement",
   copilot: "Copilot",
   markResolved: "Mark as resolved",
-  capture: "Captured target",
   retry: "Retry",
   returnToActive: "Return to active",
   followUps: (count: number) => `${count} ${count === 1 ? "follow-up" : "follow-ups"}`,

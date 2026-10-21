@@ -102,7 +102,12 @@ async function fixture(run) {
           return {
             ...response,
             ...(response.notes
-              ? { notes: response.notes.map((note) => ({ buildNumber: 1, ...note })) }
+              ? {
+                  notes: response.notes.map((note) => ({
+                    buildNumber: 1,
+                    ...note,
+                  })),
+                }
               : {}),
           }
         },
@@ -134,16 +139,53 @@ async function fixture(run) {
   }
 }
 
-it("keeps notes across provider restarts and sessions without committing them", async () => {
-  await fixture(async ({ create, context, anchor }) => {
+it("keeps more than 200 retained notes across provider restarts and sessions", async () => {
+  await fixture(async ({ create, context, anchor, directory }) => {
     const first = create()
     const state = await first.load()
-    const saved = await first.save({
+    let saved = await first.save({
       ...state,
       operation: "create",
       body: "Clarify Save",
       anchor,
     })
+    assert.deepEqual(saved.notes[0].thread, {
+      originalStatus: "open",
+      messages: [],
+    })
+    const filename = path.join(directory, "notes", `${saved.identity}.json`)
+    const record = JSON.parse(await readFile(filename, "utf8"))
+    assert.equal("version" in record, false)
+    record.notes = Array.from({ length: 201 }, (_, index) => ({
+      ...structuredClone(record.notes[0]),
+      id: index + 1,
+      localId: randomUUID(),
+    }))
+    record.notes[0].deleted = true
+    record.nextId = 202
+    await writeFile(filename, JSON.stringify(record), { mode: 0o600 })
+    saved = await first.save({
+      ...(await first.load()),
+      operation: "create",
+      body: "One more note",
+      anchor,
+    })
+    assert.equal(saved.notes.length, 201)
+    assert.equal(JSON.parse(await readFile(filename, "utf8")).notes.length, 202)
+    saved = await first.fix(saved)
+    const batch = await first.batch({ batchId: saved.activeBatch })
+    assert.equal(batch.notes.length, 201)
+    await first.results({
+      batchId: batch.id,
+      results: batch.notes.map(({ localId, revision }) => ({
+        localId,
+        revision,
+        status: "ready",
+        message: "Completed",
+      })),
+    })
+    saved = await first.load()
+    assert.ok(saved.notes.every(({ status }) => status === "ready"))
     context.sessionId = "another-conversation"
     context.sessionWorkspacePath = path.join(context.sessionWorkspacePath, "another")
     assert.deepEqual((await create().load()).notes, saved.notes)
@@ -171,7 +213,7 @@ it("publishes only the selected source after its Build imports and retains that 
         },
       }),
       request: async (_url, options) => {
-        if (options.method !== "POST") return { threadVersion: 2, notes: [] }
+        if (options.method !== "POST") return { notes: [] }
         writes.push(structuredClone(options.body))
         return {
           localId: options.body.local_id,
@@ -271,7 +313,7 @@ it("publishes only the selected source after its Build imports and retains that 
   })
 })
 
-it("keeps legacy notes without captured provenance local instead of assigning the current source", async () => {
+it("keeps notes without captured provenance local instead of assigning the current source", async () => {
   await fixture(async ({ create, anchor, root, exec }) => {
     const commitSha = (await exec("git", ["-C", root, "rev-parse", "HEAD"])).stdout.trim()
     let uploads = 0
@@ -286,11 +328,15 @@ it("keeps legacy notes without captured provenance local instead of assigning th
           repositoryId: 9,
           viewerLogin: "octocat",
           viewerId: 1,
-          build: { number: 1, commitSha, publishedAt: new Date().toISOString() },
+          build: {
+            number: 1,
+            commitSha,
+            publishedAt: new Date().toISOString(),
+          },
         },
       }),
       request: async (_url, options) => {
-        if (options.method !== "POST") return { threadVersion: 2, notes: [] }
+        if (options.method !== "POST") return { notes: [] }
         uploads++
         return {}
       },
@@ -299,7 +345,7 @@ it("keeps legacy notes without captured provenance local instead of assigning th
     let state = await store.save({
       ...(await store.load()),
       operation: "create",
-      body: "Saved by an older client",
+      body: "Saved without source capture",
       anchor,
     })
     state = await create(async () => hub).sync(state)
@@ -340,7 +386,7 @@ it("persists the selected Build before an uncertain upload and reuses it after a
         },
       }),
       request: async (_url, options) => {
-        if (options.method !== "POST") return { threadVersion: 2, notes: [] }
+        if (options.method !== "POST") return { notes: [] }
         builds.push(options.body.build_number)
         const persisted = await create(async () => hub).load()
         assert.equal(persisted.notes[0].buildNumber, 1)
@@ -373,7 +419,7 @@ it("persists the selected Build before an uncertain upload and reuses it after a
   })
 })
 
-it("snapshots verified authors without attributing unowned originals and gates older Hub synchronization", async () => {
+it("snapshots verified authors without attributing unowned originals", async () => {
   await fixture(async ({ createPublished: create, anchor, directory }) => {
     const offline = create(async () => null)
     let state = await offline.save({
@@ -383,11 +429,10 @@ it("snapshots verified authors without attributing unowned originals and gates o
       anchor,
     })
     assert.equal(state.notes[0].author, "local")
-    let login = "mona"
+    let login = "mona_enterprise"
     let id = 7
     let lookups = 0
     let uploads = 0
-    let version = 1
     const hub = {
       origin: "https://hub.example.com",
       status: async ({ connectionScope }) => {
@@ -405,7 +450,7 @@ it("snapshots verified authors without attributing unowned originals and gates o
         }
       },
       request: async (_route, options) => {
-        if (options.method !== "POST") return { threadVersion: version, notes: [] }
+        if (options.method !== "POST") return { notes: [] }
         uploads++
         return {
           localId: options.body.local_id,
@@ -434,10 +479,9 @@ it("snapshots verified authors without attributing unowned originals and gates o
       body: "Verified original",
       anchor,
     })
-    assert.equal(state.notes[1].thread.version, 2)
     assert.deepEqual(state.notes[1].thread.originalAuthor, {
       id: 7,
-      login: "mona",
+      login: "mona_enterprise",
       avatarUrl: "https://avatars.githubusercontent.com/u/7",
     })
     assert.equal(lookups, 1)
@@ -449,13 +493,9 @@ it("snapshots verified authors without attributing unowned originals and gates o
       expectedNoteRevision: state.notes[1].revision,
       body: "New request",
     })
-    assert.equal(state.notes[1].thread.originalAuthor.login, "mona")
+    assert.equal(state.notes[1].thread.originalAuthor.login, "mona_enterprise")
     assert.equal(state.notes[1].thread.messages[0].author.login, "mona-renamed")
     assert.equal(lookups, 2)
-    state = await store.sync(state)
-    assert.match(state.syncError, /Upgrade Hub/)
-    assert.equal(uploads, 0)
-    version = 2
     state = await store.sync(state)
     assert.equal(state.syncError, null)
     assert.equal(uploads, 2)
@@ -463,128 +503,7 @@ it("snapshots verified authors without attributing unowned originals and gates o
     await assert.rejects(store.load(), /different Hub account/)
   })
 })
-it("claims only explicitly selected unowned originals and follow-ups without changing work or captured batches", async () => {
-  await fixture(async ({ create, anchor, directory }) => {
-    const offline = create()
-    let state = await offline.load()
-    for (const body of ["First original", "Second original"])
-      state = await offline.save({
-        ...state,
-        operation: "create",
-        body,
-        anchor,
-      })
-    state = await offline.fix(state)
-    const batch = structuredClone(await offline.batch({ batchId: state.activeBatch }))
-    state = await offline.save({
-      ...state,
-      operation: "follow-up",
-      id: 1,
-      expectedNoteRevision: state.notes[0].revision,
-      body: "Keep this follow-up",
-    })
-    const original = structuredClone(state.notes[0])
-    const hub = {
-      origin: "https://hub.example.com",
-      status: async ({ connectionScope }) => {
-        connectionScope.identity = "verified-connection"
-        return {
-          state: "connected",
-          repository: "example/prototype",
-          branch: "prototype/demo",
-          prototype: { viewerId: 7, viewerLogin: "mona" },
-        }
-      },
-    }
-    const store = create(async () => hub)
-    state = await store.load()
-    const expectedOwner = { origin: hub.origin, id: 7, login: "mona" }
-    assert.deepEqual(state.currentAuthor, {
-      ...expectedOwner,
-      avatarUrl: null,
-    })
-    const file = path.join(directory, "notes", `${state.identity}.json`)
-    const before = await readFile(file, "utf8")
-    await assert.rejects(
-      store.save({
-        ...state,
-        operation: "claim",
-        expectedOwner: { ...expectedOwner, id: 8 },
-        noteIds: [1],
-      }),
-      /Confirm the connected/,
-    )
-    assert.equal(await readFile(file, "utf8"), before)
-    const claimId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
-    state = await store.save({
-      ...state,
-      operation: "claim",
-      expectedOwner,
-      noteIds: [1],
-      claimId,
-    })
-    assert.equal(state.lastOwnershipClaim.id, claimId)
-    assert.equal(state.notes[0].author, "mona")
-    assert.equal(state.notes[0].thread.version, 2)
-    assert.deepEqual(state.notes[0].thread.originalAuthor, {
-      id: 7,
-      login: "mona",
-      avatarUrl: null,
-    })
-    assert.deepEqual(state.notes[0].thread.messages[0].author, state.notes[0].thread.originalAuthor)
-    assert.equal(state.notes[1].author, "local")
-    for (const field of ["id", "localId", "body", "anchor", "status"])
-      assert.deepEqual(state.notes[0][field], original[field])
-    assert.equal(state.notes[0].thread.messages[0].id, original.thread.messages[0].id)
-    assert.equal(state.notes[0].thread.messages[0].body, original.thread.messages[0].body)
-    assert.equal(state.notes[0].thread.messages[0].status, original.thread.messages[0].status)
-    assert.deepEqual(await store.batch({ batchId: batch.id }), batch)
-    assert.equal(state.lastOwnershipClaim.notes.length, 1)
-    assert.deepEqual(state.lastOwnershipClaim.notes[0], {
-      id: 1,
-      localId: original.localId,
-      beforeRevision: original.revision,
-      afterRevision: original.revision + 1,
-    })
-    const claimed = await readFile(file, "utf8")
-    await assert.rejects(
-      store.save({
-        ...state,
-        operation: "claim",
-        expectedOwner,
-        noteIds: [2],
-        claimId,
-      }),
-      /already recorded/,
-    )
-    assert.equal(await readFile(file, "utf8"), claimed)
-    await assert.rejects(
-      store.save({
-        ...state,
-        operation: "claim",
-        expectedOwner,
-        noteIds: [1, 2],
-      }),
-      /Only unowned/,
-    )
-    assert.equal(await readFile(file, "utf8"), claimed)
-    await store.results({
-      batchId: batch.id,
-      results: batch.notes.map((note) => ({
-        localId: note.localId,
-        revision: note.revision,
-        status: "ready",
-        message: "Captured answer",
-      })),
-    })
-    state = await store.load()
-    assert.equal(state.notes[0].status, "open")
-    assert.equal(state.notes[0].thread.messages.at(-1).body, "Captured answer")
-    assert.equal(state.notes[0].thread.messages[0].status, "open")
-  })
-})
-
-it("snapshots undiscovered authors without registering and keeps old Hub attribution explicitly unavailable", async () => {
+it("snapshots undiscovered authors without registering and retains their identity while offline", async () => {
   await fixture(async ({ create, anchor, directory }) => {
     let viewerId = 7
     let viewerLogin = "mona"
@@ -643,35 +562,22 @@ it("snapshots undiscovered authors without registering and keeps old Hub attribu
     assert.deepEqual(state.notes[0].thread.originalAuthor, original)
     assert.equal(state.notes[0].thread.messages[0].author.login, "mona-renamed")
     assert.equal(lookups, 2)
+    const offline = create()
+    state = await offline.save({
+      ...(await offline.load()),
+      operation: "follow-up",
+      id: 1,
+      expectedNoteRevision: state.notes[0].revision,
+      body: "Saved offline",
+    })
+    assert.deepEqual(state.notes[0].thread.messages.at(-1).author, {
+      id: 7,
+      login: "mona-renamed",
+      avatarUrl: null,
+    })
+    assert.deepEqual(state.notes[0].thread.originalAuthor, original)
     viewerId = 8
     await assert.rejects(store.load(), /different Hub account/)
-    viewerId = undefined
-    await assert.rejects(store.load(), /Upgrade Hub.*account ID/)
-    const unowned = create(async () => hub, {
-      directory: path.join(directory, "unowned"),
-      readProfile: async () => assert.fail("An unverified viewer cannot trigger profile lookup"),
-    })
-    state = await unowned.load()
-    assert.equal(state.currentAuthor, null)
-    assert.match(state.profileError, /Upgrade Hub.*account ID/)
-    assert.equal(lookups, 2)
-    state = await unowned.save({
-      ...state,
-      operation: "create",
-      body: "Still available locally",
-      anchor,
-    })
-    assert.equal(state.notes[0].author, "local")
-    assert.equal(state.notes[0].thread.originalAuthor, undefined)
-    await assert.rejects(
-      unowned.save({
-        ...state,
-        operation: "claim",
-        noteIds: [1],
-        expectedOwner: { origin: hub.origin, id: 7, login: "mona" },
-      }),
-      /Confirm the connected/,
-    )
   })
 })
 
@@ -708,7 +614,7 @@ it("rejects author lookup races before reading or saving another branch or accou
   }
 })
 
-it("verifies an unpublished author through the actual HTTP client and explicitly claims only temporary local notes", async () => {
+it("roundtrips an unpublished EMU author's snapshots through the actual HTTP client and local store", async () => {
   await fixture(async ({ create, context, anchor, directory }) => {
     const requests = []
     const server = createServer((request, response) => {
@@ -724,7 +630,7 @@ it("verifies an unpublished author through the actual HTTP client and explicitly
           JSON.stringify({
             repository: "example/prototype",
             viewerId: 7,
-            viewerLogin: "mona",
+            viewerLogin: "mona_enterprise",
           }),
         )
       }
@@ -763,14 +669,6 @@ it("verifies an unpublished author through the actual HTTP client and explicitly
       assert.equal(state.currentAuthor.id, 7)
       state = await store.save({
         ...state,
-        operation: "claim",
-        noteIds: [1],
-        expectedOwner: { origin, id: 7, login: "mona" },
-      })
-      assert.equal(state.notes[0].thread.originalAuthor.id, 7)
-      assert.equal(state.lastOwnershipClaim.notes[0].id, 1)
-      state = await store.save({
-        ...state,
         operation: "create",
         body: "Temporary verified original",
         anchor,
@@ -782,7 +680,9 @@ it("verifies an unpublished author through the actual HTTP client and explicitly
         expectedNoteRevision: state.notes[1].revision,
         body: "Temporary verified follow-up",
       })
-      assert.equal(state.notes[1].thread.messages[0].author.login, "mona")
+      assert.equal(state.notes[1].thread.originalAuthor.login, "mona_enterprise")
+      assert.equal(state.notes[1].thread.messages[0].author.login, "mona_enterprise")
+      assert.deepEqual((await create(async () => client).load()).notes, state.notes)
       const savedFile = path.join(directory, "notes", `${state.identity}.json`)
       const before = await readFile(savedFile, "utf8")
       const switched = create(async () => client, {
@@ -839,8 +739,16 @@ it("rejects stale panels, changed branches and corrupt storage without dropping 
       /branch changed/,
     )
     await exec("git", ["-C", root, "symbolic-ref", "HEAD", "refs/heads/prototype/demo"])
-    await writeFile(path.join(directory, "notes", `${state.identity}.json`), "{", { mode: 0o600 })
+    const filename = path.join(directory, "notes", `${state.identity}.json`)
+    const malformed = JSON.parse(await readFile(filename, "utf8"))
+    delete malformed.notes[0].thread
+    const malformedJson = JSON.stringify(malformed)
+    await writeFile(filename, malformedJson, { mode: 0o600 })
     await assert.rejects(store.load())
+    assert.equal(await readFile(filename, "utf8"), malformedJson)
+    await writeFile(filename, "{", { mode: 0o600 })
+    await assert.rejects(store.load())
+    assert.equal(await readFile(filename, "utf8"), "{")
   })
 })
 
@@ -958,7 +866,6 @@ for (const { label, skills, fallback } of [
         operation: "create",
         body: "private-original-request",
         anchor: { ...anchor, selectedText: "private-anchor" },
-        capture: "data:image/png;base64,cHJpdmF0ZS1pbWFnZQ==",
       })
       state = await store.save({
         ...state,
@@ -1007,7 +914,7 @@ for (const { label, skills, fallback } of [
       })
       assert.doesNotMatch(
         prompt,
-        /private-original-request|private-anchor|private-follow-up-request|cHJpdmF0ZS1pbWFnZQ==|"thread"|"requestIds"|"capture"/,
+        /private-original-request|private-anchor|private-follow-up-request|"thread"|"requestIds"/,
       )
       const instructions = await bundledInstructions()
       assert.equal(prompt.includes(instructions), fallback)
@@ -1208,7 +1115,7 @@ it("syncs a published branch and refuses another author's account", async () => 
           repository: "example/prototype",
           branch: "prototype/demo",
         })
-        if (options.method !== "POST") return { threadVersion: 2, notes: [] }
+        if (options.method !== "POST") return { notes: [] }
         const { body } = options
         writes.push({ url, body })
         return {
@@ -1260,7 +1167,12 @@ it("rejects owner-bound notes when the selected Hub differs while disconnected",
         state: "connected",
         repository: "example/prototype",
         branch: "prototype/demo",
-        prototype: { id: 7, repositoryId: 9, viewerLogin: "octocat", viewerId: 1 },
+        prototype: {
+          id: 7,
+          repositoryId: 9,
+          viewerLogin: "octocat",
+          viewerId: 1,
+        },
       }),
       request: async (_url, options) => ({
         localId: options.body.local_id,
@@ -1299,7 +1211,12 @@ it("does not dispatch a batch when the checkout changes during the Hub ownership
           state: "connected",
           repository: "example/prototype",
           branch: "prototype/demo",
-          prototype: { id: 7, repositoryId: 9, viewerLogin: "octocat", viewerId: 1 },
+          prototype: {
+            id: 7,
+            repositoryId: 9,
+            viewerLogin: "octocat",
+            viewerId: 1,
+          },
         }
       },
       request: async (_url, options) => ({
@@ -1350,10 +1267,15 @@ it("cancels a pending batch after Hub reopens its captured requests", async () =
         state: "connected",
         repository: "example/prototype",
         branch: "prototype/demo",
-        prototype: { id: 7, repositoryId: 9, viewerLogin: "octocat", viewerId: 1 },
+        prototype: {
+          id: 7,
+          repositoryId: 9,
+          viewerLogin: "octocat",
+          viewerId: 1,
+        },
       }),
       request: async (_url, options) => {
-        if (options.method !== "POST") return { threadVersion: 2, notes: remote ? [remote] : [] }
+        if (options.method !== "POST") return { notes: remote ? [remote] : [] }
         remote = {
           localId: options.body.local_id,
           kind: "improvement_note",
@@ -1363,10 +1285,13 @@ it("cancels a pending batch after Hub reopens its captured requests", async () =
           status: options.body.status,
           deletedAt: options.body.deleted ? "2026-10-18T12:00:00Z" : null,
           author: { login: "octocat" },
-          capture: options.body.capture,
           thread: options.body.thread,
         }
-        return { localId: remote.localId, revision: remote.revision, thread: remote.thread }
+        return {
+          localId: remote.localId,
+          revision: remote.revision,
+          thread: remote.thread,
+        }
       },
     }
     const store = create(async () => hub)
@@ -1416,7 +1341,7 @@ it("pulls creator notes while preserving unsynchronized edits and rejecting fore
         },
       }),
       request: async (url, options) => {
-        if (options.method !== "POST") return { threadVersion: 2, notes: remote }
+        if (options.method !== "POST") return { notes: remote }
         if (rejectUpload) throw new Error("The Hub note has a newer revision")
         return {
           localId: options.body.local_id,
@@ -1440,7 +1365,7 @@ it("pulls creator notes while preserving unsynchronized edits and rejecting fore
         author: { login: "octocat" },
         revision: 2,
         status: "ready",
-        thread: { version: 1, originalStatus: "ready", messages: [] },
+        thread: { originalStatus: "ready", messages: [] },
       },
     ]
     state = await store.sync(state)
@@ -1593,7 +1518,7 @@ it("does not upload owner-bound notes after the Hub connection changes during a 
           throw new Error("Hub connection changed. Retrieve comments again.")
         if (options.method !== "POST") {
           account = "mona"
-          return { threadVersion: 2, notes: [] }
+          return { notes: [] }
         }
         writes++
       },
@@ -1612,62 +1537,8 @@ it("does not upload owner-bound notes after the Hub connection changes during a 
   })
 })
 
-it("converts legacy requests and answers without editing or losing their original content", async () => {
-  await fixture(async ({ create, anchor, directory }) => {
-    const store = create()
-    let state = await store.save({
-      ...(await store.load()),
-      operation: "create",
-      body: "Original",
-      anchor,
-    })
-    const filename = path.join(directory, "notes", `${state.identity}.json`)
-    const record = JSON.parse(await readFile(filename, "utf8"))
-    record.version = 1
-    delete record.notes[0].thread
-    Object.assign(record.notes[0], {
-      status: "resolved",
-      result: "Earlier Copilot answer.",
-      sync: "synced",
-    })
-    await writeFile(filename, JSON.stringify(record), { mode: 0o600 })
-    state = await create().load()
-    assert.equal(state.notes[0].status, "resolved")
-    assert.equal(state.notes[0].sync, "local")
-    assert.equal(state.notes[0].syncedRevision, 1)
-    assert.equal(state.notes[0].revision, 2)
-    assert.equal(state.notes[0].thread.originalStatus, "ready")
-    assert.equal(state.notes[0].thread.messages[0].body, "Earlier Copilot answer.")
-    assert.deepEqual(await create().load(), state)
-    assert.equal(JSON.parse(await readFile(filename, "utf8")).version, 1)
-    const legacyAnswer = structuredClone(state.notes[0].thread.messages[0])
-    state = await store.save({
-      ...state,
-      operation: "follow-up",
-      id: 1,
-      expectedNoteRevision: 2,
-      body: "Next request",
-    })
-    assert.equal(JSON.parse(await readFile(filename, "utf8")).version, 2)
-    assert.equal(state.notes[0].body, "Original")
-    assert.equal(state.notes[0].status, "open")
-    assert.deepEqual(state.notes[0].thread.messages[0], legacyAnswer)
-    assert.deepEqual(await create().load(), state)
-    await assert.rejects(
-      store.save({
-        ...state,
-        operation: "edit",
-        id: 1,
-        expectedNoteRevision: 3,
-        body: "Replacement",
-      }),
-      /read-only/,
-    )
-  })
-})
-
-it("accepts captured legacy batch results after conversion and queues only new work in later batches", async () => {
-  await fixture(async ({ create, anchor, directory, messages }) => {
+it("queues only new work in later batches without losing blocked answers", async () => {
+  await fixture(async ({ create, anchor, messages }) => {
     const store = create()
     let state = await store.save({
       ...(await store.load()),
@@ -1676,12 +1547,6 @@ it("accepts captured legacy batch results after conversion and queues only new w
       anchor,
     })
     state = await store.fix(state)
-    const filename = path.join(directory, "notes", `${state.identity}.json`)
-    const record = JSON.parse(await readFile(filename, "utf8"))
-    delete record.notes[0].thread
-    delete record.batches[0].notes[0].thread
-    delete record.batches[0].notes[0].requestIds
-    await writeFile(filename, JSON.stringify(record), { mode: 0o600 })
     const first = await store.batch({ batchId: state.activeBatch })
     await store.results({
       batchId: first.id,
@@ -1791,56 +1656,9 @@ it("cancels sent work even after a follow-up reopens the thread and rejects its 
   })
 })
 
-it("reserves escaped answer bytes and preserves saved history when full", async () => {
-  await fixture(async ({ create, anchor }) => {
-    const store = create()
-    let state = await store.save({
-      ...(await store.load()),
-      operation: "create",
-      body: "Original",
-      anchor,
-    })
-    let full = false
-    for (let index = 0; index < 100; index++) {
-      try {
-        state = await store.save({
-          ...state,
-          operation: "follow-up",
-          id: 1,
-          expectedNoteRevision: state.notes[0].revision,
-          body: `Request ${index}: ${"x".repeat(300)}`,
-        })
-      } catch (error) {
-        assert.match(error.message, /conversation is full/)
-        full = true
-        assert.deepEqual(await store.load(), state)
-        break
-      }
-    }
-    assert.equal(full, true)
-    state = await store.fix(state)
-    const batch = await store.batch({ batchId: state.activeBatch })
-    const results = [
-      {
-        localId: batch.notes[0].localId,
-        revision: batch.notes[0].revision,
-        status: "blocked",
-        message: "\0".repeat(2000),
-      },
-    ]
-    await store.results({ batchId: batch.id, results })
-    state = await store.load()
-    assert.equal(state.notes[0].status, "blocked")
-    assert.equal(state.notes[0].thread.messages.at(-1).body, results[0].message)
-    assert.ok(Buffer.byteLength(JSON.stringify(state.notes[0].thread)) <= 32_768)
-    assert.deepEqual(await create().load(), state)
-  })
-})
-
 it("roundtrips immutable requests and answers through Hub to another isolated local store", async () => {
   await fixture(async ({ createPublished: create, anchor, directory }) => {
     const remote = []
-    let supported = false
     const hub = {
       origin: "https://hub.example.com",
       status: async () => ({
@@ -1855,11 +1673,7 @@ it("roundtrips immutable requests and answers through Hub to another isolated lo
         },
       }),
       request: async (_url, options) => {
-        if (options.method !== "POST")
-          return {
-            ...(supported ? { threadVersion: 2 } : {}),
-            notes: structuredClone(remote),
-          }
+        if (options.method !== "POST") return { notes: structuredClone(remote) }
         const input = options.body
         const note = {
           ...input,
@@ -1888,10 +1702,6 @@ it("roundtrips immutable requests and answers through Hub to another isolated lo
       anchor,
     })
 
-    state = await store.sync(state)
-    assert.match(state.syncError, /Upgrade Hub/)
-    assert.equal(remote.length, 0)
-    supported = true
     state = await store.fix(state)
     const batch = await store.batch({ batchId: state.activeBatch })
     await store.results({
@@ -1938,71 +1748,7 @@ it("roundtrips immutable requests and answers through Hub to another isolated lo
   })
 })
 
-it("reserves both the in-flight answer and the next explicit batch answer when accepting follow-ups", async () => {
-  await fixture(async ({ create, anchor }) => {
-    const store = create()
-    let state = await store.save({
-      ...(await store.load()),
-      operation: "create",
-      body: "Original",
-      anchor,
-    })
-    state = await store.fix(state)
-    const first = await store.batch({ batchId: state.activeBatch })
-    let full = false
-    for (let index = 0; index < 100; index++) {
-      try {
-        state = await store.save({
-          ...state,
-          operation: "follow-up",
-          id: 1,
-          expectedNoteRevision: state.notes[0].revision,
-          body: `Later ${index} ${"x".repeat(300)}`,
-        })
-      } catch (error) {
-        assert.match(error.message, /conversation is full/)
-        full = true
-        break
-      }
-    }
-    assert.ok(full && state.notes[0].thread.messages.length > 0)
-    await store.results({
-      batchId: first.id,
-      results: [
-        {
-          localId: first.notes[0].localId,
-          revision: first.notes[0].revision,
-          status: "blocked",
-          message: "\0".repeat(2000),
-        },
-      ],
-    })
-    state = await store.load()
-    assert.equal(state.notes[0].status, "open")
-    state = await store.fix(state)
-    const second = await store.batch({ batchId: state.activeBatch })
-    await store.results({
-      batchId: second.id,
-      results: [
-        {
-          localId: second.notes[0].localId,
-          revision: second.notes[0].revision,
-          status: "blocked",
-          message: "\0".repeat(2000),
-        },
-      ],
-    })
-    state = await store.load()
-    assert.equal(state.notes[0].status, "blocked")
-    assert.equal(
-      state.notes[0].thread.messages.filter((message) => message.role === "copilot").length,
-      2,
-    )
-    assert.ok(Buffer.byteLength(JSON.stringify(state.notes[0].thread)) <= 32_768)
-  })
-})
-
-it("rejects an oversized serialized thread before persisting or dispatching a batch", async () => {
+it("dispatches complete escaped history without reserving speculative answer space", async () => {
   await fixture(async ({ create, anchor, messages }) => {
     const store = create()
     let state = await store.save({
@@ -2018,64 +1764,13 @@ it("rejects an oversized serialized thread before persisting or dispatching a ba
       expectedNoteRevision: state.notes[0].revision,
       body: "x".repeat(6000),
     })
-    await assert.rejects(
-      store.fix(state),
-      (error) => error.statusCode === 422 && /batch response limit/.test(error.message),
-    )
-    assert.equal(messages.length, 0)
-    assert.deepEqual(await store.load(), state)
+    state = await store.fix(state)
+    assert.equal(messages.length, 1)
+    const batch = await store.batch({ batchId: state.activeBatch })
+    assert.equal(batch.notes[0].body, state.notes[0].body)
+    assert.deepEqual(batch.notes[0].thread, state.notes[0].thread)
   })
 })
-
-for (const status of ["open", "sent"]) {
-  it(`rejects an ownership claim atomically when snapshots consume reserved ${status} answer space`, async () => {
-    await fixture(async ({ create, anchor, directory }) => {
-      const offline = create()
-      let state = await offline.load()
-      for (const body of ["Small original", "Full conversation"])
-        state = await offline.save({ ...state, operation: "create", body, anchor })
-      for (;;) {
-        try {
-          state = await offline.save({
-            ...state,
-            operation: "follow-up",
-            id: 2,
-            expectedNoteRevision: state.notes[1].revision,
-            body: "x".repeat(300),
-          })
-        } catch (error) {
-          assert.match(error.message, /conversation is full/)
-          break
-        }
-      }
-      if (status === "sent") await offline.fix(state)
-      const hub = {
-        origin: "https://hub.example.com",
-        status: async () => ({
-          state: "connected",
-          repository: "example/prototype",
-          branch: "prototype/demo",
-          prototype: { viewerId: 7, viewerLogin: "mona" },
-        }),
-      }
-      const connected = create(async () => hub)
-      state = await connected.load()
-      const file = path.join(directory, "notes", `${state.identity}.json`)
-      const before = await readFile(file, "utf8")
-      await assert.rejects(
-        connected.save({
-          ...state,
-          operation: "claim",
-          noteIds: [1, 2],
-          expectedOwner: { origin: hub.origin, id: 7, login: "mona" },
-        }),
-        (error) => error.statusCode === 422 && /conversation is full/.test(error.message),
-      )
-      assert.equal(await readFile(file, "utf8"), before)
-      assert.deepEqual(await connected.load(), state)
-    })
-  })
-}
 
 it("saves and pulls the canonical validator's zero-size elements and narrow areas", async () => {
   await fixture(async ({ createPublished: create, anchor, directory }) => {
@@ -2086,10 +1781,15 @@ it("saves and pulls the canonical validator's zero-size elements and narrow area
         state: "connected",
         repository: "example/prototype",
         branch: "prototype/demo",
-        prototype: { id: 7, repositoryId: 9, viewerLogin: "octocat", viewerId: 1 },
+        prototype: {
+          id: 7,
+          repositoryId: 9,
+          viewerLogin: "octocat",
+          viewerId: 1,
+        },
       }),
       request: async (_url, options) => {
-        if (options.method !== "POST") return { threadVersion: 2, notes: remote }
+        if (options.method !== "POST") return { notes: remote }
         const input = options.body
         remote.push({
           ...input,
@@ -2097,11 +1797,18 @@ it("saves and pulls the canonical validator's zero-size elements and narrow area
           kind: "improvement_note",
           author: { login: "octocat" },
         })
-        return { localId: input.local_id, revision: input.revision, thread: input.thread }
+        return {
+          localId: input.local_id,
+          revision: input.revision,
+          thread: input.thread,
+        }
       },
     }
     const store = create(async () => hub)
-    const element = { ...anchor, rect: { ...anchor.rect, width: 0, height: 0 } }
+    const element = {
+      ...anchor,
+      rect: { ...anchor.rect, width: 0, height: 0 },
+    }
     const area = {
       schemaVersion: 1,
       kind: "area",
@@ -2124,7 +1831,9 @@ it("saves and pulls the canonical validator's zero-size elements and narrow area
       })
     state = await store.sync(state)
     assert.equal(state.syncError, null)
-    const clone = create(async () => hub, { directory: path.join(directory, "clone") })
+    const clone = create(async () => hub, {
+      directory: path.join(directory, "clone"),
+    })
     const pulled = await clone.sync(await clone.load())
     assert.equal(pulled.syncError, null)
     assert.deepEqual(
@@ -2134,7 +1843,7 @@ it("saves and pulls the canonical validator's zero-size elements and narrow area
   })
 })
 
-it("keeps a freshly pulled original unattributed until explicitly claimed despite attributed follow-ups", async () => {
+it("keeps an offline original unattributed despite later attributed follow-ups", async () => {
   await fixture(async ({ create, anchor }) => {
     const author = { id: 1, login: "octocat", avatarUrl: null }
     const hub = {
@@ -2143,13 +1852,18 @@ it("keeps a freshly pulled original unattributed until explicitly claimed despit
         state: "connected",
         repository: "example/prototype",
         branch: "prototype/demo",
-        prototype: { id: 7, repositoryId: 9, viewerLogin: author.login, viewerId: author.id },
+        prototype: {
+          id: 7,
+          repositoryId: 9,
+          viewerLogin: author.login,
+          viewerId: author.id,
+        },
       }),
       request: async () => ({
-        threadVersion: 2,
         notes: [
           {
             localId: randomUUID(),
+            buildNumber: 1,
             kind: "improvement_note",
             revision: 1,
             body: "Unattributed original",
@@ -2157,7 +1871,6 @@ it("keeps a freshly pulled original unattributed until explicitly claimed despit
             anchor,
             author: { login: author.login },
             thread: {
-              version: 2,
               originalStatus: "ready",
               messages: [
                 {
@@ -2182,13 +1895,7 @@ it("keeps a freshly pulled original unattributed until explicitly claimed despit
     assert.deepEqual(state.notes[0].thread.messages[0].author, author)
     state = await create(async () => hub).load()
     assert.equal(state.notes[0].author, "local")
-    state = await store.save({
-      ...state,
-      operation: "claim",
-      noteIds: [1],
-      expectedOwner: { origin: hub.origin, id: author.id, login: author.login },
-    })
-    assert.deepEqual(state.notes[0].thread.originalAuthor, author)
+    assert.equal(state.notes[0].thread.originalAuthor, undefined)
   })
 })
 
@@ -2202,13 +1909,20 @@ for (const statusCode of [409, 422, undefined, 401, 403, 429, 500]) {
           state: "connected",
           repository: "example/prototype",
           branch: "prototype/demo",
-          prototype: { id: 7, repositoryId: 9, viewerLogin: "octocat", viewerId: 1 },
+          prototype: {
+            id: 7,
+            repositoryId: 9,
+            viewerLogin: "octocat",
+            viewerId: 1,
+          },
         }),
         request: async (_url, options) => {
-          if (options.method !== "POST") return { threadVersion: 2, notes: [] }
+          if (options.method !== "POST") return { notes: [] }
           uploaded.push(options.body.local_id)
           if (uploaded.length === 1)
-            throw Object.assign(new Error("First upload rejected"), { statusCode })
+            throw Object.assign(new Error("First upload rejected"), {
+              statusCode,
+            })
           return {
             localId: options.body.local_id,
             revision: options.body.revision,
@@ -2219,7 +1933,12 @@ for (const statusCode of [409, 422, undefined, 401, 403, 429, 500]) {
       const store = create(async () => hub)
       let state = await store.load()
       for (const body of ["First", "Second"])
-        state = await store.save({ ...state, operation: "create", body, anchor })
+        state = await store.save({
+          ...state,
+          operation: "create",
+          body,
+          anchor,
+        })
       state = await store.sync(state)
       const continues = [409, 422].includes(statusCode)
       assert.deepEqual(
@@ -2243,10 +1962,15 @@ it("ignores an old batch's reopened request after a remote resend while another 
         state: "connected",
         repository: "example/prototype",
         branch: "prototype/demo",
-        prototype: { id: 7, repositoryId: 9, viewerLogin: "octocat", viewerId: 1 },
+        prototype: {
+          id: 7,
+          repositoryId: 9,
+          viewerLogin: "octocat",
+          viewerId: 1,
+        },
       }),
       request: async (_url, options) => {
-        if (options.method !== "POST") return { threadVersion: 2, notes: structuredClone(remote) }
+        if (options.method !== "POST") return { notes: structuredClone(remote) }
         const input = options.body
         const note = {
           ...input,
@@ -2258,7 +1982,11 @@ it("ignores an old batch's reopened request after a remote resend while another 
         const index = remote.findIndex(({ localId }) => localId === note.localId)
         if (index < 0) remote.push(note)
         else remote[index] = note
-        return { localId: note.localId, revision: note.revision, thread: note.thread }
+        return {
+          localId: note.localId,
+          revision: note.revision,
+          thread: note.thread,
+        }
       },
     }
     const store = create(async () => hub)
@@ -2292,109 +2020,3 @@ it("ignores an old batch's reopened request after a remote resend while another 
     assert.equal(state.notes[1].thread.messages.at(-1).body, "Old attempt completed")
   })
 })
-
-for (const scenario of [
-  "complete",
-  "second page fails",
-  "repeated cursor",
-  "invalid cursor",
-  "inconsistent final cursor",
-  "inconsistent version",
-  "partial legacy page",
-]) {
-  it(`${scenario === "complete" ? "collects every page before applying remote notes or uploading" : `preserves every local note and skips uploads after ${scenario}`}`, async () => {
-    await fixture(async ({ createPublished: create, anchor }) => {
-      let paging = false
-      let pageReads = 0
-      const uploaded = []
-      const remote = []
-      const cursor = "opaque page?two/"
-      const calls = []
-      const hub = {
-        origin: "https://hub.example.com",
-        status: async () => ({
-          state: "connected",
-          repository: "example/prototype",
-          branch: "prototype/demo",
-          prototype: { id: 7, repositoryId: 9, viewerLogin: "octocat", viewerId: 1 },
-        }),
-        request: async (url, options) => {
-          if (options.method === "POST") {
-            uploaded.push(options.body.local_id)
-            if (paging) calls.push("upload")
-            return {
-              localId: options.body.local_id,
-              revision: options.body.revision,
-              thread: options.body.thread,
-            }
-          }
-          if (!paging) return { threadVersion: 2, notes: [] }
-          assert.ok(++pageReads <= 2, "a repeated cursor must not trigger another request")
-          const requestedCursor = new URL(url, hub.origin).searchParams.get("cursor")
-          calls.push(requestedCursor === null ? "first page" : "second page")
-          if (requestedCursor === null) {
-            return {
-              threadVersion: 2,
-              notes: [remote[0]],
-              hasMore: true,
-              nextCursor: scenario === "invalid cursor" ? 42 : cursor,
-            }
-          }
-          assert.equal(requestedCursor, cursor)
-          if (scenario === "second page fails") throw new Error("Later page unavailable")
-          if (scenario === "partial legacy page") return { threadVersion: 2, notes: [remote[1]] }
-          return {
-            threadVersion: scenario === "inconsistent version" ? 1 : 2,
-            notes: [remote[1]],
-            hasMore: scenario === "repeated cursor",
-            nextCursor: ["repeated cursor", "inconsistent final cursor"].includes(scenario)
-              ? cursor
-              : null,
-          }
-        },
-      }
-      const store = create(async () => hub)
-      let state = await store.load()
-      for (const body of ["First remote note", "Second remote note"])
-        state = await store.save({ ...state, operation: "create", body, anchor })
-      state = await store.sync(state)
-      assert.equal(state.syncError, null)
-      for (const note of state.notes) {
-        remote.push({
-          ...structuredClone(note),
-          revision: note.revision + 1,
-          status: "ready",
-          author: { login: "octocat" },
-          thread: { ...structuredClone(note.thread), originalStatus: "ready" },
-        })
-      }
-      state = await store.save({
-        ...state,
-        operation: "create",
-        body: "Pending local upload",
-        anchor,
-      })
-      const before = structuredClone(state.notes)
-      uploaded.length = 0
-      paging = true
-      state = await store.sync(state)
-      if (scenario === "complete") {
-        assert.equal(state.syncError, null)
-        assert.deepEqual(calls, ["first page", "second page", "upload"])
-        assert.deepEqual(
-          state.notes.map(({ status }) => status),
-          ["ready", "ready", "open"],
-        )
-        assert.deepEqual(uploaded, [state.notes[2].localId])
-      } else {
-        assert.match(
-          state.syncError,
-          scenario === "second page fails" ? /Later page unavailable/ : /Hub sync failed/,
-        )
-        assert.deepEqual(state.notes, before)
-        assert.deepEqual(uploaded, [])
-        assert.deepEqual((await store.load()).notes, before)
-      }
-    })
-  })
-}

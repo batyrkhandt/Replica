@@ -273,7 +273,7 @@ export function App({ config }: Props) {
           <Suspense fallback={<p role="status">{copy.improvementNotesLoading}</p>}>
             <PrototypeCanvasThreadSample />
           </Suspense>
-        ) : config.pickAndPolish || config.improvementNotesDemo ? (
+        ) : config.pickAndPolish ? (
           <Suspense
             fallback={
               <p className="visually-hidden" role="status">

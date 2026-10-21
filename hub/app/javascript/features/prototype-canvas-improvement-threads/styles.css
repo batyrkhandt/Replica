@@ -120,14 +120,6 @@
   font-size: inherit;
 }
 
-.thread-sample__capture {
-  display: block;
-  max-width: calc(100% - 1.75rem);
-  max-height: 8rem;
-  margin: var(--base-size-8) 0 0 1.75rem;
-  object-fit: contain;
-}
-
 .thread-sample__follow-ups {
   display: flex;
   align-items: center;

@@ -5,22 +5,17 @@ export type Note = {
   id: number
   kind: "improvement_note"
   author: string
-  authorProfile?: { id: number; login: string; avatarUrl: string | null }
-  localId?: string
-  result?: string
+  localId: string
   body: string
   route: string
   target: string
   selector: string | null
   rect: Rect
-  capture: string
   anchor?: ReviewAnchor
-  capturePlaceholder?: boolean
   status: "open" | "sent" | "ready" | "resolved" | "blocked"
   sync: "local" | "synced" | "failed"
   revision: number
-  thread?: {
-    version: 1 | 2
+  thread: {
     originalAuthor?: { id: number; login: string; avatarUrl: string | null }
     originalStatus: "open" | "sent" | "ready" | "blocked"
     messages: (

@@ -42,10 +42,7 @@ export function usePreviewSelection({
   const [connection, setConnection] = useState<{ nonce: string; ready: boolean } | null>(null)
   const [resolutions, setResolutions] = useState<Map<number, AnchorResolution>>(new Map())
   const anchorKey = JSON.stringify(
-    notes
-      .filter((note) => note.anchor)
-      .slice(0, 200)
-      .map((note) => ({ id: note.id, anchor: note.anchor })),
+    notes.filter((note) => note.anchor).map((note) => ({ id: note.id, anchor: note.anchor })),
   )
   const receiveSelection = useEffectEvent((value: unknown) => {
     if (!annotating || composing) return

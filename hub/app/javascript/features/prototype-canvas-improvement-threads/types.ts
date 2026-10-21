@@ -6,7 +6,6 @@ export type ImprovementThread = {
   author: string
   avatarUrl?: string | null
   body: string
-  capture?: string
   target: string
   path: string
   status: "open" | "sent" | "ready" | "blocked" | "resolved"

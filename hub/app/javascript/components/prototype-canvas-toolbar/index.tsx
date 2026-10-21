@@ -123,7 +123,7 @@ export function Toolbar({
       </Button>
 
       <div id="canvas-review-controls" className="canvas-review-controls-slot" />
-      {config.pickAndPolish || config.improvementNotesDemo ? (
+      {config.pickAndPolish ? (
         <div ref={improvementControlsRef} id="canvas-improvement-controls" />
       ) : null}
       {onControls ? (

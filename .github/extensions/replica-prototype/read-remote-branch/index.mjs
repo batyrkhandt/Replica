@@ -1,4 +1,5 @@
 import { runCommand } from "../run-command/index.mjs"
+import { gitShaPattern } from "../identity-patterns/index.mjs"
 
 // Matching refs returns [] for a missing branch; authorization/HTTP errors stay unknown.
 export async function readRemoteBranch(
@@ -39,7 +40,7 @@ export async function readRemoteBranch(
         typeof ref.ref !== "string" ||
         !/^refs\/heads\//.test(ref.ref) ||
         ref.object?.type !== "commit" ||
-        !/^[0-9a-f]{40}$/.test(ref.object?.sha || ""),
+        !gitShaPattern.test(ref.object?.sha || ""),
     )
   )
     return { ...identity, state: "unknown", error: "GitHub returned invalid branch refs." }

@@ -121,7 +121,6 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
         sourceId: selection.sourceId,
         body: draft.trim(),
         anchor: selection.anchor,
-        capture: "",
       }))
     )
       return

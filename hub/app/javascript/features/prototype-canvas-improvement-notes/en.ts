@@ -20,7 +20,6 @@ export const copy = {
   keep: "Keep writing",
   discardTitle: "Discard your unsaved note?",
   discardBody: "Your saved notes will stay unchanged.",
-  capture: "Captured target",
   editAction: "Edit",
   previewUnavailable: "The preview selection is unavailable. Try selecting the target again.",
   saved: "Note added.",

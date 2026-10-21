@@ -32,6 +32,7 @@ describe("useSavedNotes()", () => {
             notes: [
               {
                 id: 1,
+                localId: "original",
                 revision: 1,
                 kind: "improvement_note",
                 author: "local",
@@ -40,7 +41,7 @@ describe("useSavedNotes()", () => {
                 target: "Save",
                 selector: "#save",
                 rect: { x: 1, y: 1, width: 10, height: 10 },
-                capture: "",
+                thread: { originalStatus: "open", messages: [] },
                 status: "open",
                 sync: "synced",
               },

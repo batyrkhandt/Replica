@@ -8,49 +8,37 @@ export function improvementThreadView(
   resolution?: AnchorResolution,
 ): ImprovementThread {
   const work = [
-    note.thread?.originalStatus ?? note.status,
-    ...(note.thread?.messages
+    note.thread.originalStatus,
+    ...note.thread.messages
       .filter((message) => message.role === "author")
-      .map((message) => message.status) ?? []),
+      .map((message) => message.status),
   ]
   return {
     id: note.id,
     revision: note.revision,
     body: note.body,
-    capture: note.capture,
-    author: note.thread?.originalAuthor
+    author: note.thread.originalAuthor
       ? `@${note.thread.originalAuthor.login}`
       : note.author === "local"
         ? copy.localAuthor
         : `@${note.author}`,
-    avatarUrl: (note.thread?.originalAuthor ?? note.authorProfile)?.avatarUrl,
+    avatarUrl: note.thread.originalAuthor?.avatarUrl,
     target: note.target,
     path: note.route,
     status: note.status,
-    originalPending: (note.thread?.originalStatus ?? note.status) === "open",
+    originalPending: note.thread.originalStatus === "open",
     ...(work.includes("sent")
       ? { retryStatus: "sent" }
       : work.includes("blocked")
         ? { retryStatus: "blocked" }
         : {}),
-    messages:
-      note.thread?.messages.map((message) => ({
-        ...message,
-        ...(message.role === "author" && message.author
-          ? { author: `@${message.author.login}`, avatarUrl: message.author.avatarUrl }
-          : { author: undefined }),
-        pending: message.role === "author" && message.status === "open",
-      })) ??
-      (note.result
-        ? [
-            {
-              id: "legacy-result",
-              role: "copilot",
-              body: note.result,
-              status: note.status === "blocked" ? "blocked" : "ready",
-            },
-          ]
-        : []),
+    messages: note.thread.messages.map((message) => ({
+      ...message,
+      ...(message.role === "author" && message.author
+        ? { author: `@${message.author.login}`, avatarUrl: message.author.avatarUrl }
+        : { author: undefined }),
+      pending: message.role === "author" && message.status === "open",
+    })),
     ...(resolution && (resolution.status === "resolved" || resolution.status === "moved")
       ? { point: resolution.point }
       : {}),

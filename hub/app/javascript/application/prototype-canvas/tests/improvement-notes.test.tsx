@@ -63,6 +63,9 @@ function savedNotesFixture(captureFails = false) {
         saved.activeBatch = "batch"
         saved.notes.forEach((note) => {
           note.status = "sent"
+          note.thread.originalStatus = "sent"
+          for (const message of note.thread.messages)
+            if (message.role === "author" && message.status === "open") message.status = "sent"
         })
       } else if (!path.endsWith("/sync")) {
         if (!input || typeof input !== "object") throw new Error("Expected a notes request.")
@@ -82,11 +85,6 @@ function savedNotesFixture(captureFails = false) {
           else if (input.operation === "follow-up") {
             if (!("body" in input) || typeof input.body !== "string")
               throw new Error("Expected the follow-up body.")
-            note.thread ??= {
-              version: 1,
-              originalStatus: note.status === "resolved" ? "ready" : note.status,
-              messages: [],
-            }
             note.thread.messages.push({
               id: crypto.randomUUID(),
               role: "author",
@@ -106,8 +104,9 @@ function savedNotesFixture(captureFails = false) {
         saved.notes.push({
           anchor: selected,
           body: input.body,
-          capture: "capture" in input && typeof input.capture === "string" ? input.capture : "",
+          thread: { originalStatus: "open", messages: [] },
           id: saved.notes.length + 1,
+          localId: crypto.randomUUID(),
           kind: "improvement_note",
           author: "local",
           status: "open",
@@ -131,6 +130,7 @@ describe("App()", () => {
     const { saved } = savedNotesFixture()
     saved.notes.push({
       id: 1,
+      localId: "original",
       kind: "improvement_note",
       author: "local",
       body: "Make the save action clearer.",
@@ -138,7 +138,7 @@ describe("App()", () => {
       target: "Save",
       selector: "#save",
       rect: anchor.rect,
-      capture: "",
+      thread: { originalStatus: "open", messages: [] },
       anchor: REVIEW_ANCHOR_SCHEMA.parse(anchor),
       status: "open",
       sync: "local",
@@ -285,6 +285,7 @@ describe("App()", () => {
     const { saved, fetch } = savedNotesFixture()
     saved.notes.push({
       id: 1,
+      localId: "original",
       kind: "improvement_note",
       author: "local",
       body: "Make the save action clearer.",
@@ -292,7 +293,7 @@ describe("App()", () => {
       target: "Save",
       selector: "#save",
       rect: anchor.rect,
-      capture: "",
+      thread: { originalStatus: "open", messages: [] },
       anchor: REVIEW_ANCHOR_SCHEMA.parse(anchor),
       status: "open",
       sync: "local",
@@ -367,12 +368,7 @@ describe("App()", () => {
 
   it.each([
     ["Notes are saved locally until Hub discovers this branch.", false],
-    ["Hub sync failed: Upgrade Hub to synchronize improvement conversations.", true],
     ["Hub sync failed: Connection refused. Your notes remain saved locally.", true],
-    [
-      "Upgrade Hub to confirm the connected author's account ID. Author attribution is unavailable.",
-      true,
-    ],
   ])("only hides the informational branch-discovery notice: %s", async (syncError, visible) => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
     const { saved } = savedNotesFixture()
@@ -561,7 +557,8 @@ describe("App()", () => {
       const savedBody = writes.find(([path]) => path === "/api/improvement-notes")?.[1]?.body
       if (typeof savedBody !== "string") throw new Error("Expected a serialized improvement.")
       expect(JSON.parse(savedBody)).toMatchObject({ sourceId: "selected-source", anchor })
-      expect(saved.notes[0]).toMatchObject({ capture: "", anchor, body: "Clarify this action." })
+      expect(saved.notes[0]).toMatchObject({ anchor, body: "Clarify this action." })
+      expect(saved.notes[0]).not.toHaveProperty("capture")
       view.unmount()
     },
   )
@@ -599,61 +596,12 @@ describe("App()", () => {
     expect(JSON.parse(write[1].body)).not.toHaveProperty("sourceId")
   })
 
-  it("preserves images already stored with saved notes", async () => {
-    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
-    const { saved } = savedNotesFixture()
-    const capture = "data:image/png;base64,aGVsbG8="
-    saved.notes.push({
-      id: 1,
-      kind: "improvement_note",
-      author: "local",
-      body: "Previously saved note.",
-      route: "/settings?tab=account#profile",
-      target: "Save",
-      selector: "#save",
-      rect: anchor.rect,
-      capture,
-      anchor: REVIEW_ANCHOR_SCHEMA.parse(anchor),
-      status: "open",
-      sync: "local",
-      revision: 1,
-    })
-    const view = render(
-      <App
-        config={{
-          name: "Demo",
-          prototypeUrl: `${origin}/projects`,
-          token: "local",
-          pickAndPolish: true,
-        }}
-      />,
-    )
-    expect(await screen.findByRole("img", { name: `${copy.capture}: Save` })).toHaveAttribute(
-      "src",
-      capture,
-    )
-    expect(saved.notes[0]).toMatchObject({ capture })
-    const frame = screen.getByTitle("Demo prototype")
-    if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the preview frame.")
-    receive(frame, {
-      type: "replica:canvas:ready",
-      protocolVersion: 1,
-      improvementSelection: true,
-      route: anchor.route,
-    })
-    receive(frame, {
-      type: "replica:canvas:resolved",
-      results: [{ id: 1, x: 80, y: 50 }],
-    })
-    expect(await screen.findByRole("button", { name: "Open improvement 1" })).toBeVisible()
-    view.unmount()
-  })
-
   it("keeps follow-up drafts while polling and protects a deletion against later revisions", async () => {
     vi.useFakeTimers()
     const { saved, fetch } = savedNotesFixture()
     saved.notes.push({
       id: 1,
+      localId: "original",
       kind: "improvement_note",
       author: "local",
       body: "Original feedback.",
@@ -661,7 +609,7 @@ describe("App()", () => {
       target: "Save",
       selector: "#save",
       rect: anchor.rect,
-      capture: "",
+      thread: { originalStatus: "open", messages: [] },
       anchor: REVIEW_ANCHOR_SCHEMA.parse(anchor),
       status: "open",
       sync: "local",
@@ -695,7 +643,6 @@ describe("App()", () => {
       const serverNote = saved.notes[0]
       if (!serverNote) throw new Error("Expected the saved test note.")
       serverNote.thread = {
-        version: 1,
         originalStatus: "open",
         messages: [
           { id: "other", role: "author", body: "Another panel's request.", status: "open" },
@@ -736,6 +683,7 @@ describe("App()", () => {
     const { saved, fetch } = savedNotesFixture()
     saved.notes.push({
       id: 1,
+      localId: "original",
       kind: "improvement_note",
       author: "local",
       body: "Original feedback.",
@@ -743,7 +691,7 @@ describe("App()", () => {
       target: "Save",
       selector: "#save",
       rect: anchor.rect,
-      capture: "",
+      thread: { originalStatus: "sent", messages: [] },
       anchor: REVIEW_ANCHOR_SCHEMA.parse(anchor),
       status: "sent",
       sync: "local",
@@ -770,15 +718,14 @@ describe("App()", () => {
       })
       const note = saved.notes[0]!
       note.status = "ready"
-      note.result = "Implemented the requested change.\nReview the updated control."
+      const answer = "Implemented the requested change.\nReview the updated control."
       note.thread = {
-        version: 1,
         originalStatus: "ready",
         messages: [
           {
             id: "answer",
             role: "copilot",
-            body: note.result,
+            body: answer,
             status: "ready",
             requestIds: ["original"],
           },
@@ -797,16 +744,13 @@ describe("App()", () => {
       expect(fetch).toHaveBeenCalled()
       expect(note.body).toBe("Original feedback.")
       expect(note.status).toBe("open")
-      expect(note.thread.messages.map((entry) => entry.body)).toEqual([
-        note.result,
-        "Unsaved request.",
-      ])
+      expect(note.thread.messages.map((entry) => entry.body)).toEqual([answer, "Unsaved request."])
       const conversation = screen.getByRole("dialog", { name: threadCopy.conversation })
       expect(
         conversation.querySelector(
           ".review-thread-message:nth-child(2) .review-thread-message__body",
         )?.textContent,
-      ).toBe(note.result)
+      ).toBe(answer)
       expect(screen.getByRole("complementary", { name: copy.notes })).toBeVisible()
     } finally {
       view.unmount()
@@ -823,7 +767,7 @@ describe("App()", () => {
           name: "Demo",
           prototypeUrl: `${origin}/projects`,
           token: "local",
-          improvementNotesDemo: true,
+          pickAndPolish: true,
         }}
       />,
     )

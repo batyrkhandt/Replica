@@ -5,6 +5,7 @@ import type { Note } from "../types"
 function createNote(): Note {
   return {
     id: 1,
+    localId: "original",
     kind: "improvement_note",
     author: "octocat",
     body: "Clarify the save action.",
@@ -12,7 +13,7 @@ function createNote(): Note {
     target: "Save",
     selector: "#save",
     rect: { x: 0, y: 0, width: 120, height: 40 },
-    capture: "",
+    thread: { originalStatus: "open", messages: [] },
     status: "open",
     sync: "local",
     revision: 1,
@@ -20,15 +21,9 @@ function createNote(): Note {
 }
 
 describe("improvementThreadView()", () => {
-  it("preserves original and follow-up author snapshots instead of replacing them with a current profile", () => {
+  it("preserves independent original and follow-up author snapshots", () => {
     const note = createNote()
-    note.authorProfile = {
-      id: 1,
-      login: "renamed-owner",
-      avatarUrl: "https://avatars.githubusercontent.com/u/2",
-    }
     note.thread = {
-      version: 2,
       originalStatus: "ready",
       originalAuthor: {
         id: 1,
@@ -58,22 +53,12 @@ describe("improvementThreadView()", () => {
     })
   })
 
-  it("keeps an unowned legacy author unattributed and uses only server-projected matching profiles for known authors", () => {
+  it("keeps an offline unowned author unattributed", () => {
     const note = createNote()
     note.author = "local"
     expect(improvementThreadView(note)).toMatchObject({
       author: "Local author",
       avatarUrl: undefined,
-    })
-    note.author = "mona"
-    note.authorProfile = {
-      id: 1,
-      login: "mona",
-      avatarUrl: "https://avatars.githubusercontent.com/u/1",
-    }
-    expect(improvementThreadView(note)).toMatchObject({
-      author: "@mona",
-      avatarUrl: "https://avatars.githubusercontent.com/u/1",
     })
   })
 })
