@@ -4,6 +4,9 @@ export function renderCanvasHtml(context, token, setupUrl) {
     previewUrl: context.previewUrl,
     name: context.name,
     token,
+    pickAndPolish: true,
+    ...(context.improvementNotesDemo ? { improvementNotesDemo: true } : {}),
+    ...(context.improvementThreadsSample ? { improvementThreadsSample: true } : {}),
   }).replaceAll("<", "\\u003c")
 
   return `<!doctype html>
