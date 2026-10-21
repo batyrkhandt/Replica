@@ -85,4 +85,7 @@ module ReplicaHub
     # only to replica-learning and never stores it. See docs/copilot.md.
     config.x.copilot_token = ENV["REPLICA_COPILOT_TOKEN"].presence
   end
+
+  require_relative "../lib/hub_tracing"
+  HubTracing.start!
 end

@@ -1,0 +1,234 @@
+require "test_helper"
+require "open3"
+require "opentelemetry/sdk"
+require "opentelemetry/exporter/otlp"
+require "opentelemetry/sdk/trace/export/in_memory_span_exporter"
+require_relative "../../lib/hub_tracing/exporter"
+
+class HubTracingTest < ActiveSupport::TestCase
+  self.use_transactional_tests = false
+
+  test "default disabled and dummy builds do not load the tracing SDK" do
+    [
+      {},
+      { "OTEL_TRACES_EXPORTER" => "none" },
+      { "OTEL_TRACES_EXPORTER" => "otlp", "OTEL_SDK_DISABLED" => "true" },
+      { "OTEL_TRACES_EXPORTER" => "otlp", "SECRET_KEY_BASE_DUMMY" => "1" },
+      { "REPLICA_OTEL_INCLUDE_SENSITIVE_DATA" => "invalid", "REPLICA_OTEL_TRUST_INCOMING_CONTEXT" => "invalid" }
+    ].each do |configuration|
+      output, error, status = run_startup(configuration, <<~RUBY)
+        HubTracing.start!
+        abort "SDK initialized while disabled" if defined?(OpenTelemetry::SDK)
+        puts "disabled"
+      RUBY
+
+      assert status.success?, error
+      assert_equal "disabled", output.strip
+    end
+  end
+
+  test "invalid enabled configuration fails without printing endpoint credentials" do
+    [
+      { "OTEL_EXPORTER_OTLP_ENDPOINT" => nil },
+      { "OTEL_EXPORTER_OTLP_ENDPOINT" => "https://user:credential-canary@collector.example" },
+      { "OTEL_EXPORTER_OTLP_ENDPOINT" => "https://collector.example?token=credential-canary" },
+      { "OTEL_EXPORTER_OTLP_ENDPOINT" => "https://collector.example/#credential-canary" },
+      { "OTEL_EXPORTER_OTLP_ENDPOINT" => "https://[credential-canary" },
+      { "OTEL_EXPORTER_OTLP_ENDPOINT" => "file:///credential-canary" },
+      { "OTEL_EXPORTER_OTLP_PROTOCOL" => "grpc" },
+      { "OTEL_TRACES_EXPORTER" => "console,otlp" },
+      { "REPLICA_OTEL_INCLUDE_SENSITIVE_DATA" => "credential-canary" },
+      { "REPLICA_OTEL_INCLUDE_SENSITIVE_DATA" => "" },
+      { "REPLICA_OTEL_INCLUDE_SENSITIVE_DATA" => "1" },
+      { "REPLICA_OTEL_TRUST_INCOMING_CONTEXT" => "credential-canary" },
+      { "REPLICA_OTEL_TRUST_INCOMING_CONTEXT" => "" },
+      { "REPLICA_OTEL_TRUST_INCOMING_CONTEXT" => "yes" },
+      { "REPLICA_OTEL_UNTRACED_HOSTS" => "upstream.example," },
+      { "REPLICA_OTEL_UNTRACED_HOSTS" => ",upstream.example" },
+      { "REPLICA_OTEL_UNTRACED_HOSTS" => "upstream.example, ,other.example" }
+    ].each do |invalid|
+      configuration = {
+        "OTEL_TRACES_EXPORTER" => "otlp",
+        "OTEL_EXPORTER_OTLP_ENDPOINT" => "http://collector.example"
+      }.merge(invalid)
+      output, error, status = run_startup(configuration, <<~RUBY)
+        begin
+          HubTracing.start!
+        rescue ArgumentError => error
+          puts error.message
+          exit 42
+        end
+      RUBY
+
+      assert_equal 42, status.exitstatus, "#{configuration.keys}: #{output} #{error}"
+      refute_includes output + error, "credential-canary"
+    end
+  end
+
+  test "export deadline interrupts a sleeping exporter even when it rescues ordinary errors" do
+    delegate = Object.new
+    entered = false
+    completed = false
+    delegate.define_singleton_method(:export) do |_, timeout:|
+      entered = true
+      sleep 0.25
+      completed = true
+      OpenTelemetry::SDK::Trace::Export::SUCCESS
+    rescue StandardError
+      OpenTelemetry::SDK::Trace::Export::SUCCESS
+    end
+    exporter = HubTracing::Exporter.new(delegate)
+
+    assert_equal OpenTelemetry::SDK::Trace::Export::TIMEOUT, exporter.export([], timeout: 0.01)
+    assert entered, "delegate was never called"
+    refute completed, "delegate continued beyond the export deadline"
+  end
+
+  test "expired export deadlines do not send spans" do
+    delegate = Object.new
+    calls = 0
+    delegate.define_singleton_method(:export) do |_, timeout:|
+      calls += 1
+      OpenTelemetry::SDK::Trace::Export::SUCCESS
+    end
+    exporter = HubTracing::Exporter.new(delegate)
+
+    [ 0, -1 ].each do |timeout|
+      assert_equal OpenTelemetry::SDK::Trace::Export::TIMEOUT, exporter.export([], timeout:)
+    end
+    assert_equal 0, calls
+  end
+
+  test "serialized OTLP preserves emitted metadata and exception diagnostics but removes unrelated private content" do
+    memory = OpenTelemetry::SDK::Trace::Export::InMemorySpanExporter.new
+    provider = OpenTelemetry::SDK::Trace::TracerProvider.new
+    provider.add_span_processor(OpenTelemetry::SDK::Trace::Export::SimpleSpanProcessor.new(memory))
+    tracer = provider.tracer("hub-tracing-test")
+    sensitive = "private-value-canary"
+    attributes = {
+      "http.request.method" => "POST",
+      "http.response.status_code" => 500,
+      "http.route" => "/builds/:id",
+      "http.method" => "POST",
+      "http.status_code" => 500,
+      "url.scheme" => "https",
+      "http.scheme" => "https",
+      "server.address" => "example.com",
+      "server.port" => 443,
+      "net.peer.name" => "example.com",
+      "net.peer.port" => 443,
+      "db.system.name" => "sqlite",
+      "db.query.text" => "SELECT 'sql-diagnostic-canary'",
+      "messaging.system" => "active_job",
+      "messaging.destination" => "default",
+      "messaging.message.id" => "job-id",
+      "messaging.active_job.adapter.name" => "ActiveJob::QueueAdapters::TestAdapter",
+      "messaging.active_job.message.provider_job_id" => "provider-id",
+      "messaging.active_job.message.priority" => "3",
+      "code.namespace" => "TracingProbeJob",
+      "code.function" => "perform",
+      "replica.job.arguments" => '["argument-diagnostic-canary"]',
+      "http.request.header.authorization" => "Bearer #{sensitive}",
+      "http.request.body" => sensitive,
+      "url.full" => "https://user:#{sensitive}@example.com/#{sensitive}?token=#{sensitive}",
+      "db.statement" => "SELECT '#{sensitive}'",
+      "db.query.parameter.0" => sensitive,
+      "job.arguments" => sensitive,
+      "db.system" => sensitive,
+      "db.operation" => sensitive,
+      "db.operation.name" => sensitive,
+      "messaging.operation" => sensitive,
+      "messaging.operation.name" => sensitive,
+      "messaging.operation.type" => sensitive,
+      "messaging.destination.name" => sensitive,
+      "messaging.destination_kind" => sensitive
+    }
+    link = OpenTelemetry::Trace::Link.new \
+      OpenTelemetry::Trace::SpanContext.new,
+      { "secret" => sensitive }
+    span = tracer.start_span("POST /#{sensitive}", kind: :server, attributes:, links: [ link ])
+    span.add_event(sensitive, attributes: { "exception.message" => sensitive })
+    span.add_event \
+      "exception",
+      attributes: {
+        "exception.type" => "RuntimeError",
+        "exception.message" => "exception-diagnostic-canary",
+        "exception.stacktrace" => "probe.rb:1:in `perform'",
+        "exception.escaped" => true,
+        "request.body" => sensitive
+      }
+    span.status = OpenTelemetry::Trace::Status.error(sensitive)
+    span.finish
+    client = tracer.start_span \
+      "GET https://example.com/#{sensitive}",
+      kind: :client,
+      attributes: attributes.merge("http.request.method" => "GET")
+    client.finish
+    originals = memory.finished_spans
+    requests = []
+    intake = stub_request(:post, "http://collector.example/v1/traces").with do |request|
+      requests << request
+      true
+    end.to_return(status: 200, body: "")
+    exporter = HubTracing::Exporter.new \
+      OpenTelemetry::Exporter::OTLP::Exporter.new(endpoint: "http://collector.example/v1/traces")
+
+    assert_equal OpenTelemetry::SDK::Trace::Export::SUCCESS, exporter.export(originals, timeout: 1)
+
+    assert_requested intake, times: 1
+    assert_equal "application/x-protobuf", requests.first.headers["Content-Type"]
+    payload = requests.first.body
+    refute_includes payload, sensitive
+    decoded = Opentelemetry::Proto::Collector::Trace::V1::ExportTraceServiceRequest.decode(payload)
+    exported = decoded.resource_spans.flat_map(&:scope_spans).flat_map(&:spans)
+    assert_equal [ "POST /builds/:id", "GET /builds/:id" ], exported.map(&:name)
+    exported.zip(originals).each do |actual, original|
+      assert_equal original.trace_id, actual.trace_id
+      assert_equal original.span_id, actual.span_id
+      assert_equal original.start_timestamp, actual.start_time_unix_nano
+      assert_equal original.end_timestamp, actual.end_time_unix_nano
+      assert_empty actual.links
+      metadata = actual.attributes.to_h { |attribute| [ attribute.key, attribute.value ] }
+      attributes.reject { |_, value| value.to_s.include?(sensitive) }
+        .merge("http.request.method" => original.attributes["http.request.method"]).each do |key, value|
+          assert metadata.key?(key), "missing emitted metadata #{key}"
+          assert_equal value, metadata.fetch(key).public_send(value.is_a?(Integer) ? :int_value : :string_value)
+        end
+    end
+    assert_equal [ "exception" ], exported.first.events.map(&:name)
+    event = exported.first.events.first
+    assert_equal originals.first.events.last.timestamp, event.time_unix_nano
+    expected_exception = {
+      "exception.type" => "RuntimeError",
+      "exception.message" => "exception-diagnostic-canary",
+      "exception.stacktrace" => "probe.rb:1:in `perform'"
+    }
+    assert_equal expected_exception, event.attributes.to_h { |attribute| [ attribute.key, attribute.value.string_value ] }
+    assert_empty exported.last.events
+    assert_equal :STATUS_CODE_ERROR, exported.first.status.code
+    assert_empty exported.first.status.message
+    assert_equal "POST /#{sensitive}", originals.first.name
+    assert_equal sensitive, originals.first.events.first.name
+    assert_equal sensitive, originals.first.status.description
+  ensure
+    exporter&.shutdown(timeout: 1)
+    provider&.shutdown(timeout: 1)
+  end
+
+  private
+
+  def run_startup(configuration, script)
+    environment = ENV.keys.grep(/\A(?:OTEL_|REPLICA_OTEL_)/).to_h { |key| [ key, nil ] }
+      .merge("SECRET_KEY_BASE_DUMMY" => nil)
+      .merge(configuration)
+    Open3.capture3 \
+      environment,
+      RbConfig.ruby,
+      "-rbundler/setup",
+      "-Ilib",
+      "-rhub_tracing",
+      "-e",
+      script,
+      chdir: Rails.root
+  end
+end
