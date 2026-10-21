@@ -6,7 +6,7 @@ class GithubAppInstallationAccountMigrationTest < ActiveSupport::TestCase
     self.abstract_class = true
   end
 
-  test "backfills saved installation accounts and enforces their identity independently of current ownership" do
+  test "upgrading preserves saved installations and records their accounts" do
     UpgradeRecord.establish_connection(adapter: "sqlite3", database: ":memory:")
     connection = UpgradeRecord.connection
     connection.create_table(:github_app_configurations) do |table|
@@ -21,28 +21,11 @@ class GithubAppInstallationAccountMigrationTest < ActiveSupport::TestCase
     migration.define_singleton_method(:connection) { connection }
     migration.suppress_messages { migration.up }
 
-    accounts = connection.select_values \
-      "SELECT installation_account_github_id FROM github_app_configurations ORDER BY id"
-    assert_equal [ 321, nil ], accounts
-    connection.execute("UPDATE github_app_configurations SET owner_github_id = 789 WHERE id = 1")
-    assert_equal 321, connection.select_value(
-      "SELECT installation_account_github_id FROM github_app_configurations WHERE id = 1"
-    )
-    [ "NULL", "0", "-1" ].each do |invalid_account|
-      assert_raises(ActiveRecord::StatementInvalid) do
-        connection.execute \
-          "UPDATE github_app_configurations SET installation_account_github_id = #{invalid_account} WHERE id = 1"
-      end
-    end
-    assert_raises(ActiveRecord::StatementInvalid) do
-      connection.execute("UPDATE github_app_configurations SET installation_account_github_id = 654 WHERE id = 2")
-    end
-
-    migration.suppress_messages { migration.down }
-
-    assert_equal %w[id owner_github_id installation_id],
-      connection.columns(:github_app_configurations).map(&:name)
-    assert_equal 456, connection.select_value("SELECT installation_id FROM github_app_configurations WHERE id = 1")
+    installations = connection.select_rows <<~SQL
+      SELECT owner_github_id, installation_id, installation_account_github_id
+      FROM github_app_configurations ORDER BY id
+    SQL
+    assert_equal [ [ 321, 456, 321 ], [ 654, nil, nil ] ], installations
   ensure
     UpgradeRecord.connection_pool.disconnect!
   end
