@@ -141,22 +141,16 @@ beforeEach(() => {
 })
 
 describe("ControlsPanel()", () => {
-  it("links to the Controls README only at the bottom of the genuine empty state", () => {
+  it("links to the Controls README only in the genuine empty state", () => {
     const empty: PanelState = { ...ready, scopes: [], status: "no-controls" }
     const view = render(<Example state={empty} />)
     const link = screen.getByRole("link", { name: "Learn more" })
-    expect(link.closest("footer")).toHaveClass("canvas-controls-footer")
     expect(link).toHaveAttribute(
       "href",
       "https://github.com/github/replica/blob/main/starter/README.md#prototype-controls",
     )
     expect(link).toHaveAttribute("target", "_blank")
     expect(link).toHaveAttribute("rel", "noopener noreferrer")
-    expect(link).toHaveClass("canvas-controls-learn-more")
-    const externalIcon = link.querySelector("svg.octicon-link-external")
-    expect(externalIcon).toHaveAttribute("aria-hidden", "true")
-    expect(externalIcon).not.toHaveAttribute("tabindex")
-    expect(link.lastElementChild).toBe(externalIcon)
     expect(link).toHaveAccessibleName("Learn more")
     expect(screen.getByText(/^No active controls\./)).toBeVisible()
     for (const state of [

@@ -1,6 +1,6 @@
 import { CheckCircleIcon, LinkIcon, PencilIcon, SyncIcon, UploadIcon } from "@primer/octicons-react"
 import { Button, Tooltip } from "@primer/react-brand"
-import type { RefObject } from "react"
+import type { Ref, RefObject } from "react"
 
 import { ControlsToggle } from "../prototype-controls-toggle"
 import { HubIconButton } from "@components/hub-icon-button"
@@ -14,6 +14,7 @@ import "./styles.css"
 
 type Props = {
   toolbarRef?: RefObject<HTMLElement | null>
+  improvementControlsRef?: Ref<HTMLDivElement>
   config: CanvasConfig
   onPublish: () => void
   publishButtonRef: RefObject<HTMLButtonElement | null>
@@ -35,6 +36,7 @@ type Props = {
 
 export function Toolbar({
   toolbarRef,
+  improvementControlsRef,
   config,
   onPublish,
   publishButtonRef,
@@ -122,7 +124,7 @@ export function Toolbar({
 
       <div id="canvas-review-controls" className="canvas-review-controls-slot" />
       {config.pickAndPolish || config.improvementNotesDemo ? (
-        <div id="canvas-improvement-controls" />
+        <div ref={improvementControlsRef} id="canvas-improvement-controls" />
       ) : null}
       {onControls ? (
         <ControlsToggle buttonRef={controlsButtonRef} open={controlsOpen} onToggle={onControls} />

@@ -59,6 +59,7 @@ export function App({ config }: Props) {
     collapsedGroups: {},
   })
   const [hubOpen, setHubOpen] = useState(false)
+  const [improvementControls, setImprovementControls] = useState<HTMLDivElement | null>(null)
   const [buildDetailsOpen, setBuildDetailsOpen] = useState(false)
   const closeHub = useCallback(() => {
     setHubOpen(false)
@@ -210,6 +211,7 @@ export function App({ config }: Props) {
 
         <Toolbar
           toolbarRef={toolbarRef}
+          improvementControlsRef={setImprovementControls}
           config={config}
           state={publication.presentedState}
           prototypeName={
@@ -283,9 +285,9 @@ export function App({ config }: Props) {
               canvas={{
                 token: config.token,
                 frameRef,
+                toolbarTarget: improvementControls,
                 prototypeUrl: config.prototypeUrl,
                 previewUrl: config.previewUrl,
-                branch: state?.stats.branch ?? config.name,
                 hubOpen,
                 onOpenNotes: () => setHubOpen(false),
                 onNavigate: navigate,

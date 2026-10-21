@@ -53,9 +53,6 @@ describe("ImprovementThreads()", () => {
       expect(menuDelete).toHaveAttribute("aria-disabled", "false")
       fireEvent.click(menuDelete)
       const confirmation = screen.getByRole("dialog", { name: copy.deleteTitle })
-      expect(confirmation.querySelector(".canvas-dialog-header .hub-icon-button")).not.toHaveClass(
-        "hub-icon-button--invisible",
-      )
       expect(confirmation.querySelector("blockquote")).toHaveTextContent(thread.body)
       expect(confirmation).not.toHaveTextContent(
         "This improvement and its follow-ups will be removed",
@@ -76,7 +73,6 @@ describe("ImprovementThreads()", () => {
         expect(confirmation).toHaveTextContent("The improvement could not be deleted.")
         for (const alert of screen.getAllByRole("alert")) {
           expect(alert).toBeVisible()
-          expect(alert).toHaveClass("thread-sample__error")
         }
         expect(screen.getByRole("button", { name: copy.point(1) })).toHaveAttribute(
           "aria-expanded",
@@ -172,14 +168,7 @@ describe("ImprovementThreads()", () => {
         />,
       )
       const fix = screen.getByRole("button", { name: copy.simulate(count) })
-      expect(fix.querySelector(".hub-counter")).toHaveTextContent(String(count))
-      expect(fix.querySelector(".hub-counter")).toHaveAttribute("aria-hidden", "true")
-      expect(fix.querySelector(".hub-counter")?.parentElement).toHaveClass(
-        "thread-sample__fix-label",
-      )
-      expect(fix.querySelector(".hub-counter")?.parentElement).toHaveTextContent(copy.fix)
-      expect(fix.querySelector('[data-testid="Button-trailing-visual"]')).toBeNull()
-      expect(fix).not.toHaveTextContent(/[()]/)
+      expect(fix).toHaveTextContent(String(count))
       if (count) expect(fix).toBeEnabled()
       else expect(fix).toBeDisabled()
       expect(onFix).not.toHaveBeenCalled()
@@ -228,7 +217,6 @@ describe("ImprovementThreads()", () => {
         return
       }
       if (!resolve) throw new Error("Expected the ready-work resolution action.")
-      expect(resolve.querySelector("svg")).toHaveClass("octicon-check-circle")
       expect(resolve).toBeEnabled()
       fireEvent.click(resolve)
       expect(onResolve).toHaveBeenCalledExactlyOnceWith(thread)

@@ -37,6 +37,8 @@ await build({
   },
   build: {
     emptyOutDir: false,
+    minify: true,
+    rolldownOptions: { output: { minify: true } },
     outDir: assets.pathname,
     lib: {
       entry: new URL("../app/javascript/utils/review-anchor/validate-anchor.ts", import.meta.url)

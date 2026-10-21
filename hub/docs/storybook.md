@@ -72,7 +72,7 @@ Add another story only when it shows a meaningful product state, such as loading
 
 ## Story ownership
 
-`Components/Prototype canvas/Improvement notes prototype` is the isolated UI workbench for [Pick & polish](prototype-canvas.md#pick--polish). Empty, Single, and Multiple show the interactive flow over an authored Projects/Settings preview and reuse the real `HubSidebar`. Pick & polish selects an element or rectangle directly; its adjoining counter-only button opens the sidebar. Primer Brand ActionMenu selects Active notes, Ready to review, or Resolved. Only Active notes shows Fix all and its eligible-note counter. Shift+Enter starts keyboard two-corner region selection with arrows and Enter. Storybook supplies cropped SVG captures, simulated immutable batches and explicit connection/result controls; the author can edit, delete, resolve, reopen, and retry notes. Story state resets on reload and never calls disk, Hub, or Copilot APIs. Production persistence, synchronization, captures, and handoff belong to the canvas adapter, not these fixtures.
+`Components/Prototype canvas/Improvement threads` is the presentation workbench for [Pick & polish](prototype-canvas.md#pick--polish). Small fixtures render the real conversation component with pins, active notes, a Copilot answer, no pending work and an identity error. They do not implement a second prototype app, selection bridge, storage, synchronization or agent workflow. The former `Improvement notes prototype` stories and their standalone simulated app have been removed.
 
 Keep `stories.tsx` beside the code it presents:
 
