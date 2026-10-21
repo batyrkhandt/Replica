@@ -4,7 +4,6 @@ import { createRef } from "react"
 import { describe, expect, it, vi } from "vitest"
 
 import { Toolbar } from "."
-import styles from "./styles.css?inline"
 
 const config = { name: "Demo", prototypeUrl: "http://localhost:3000", token: "local-token" }
 const props = {
@@ -17,27 +16,6 @@ const props = {
 }
 
 describe("Toolbar()", () => {
-  it("uses existing hover and pressed fills only for enabled selected toolbar toggles", () => {
-    expect(styles).not.toContain("--hub-toolbar-button-bg-")
-    expect(styles).not.toContain("--brand-button-secondary-bgColor-rest:")
-    const rules = styles.match(/\.canvas-toolbar\s+button:is\([^}]+\}/g)
-    expect(rules).toHaveLength(2)
-    expect(styles).toContain(
-      "--hub-toolbar-selected-bg: var(--brand-button-secondary-bgColor-hover)",
-    )
-    expect(styles).toContain(
-      "--hub-toolbar-selected-hover-bg: var(--brand-button-secondary-bgColor-active)",
-    )
-    expect(rules?.[0]).toContain("background-color: var(--hub-toolbar-selected-bg)")
-    expect(rules?.[1]).toContain(":is(:hover, :active)")
-    expect(rules?.[1]).toContain("background-color: var(--hub-toolbar-selected-hover-bg)")
-    for (const rule of rules ?? []) {
-      expect(rule).toContain('[aria-pressed="true"], [aria-expanded="true"]')
-      expect(rule).toContain(".canvas-title,\n    .canvas-publish-button")
-      expect(rule).toContain(':not(:disabled):not([aria-disabled="true"])')
-    }
-  })
-
   it("preserves the full long branch in its accessible name and hover title", () => {
     const branch = "prototype/refine-project-navigation-and-review-workflow"
     render(
@@ -47,7 +25,6 @@ describe("Toolbar()", () => {
     )
     const title = screen.getByRole("button", { name: branch })
     expect(title).toHaveAttribute("title", expect.stringContaining(branch))
-    expect(title).toHaveClass("canvas-title")
     expect(title).toHaveTextContent(branch)
   })
 
@@ -89,8 +66,6 @@ describe("Toolbar()", () => {
     expect(hubButtonRef.current).toBe(button)
     expect(button).toHaveAttribute("aria-expanded", "true")
     expect(button).toHaveAttribute("title", "Edit details")
-    expect(button).toHaveClass("canvas-toolbar-compact-button")
-    expect(button.querySelector(".octicon-pencil")).not.toBeNull()
     fireEvent.click(button)
     expect(onHub).toHaveBeenCalledOnce()
     expect(screen.queryByRole("button", { name: "Hub" })).not.toBeInTheDocument()

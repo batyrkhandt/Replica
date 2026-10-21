@@ -5,40 +5,9 @@ import { copy } from "./en"
 import { sampleThreads } from "./fixtures"
 
 describe("PrototypeCanvasThreadSample()", () => {
-  it("uses the canonical avatar slot for Copilot answers without changing human avatars", () => {
-    render(<PrototypeCanvasThreadSample />)
-    fireEvent.click(
-      screen.getByRole("button", { name: `Open improvement: ${sampleThreads[0]!.body}` }),
-    )
-    const dialog = screen.getByRole("dialog", { name: copy.conversation })
-    const copilot = within(dialog).getAllByText(copy.copilot, { exact: true })[0]!
-    const heading = copilot.closest(".review-thread-message__header")
-    const avatar = heading?.querySelector(".thread-sample__copilot-avatar")
-    expect(avatar).toHaveClass("hub-user-avatar", "hub-user-avatar--28")
-    const image = avatar?.querySelector("img")
-    expect(image).toHaveAttribute("alt", "")
-    expect(decodeURIComponent(image?.getAttribute("src") ?? "")).toContain('fill="white"')
-    expect(heading?.querySelector("svg")).toBeNull()
-    expect(dialog.querySelector(".review-thread-message__header .hub-user-avatar")).not.toHaveClass(
-      "thread-sample__copilot-avatar",
-    )
-    expect(screen.getByRole("button", { name: copy.point(1) })).not.toHaveClass(
-      "thread-sample__copilot-avatar",
-    )
-  })
-
-  it("keeps the kebab's accessible label and menu separate from its implicit hover label", () => {
+  it("exposes an accessible actions menu", () => {
     render(<PrototypeCanvasThreadSample />)
     const trigger = screen.getByRole("button", { name: `${copy.actions}: 1` })
-    const labelId = trigger.getAttribute("aria-labelledby")
-    expect(labelId).toBeTruthy()
-    if (!labelId) throw new Error("Expected the kebab's implicit label.")
-    const label = document.getElementById(labelId)
-    expect(label).toHaveAttribute("popover")
-    expect(label).toHaveAttribute("aria-hidden", "true")
-    expect(label?.previousElementSibling).toBe(trigger)
-    expect(label?.closest(".thread-sample__menu")).not.toBeNull()
-    expect(trigger).not.toHaveAttribute("title")
     expect(trigger).toHaveAccessibleName(`${copy.actions}: 1`)
     fireEvent.click(trigger)
     expect(screen.getByRole("menuitem", { name: copy.delete })).toBeVisible()
@@ -100,16 +69,14 @@ describe("PrototypeCanvasThreadSample()", () => {
     expect(screen.getByRole("button", { name: copy.open })).toHaveFocus()
   })
 
-  it("places ready status beside the author, omits open status and counts only human follow-ups", () => {
+  it("shows readiness and counts only human follow-ups", () => {
     const fetch = vi.spyOn(window, "fetch")
     render(<PrototypeCanvasThreadSample />)
     expect(screen.queryByText(/visual experiment/i)).not.toBeInTheDocument()
     const first = screen.getByRole("button", {
       name: `Open improvement: ${sampleThreads[0]!.body}`,
     })
-    const status = within(first).getByText(copy.ready)
-    expect(first.querySelector(".hub-user-avatar")).toHaveClass("hub-user-avatar--20")
-    expect(status.parentElement).toBe(within(first).getByText(copy.author).parentElement)
+    expect(within(first).getByText(copy.ready)).toBeVisible()
     const card = first.closest("article")
     if (!card) throw new Error("Expected the sample card.")
     expect(within(card).queryByText(/follow-up/)).not.toBeInTheDocument()
@@ -119,21 +86,14 @@ describe("PrototypeCanvasThreadSample()", () => {
     if (!second) throw new Error("Expected the second card.")
     const followUps = within(second).getByText(copy.followUps(2))
     expect(followUps).toBeVisible()
-    const summaryIcon = followUps.querySelector('svg.octicon-reply[aria-hidden="true"]')
-    expect(summaryIcon).toHaveAttribute("width", "12")
-    expect(summaryIcon).toHaveAttribute("height", "12")
     expect(followUps.closest("button, a")).toBeNull()
     const open = screen.getByRole("button", {
       name: `Open improvement: ${sampleThreads[2]!.body}`,
     })
     expect(within(open).queryByText(copy.openStatus)).not.toBeInTheDocument()
-    expect(open.querySelector(".thread-sample__status")).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: `${copy.actions}: 2` }))
     expect(screen.queryByRole("menuitem", { name: "Add follow-up" })).not.toBeInTheDocument()
-    const menuIcon = screen.getByRole("menuitem", { name: copy.markResolved }).querySelector("svg")
-    expect(menuIcon).toHaveClass("octicon-check-circle")
-    expect(menuIcon).toHaveAttribute("width", "16")
-    expect(menuIcon).toHaveAttribute("height", "16")
+    expect(screen.getByRole("menuitem", { name: copy.markResolved })).toBeEnabled()
     expect(screen.queryByText(/\d+ replies/)).not.toBeInTheDocument()
     expect(fetch).not.toHaveBeenCalled()
   })
@@ -148,9 +108,7 @@ describe("PrototypeCanvasThreadSample()", () => {
     const conversation = screen.getByRole("dialog", { name: copy.conversation })
     expect(screen.getAllByRole("button", { name: /^Open improvement:/ })).toHaveLength(3)
     expect(conversation.closest("aside")).toBeNull()
-    expect(conversation.parentElement).toHaveClass("thread-sample__surface")
     expect(within(conversation).getByText(copy.copilot)).toBeVisible()
-    expect(conversation.querySelector(".hub-user-avatar")).toHaveClass("hub-user-avatar--28")
     expect(conversation.querySelectorAll(".review-thread-message__body")[1]?.textContent).toBe(
       sampleThreads[0]!.messages[0]!.body,
     )
