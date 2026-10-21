@@ -82,7 +82,7 @@
 .review-shell__actions {
   display: flex;
   align-items: center;
-  gap: var(--base-size-8);
+  gap: var(--base-size-4);
   flex: none;
   flex-wrap: nowrap;
 }
@@ -127,7 +127,7 @@
 .review-shell__actions-scroller {
   display: flex;
   align-items: center;
-  gap: var(--base-size-8);
+  gap: var(--base-size-4);
 }
 
 .review-shell__build-menu {
