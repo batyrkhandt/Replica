@@ -112,6 +112,11 @@
   margin-inline-start: -1px;
 }
 
+.review-shell__comments-toggle span:has(> .hub-counter) {
+  display: flex;
+  align-items: center;
+}
+
 .review-shell__comments-toggle:focus-visible {
   outline: 2px solid var(--hub-focus);
   outline-offset: 1px;
