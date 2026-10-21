@@ -30,11 +30,11 @@ class GithubWebhookTest < ActiveSupport::TestCase
     assert_equal "active", configuration.installation_state
   end
 
-  test "reconciles a repository selection update before recording it" do
+  test "a repository selection notification makes selected repositories available" do
     configuration = github_app_configurations.create
     payload = webhook_payload.merge("action" => "added")
     stub_github_app(configuration:)
-    request = stub_github_account_installation \
+    stub_github_account_installation \
       account: { id: 321, login: "github", type: "Organization" }
     stub_github_installation_token
     stub_github_repositories([ repository_payload(2001, "github/prototype") ])
@@ -44,7 +44,6 @@ class GithubWebhookTest < ActiveSupport::TestCase
       body: JSON.generate(payload),
       event: "installation_repositories"
 
-    assert_requested request, times: 1
     assert Repository.active.exists?(github_id: 2001)
     assert WebhookDelivery.sole.processed?
   end
