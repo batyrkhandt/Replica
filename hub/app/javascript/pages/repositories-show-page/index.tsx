@@ -100,15 +100,16 @@ export function RepositoriesShowPage({
                 onChange={controls.onAuthorChange}
                 onSearch={controls.loadAuthors}
               />
-
-              <PrototypeViewModeControl
-                ariaLabel={data.viewLabel}
-                galleryLabel={data.galleryViewLabel}
-                listLabel={data.listViewLabel}
-                onChange={setView}
-                value={view}
-              />
             </div>
+          }
+          trailingTools={
+            <PrototypeViewModeControl
+              ariaLabel={data.viewLabel}
+              galleryLabel={data.galleryViewLabel}
+              listLabel={data.listViewLabel}
+              onChange={setView}
+              value={view}
+            />
           }
         />
 

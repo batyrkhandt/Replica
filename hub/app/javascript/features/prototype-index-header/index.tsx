@@ -21,6 +21,7 @@ export function PrototypeIndexHeader({
   searchMaxLength,
   searchShortcutEnabled = true,
   tools,
+  trailingTools,
 }: {
   action?: ReactNode
   clearSearchLabel: string
@@ -33,6 +34,7 @@ export function PrototypeIndexHeader({
   searchMaxLength?: number
   searchShortcutEnabled?: boolean
   tools?: ReactNode
+  trailingTools?: ReactNode
 }) {
   const searchInputRef = useRef<HTMLInputElement>(null)
 
@@ -106,6 +108,10 @@ export function PrototypeIndexHeader({
             </Text>
           </kbd>
         </div>
+
+        {trailingTools ? (
+          <div className="prototype-index-header__trailing-tools">{trailingTools}</div>
+        ) : null}
       </div>
     </header>
   )
