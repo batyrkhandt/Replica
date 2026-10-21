@@ -389,7 +389,9 @@ export function PrototypeCanvasHubPanel({
   }, [open, onClose])
   const editingCurrent = editing && draftIdentity === identity
   const anchorKey = JSON.stringify(
-    threads.slice(0, 200).map(({ root }) => ({ id: root.id, anchor: root.anchor })),
+    config.pickAndPolish || config.improvementNotesDemo
+      ? []
+      : threads.slice(0, 200).map(({ root }) => ({ id: root.id, anchor: root.anchor })),
   )
 
   const loadComments = useCallback(async () => {
@@ -561,7 +563,14 @@ export function PrototypeCanvasHubPanel({
 
   const startSelection = useCallback(
     async (mode: "element" | "area") => {
-      if (!bridgeReady || !canCreateComment || selectionBlocked) return
+      if (
+        config.pickAndPolish ||
+        config.improvementNotesDemo ||
+        !bridgeReady ||
+        !canCreateComment ||
+        selectionBlocked
+      )
+        return
       const requestedIdentity = identity
       const selectionRequest = ++selectionRequestRef.current
       selectionRevisionRef.current = undefined
@@ -602,6 +611,8 @@ export function PrototypeCanvasHubPanel({
       }
     },
     [
+      config.improvementNotesDemo,
+      config.pickAndPolish,
       bridgeReady,
       canCreateComment,
       config.token,
@@ -759,6 +770,7 @@ export function PrototypeCanvasHubPanel({
         return
       }
       if (data.type === "replica:canvas:selected") {
+        if (config.pickAndPolish || config.improvementNotesDemo) return
         const parsed = REVIEW_ANCHOR_SCHEMA.safeParse(data.anchor)
         if (!parsed.success) {
           sendBridge("replica:canvas:cancel-selection")
@@ -822,6 +834,8 @@ export function PrototypeCanvasHubPanel({
     identity,
     anchorKey,
     config.prototypeUrl,
+    config.improvementNotesDemo,
+    config.pickAndPolish,
     config.previewUrl,
     frameRef,
     onRouteChange,
@@ -1105,7 +1119,10 @@ export function PrototypeCanvasHubPanel({
   return (
     <MentionProvider source={mentionSource}>
       {commentingRecovery.visible ? <CommentingRecovery {...commentingRecovery} /> : null}
-      {canLoadComments && reviewControlsTarget
+      {canLoadComments &&
+      reviewControlsTarget &&
+      !config.pickAndPolish &&
+      !config.improvementNotesDemo
         ? createPortal(
             <div
               className="canvas-review-controls review-shell__comment-actions"

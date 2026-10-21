@@ -1,4 +1,5 @@
 export const copy = {
+  improvementNotesLoading: "Loading improvement notes...",
   localCommentsSaved:
     "Comments stay on this device until a Build with matching content is published and the canvas syncs them to Hub.",
   commentPagesExceeded: "Too many review comment pages.",
@@ -24,6 +25,7 @@ export const copy = {
   controlsConnecting: "Connecting controls...",
   controlsEmpty:
     "No active controls. This prototype may have no declaration or this route may not mount controls.",
+  controlsLearnMore: "Learn more",
   controlsMissingRuntime: "No supported controls runtime found.",
   controlsLocalMissingRuntime: "Local controls couldn't connect.",
   controlsLocalConnectionFailed:
