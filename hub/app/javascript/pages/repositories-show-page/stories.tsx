@@ -68,7 +68,6 @@ const meta = {
       onQueryChange: fn(),
       onQuerySubmit: fn(),
       onAuthorChange: fn(),
-      onClearFilters: fn(),
       onNavigate: fn(),
       onRetry: fn(),
       loadAuthors: fn(() =>

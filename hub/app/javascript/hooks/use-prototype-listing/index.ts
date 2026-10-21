@@ -168,13 +168,6 @@ export function usePrototypeListing(listing: PrototypeListing) {
       author.current = value
       applyFilters(draft.current, value)
     },
-    onClearFilters() {
-      editing.current = true
-      draft.current = ""
-      author.current = ""
-      setQuery("")
-      applyFilters("", "")
-    },
     onNavigate(path: string) {
       navigate(path, false, true)
     },

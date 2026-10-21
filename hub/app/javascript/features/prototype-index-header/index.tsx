@@ -4,6 +4,8 @@ import type { ReactNode } from "react"
 import { XIcon } from "@primer/octicons-react"
 import { Heading, Text } from "@primer/react-brand"
 
+import { HubIconButton } from "@components/hub-icon-button"
+
 import "./styles.css"
 
 /** Heads the prototype collection and filters its contents. */
@@ -80,17 +82,17 @@ export function PrototypeIndexHeader({
             }}
           />
           {searchQuery ? (
-            <button
-              type="button"
+            <HubIconButton
               className="prototype-index-header__clear-search"
+              icon={XIcon}
+              variant="invisible"
+              size="small"
               aria-label={clearSearchLabel}
               onClick={() => {
                 onSearchChange("")
                 searchInputRef.current?.focus()
               }}
-            >
-              <XIcon size={16} aria-hidden="true" />
-            </button>
+            />
           ) : null}
           <kbd aria-hidden="true">
             <span className="prototype-index-header__shortcut-symbol">⌘</span>

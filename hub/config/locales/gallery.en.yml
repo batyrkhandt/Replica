@@ -59,7 +59,6 @@ en:
         retry: Retry
         authors_failed: Hub could not load authors. Try again.
         results_failed: Hub could not load prototypes. Your previous results are still shown.
-        clear_filters: Clear filters
         previous: Previous
         next: Next
         pagination: Prototype pages

@@ -132,13 +132,6 @@ export function RepositoriesShowPage({
               }
             />
           ) : null}
-          {filtered ? (
-            <div>
-              <Button variant="subtle" size="small" onClick={controls.onClearFilters}>
-                {data.listing.copy.clearFilters}
-              </Button>
-            </div>
-          ) : null}
           {data.alert ? <HubAlert title={data.alert} variant="critical" layout="compact" /> : null}
           {data.notice ? <HubAlert title={data.notice} variant="info" layout="compact" /> : null}
 
@@ -201,8 +194,6 @@ export function RepositoriesShowPage({
               visual={<SearchIcon size={24} />}
               heading={data.noSearchResultsHeading}
               description={data.noSearchResultsDescription}
-              actionLabel={data.listing.copy.clearFilters}
-              onAction={controls.onClearFilters}
             />
           ) : data.prototypes.length === 0 ? (
             data.newPrototypePath ? (

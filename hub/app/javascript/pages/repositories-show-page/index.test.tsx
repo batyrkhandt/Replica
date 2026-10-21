@@ -103,7 +103,6 @@ function listingControls(
     onQueryChange: vi.fn(),
     onQuerySubmit: vi.fn(),
     onAuthorChange: vi.fn(),
-    onClearFilters: vi.fn(),
     onNavigate: vi.fn(),
     onRetry: vi.fn(),
     loadAuthors: vi.fn(() => Promise.resolve({ authors: [], nextCursor: null })),

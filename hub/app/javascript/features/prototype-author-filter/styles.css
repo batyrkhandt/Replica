@@ -18,6 +18,11 @@
 .prototype-author-filter [aria-haspopup] {
   justify-content: space-between;
   text-align: start;
+  color: var(--hub-fg-default);
+}
+
+.prototype-author-filter [aria-haspopup]:not(:hover):not(:active):not([aria-expanded="true"]) {
+  background-color: var(--hub-canvas-default);
 }
 
 .prototype-author-filter [aria-haspopup] > span:first-child,

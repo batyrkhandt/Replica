@@ -121,7 +121,7 @@ export function PrototypeAuthorOptions({
             </Button>
           </div>
         </li>
-      ) : !results || !results.authors.length ? (
+      ) : !results || (!results.authors.length && query.trim()) ? (
         <li role="presentation" className="prototype-author-filter__status">
           <p role="status">{results ? copy.noAuthors : copy.loading}</p>
         </li>

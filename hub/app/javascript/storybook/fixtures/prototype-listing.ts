@@ -22,7 +22,6 @@ export const prototypeListing: PrototypeListing = {
     retry: "Retry",
     authorsFailed: "Hub could not load authors. Try again.",
     resultsFailed: "Hub could not load prototypes. Your previous results are still shown.",
-    clearFilters: "Clear filters",
     previous: "Previous",
     next: "Next",
     pagination: "Prototype pages",

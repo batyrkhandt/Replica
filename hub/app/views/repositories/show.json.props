@@ -79,7 +79,7 @@ json.listing do
   json.path repository_path(@repository.route_id)
   json.copy do
     %w[author me all_authors search_authors more_authors first_authors no_authors loading retry
-      authors_failed results_failed clear_filters previous next pagination updating shown].each do |key|
+      authors_failed results_failed previous next pagination updating shown].each do |key|
       json.set! key.camelize(:lower), t("repositories.show.filters.#{key}", count: @prototypes.length)
     end
   end

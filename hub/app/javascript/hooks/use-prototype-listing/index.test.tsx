@@ -57,12 +57,14 @@ describe("usePrototypeListing()", () => {
       })
       act(() => result.current.onQueryChange("next draft"))
       await act(async () => {
-        result.current.onClearFilters()
+        result.current.onQueryChange("")
         await Promise.resolve()
       })
       await act(async () => vi.advanceTimersByTimeAsync(500))
       expect(visit).toHaveBeenCalledTimes(4)
-      expect(visit).toHaveBeenLastCalledWith("/repositories/2001", { dataset: {} })
+      expect(visit).toHaveBeenLastCalledWith("/repositories/2001?author=2", {
+        dataset: { sgReplace: "true" },
+      })
       expect(result.current.query).toBe("")
     } finally {
       vi.useRealTimers()

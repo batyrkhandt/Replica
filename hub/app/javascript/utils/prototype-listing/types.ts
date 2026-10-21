@@ -17,7 +17,6 @@ export interface PrototypeListingControls {
   onQueryChange: (query: string) => void
   onQuerySubmit: () => void
   onAuthorChange: (author: string) => void
-  onClearFilters: () => void
   onNavigate: (path: string) => void
   onRetry: () => void
   loadAuthors: (
@@ -49,7 +48,6 @@ export interface PrototypeListing {
     retry: string
     authorsFailed: string
     resultsFailed: string
-    clearFilters: string
     previous: string
     next: string
     pagination: string
