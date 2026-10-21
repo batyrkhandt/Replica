@@ -18,6 +18,7 @@ class CanvasImprovementNoteThreadsTest < ActionDispatch::IntegrationTest
       token_digest: Digest::SHA256.hexdigest(token), expires_at: 7.days.from_now
     @headers = { "Authorization" => "Bearer #{token}" }
     @prototype = prototypes.create(repository: @repository)
+    @build = builds.create_successful(prototype: @prototype)
     @path = canvas_api_improvement_notes_path(@repository.route_id, @prototype)
     @comments_path = canvas_api_review_comments_path(@repository.route_id, @prototype)
   end
@@ -26,10 +27,11 @@ class CanvasImprovementNoteThreadsTest < ActionDispatch::IntegrationTest
     input = note_input
     input[:status] = "sent"
     input[:thread]["originalStatus"] = "sent"
-    assert_no_difference [ "Build.count", "Notification.count", "ReviewThreadRead.count" ] do
+    assert_no_difference [ "ReviewComment.count", "Build.count", "Notification.count", "ReviewThreadRead.count", "Analytics::Event.count" ] do
       post_note(input)
       assert_response :success
       assert_equal input[:thread], response.parsed_body.fetch("thread")
+      assert_equal @build.number, response.parsed_body.fetch("buildNumber")
 
       followup = author_message
       input = next_revision(input)
@@ -45,6 +47,9 @@ class CanvasImprovementNoteThreadsTest < ActionDispatch::IntegrationTest
       assert_response :success
       assert_equal "open", response.parsed_body.fetch("status")
       assert_equal "open", response.parsed_body.fetch("thread").fetch("messages").first.fetch("status")
+      saved = @prototype.improvement_notes.sole
+      assert_equal "ready", saved.status
+      assert_equal "open", saved.note_status
 
       input = next_revision(input)
       input[:status] = "sent"
@@ -54,7 +59,7 @@ class CanvasImprovementNoteThreadsTest < ActionDispatch::IntegrationTest
       input = next_revision(input)
       input[:status] = "ready"
       input[:thread]["messages"].first["status"] = "ready"
-      input[:thread]["messages"] << copilot_message(followup["id"])
+      input[:thread]["messages"] << copilot_message(input[:local_id], followup["id"])
       post_note(input)
       assert_response :success
       input = next_revision(input).merge(status: "resolved")
@@ -68,8 +73,21 @@ class CanvasImprovementNoteThreadsTest < ActionDispatch::IntegrationTest
     assert_equal input[:thread], response.parsed_body.fetch("notes").sole.fetch("thread")
     assert_equal input[:body], response.parsed_body.fetch("notes").sole.fetch("body")
     assert_equal 1, @prototype.improvement_notes.count
-    assert_empty @prototype.improvement_notes.sole.replies
-    assert_nil @prototype.improvement_notes.sole.build_id
+    root = @prototype.improvement_notes.sole
+    assert_equal @build, root.build
+    messages = root.replies.index_by(&:local_id)
+    assert_equal input[:thread].fetch("messages").pluck("id").sort, messages.keys.sort
+    assert messages.values.all? { _1.root_id == root.id && _1.prototype_id == @prototype.id }
+    assert messages.values.all? { _1.build_id.nil? }
+    input[:thread].fetch("messages").each do |message|
+      row = messages.fetch(message.fetch("id"))
+      assert_equal message.values_at("role", "body", "status"), [ row.role, row.body, row.status ]
+      next unless message.fetch("role") == "copilot"
+
+      requests = ImprovementCommentReply.where(response_id: row.id).pluck(:request_id)
+      expected = message.fetch("requestIds").map { _1 == root.local_id ? root.id : messages.fetch(_1).id }
+      assert_equal expected.sort, requests.sort
+    end
 
     [ @comments_path, canvas_api_repository_review_comments_path(@repository.route_id) ].each do |path|
       get path, headers: @headers
@@ -87,7 +105,7 @@ class CanvasImprovementNoteThreadsTest < ActionDispatch::IntegrationTest
     post_note(input)
     assert_response :success
     saved = @prototype.improvement_notes.sole
-    assert_no_difference "ReviewComment.count" do
+    assert_no_difference [ "ImprovementComment.count", "ImprovementCommentReply.count" ] do
       post_note(input)
       assert_response :success
     end
@@ -96,8 +114,15 @@ class CanvasImprovementNoteThreadsTest < ActionDispatch::IntegrationTest
     post_note(changed)
     assert_response :conflict
     assert_equal input[:thread], saved.reload.note_thread
-    post_note(next_revision(changed))
-    assert_response :unprocessable_entity
+    rejected = next_revision(changed)
+    followup = author_message
+    rejected[:thread]["messages"].concat([ followup, copilot_message(followup.fetch("id")) ])
+    assert_no_difference [ "ImprovementComment.count", "ImprovementCommentReply.count" ] do
+      post_note(rejected)
+      assert_response :unprocessable_entity
+    end
+    assert_equal 1, saved.reload.note_revision
+    assert_equal input[:thread], saved.note_thread
     post_note(next_revision(input).merge(body: "Changed original"))
     assert_response :unprocessable_entity
     post_note(next_revision(input).merge(anchor: input[:anchor].merge("selector" => "#different")))
@@ -167,12 +192,12 @@ class CanvasImprovementNoteThreadsTest < ActionDispatch::IntegrationTest
     assert_response :success
     own = @prototype.improvement_notes.sole
     other = @prototype.improvement_notes.create! \
-      user: users.create(github_id: 1002, login: "mona"), local_id: SecureRandom.uuid,
+      build: @build, user: users.create(github_id: 1002, login: "mona"), local_id: SecureRandom.uuid,
       body: "Other author's original", note_revision: 1, note_status: "open",
       anchor: input[:anchor], note_thread: input[:thread]
     get @path, headers: @headers
     assert_equal [ own.id ], response.parsed_body.fetch("notes").pluck("id")
-    assert_no_difference [ "ReviewComment.count", "Notification.count", "ReviewThreadRead.count" ] do
+    assert_no_difference [ "ReviewComment.count", "ImprovementComment.count", "Notification.count", "ReviewThreadRead.count" ] do
       [ own, other ].each do |note|
         patch "#{@comments_path}/#{note.id}",
           params: { review_comment: { body: "Edited via ordinary API", note_thread: nil } },
@@ -193,7 +218,7 @@ class CanvasImprovementNoteThreadsTest < ActionDispatch::IntegrationTest
   end
 
   test "ordinary comments reject thread parameters without mutating their bodies" do
-    build = builds.create_successful(prototype: @prototype)
+    build = @build
     comment = ReviewComment.create! \
       prototype: @prototype, build:, user: @viewer, body: "Ordinary comment", anchor: note_input[:anchor]
     [ :thread, :note_thread ].each do |field|
@@ -209,15 +234,19 @@ class CanvasImprovementNoteThreadsTest < ActionDispatch::IntegrationTest
       assert_response :bad_request
     end
     assert_equal "Ordinary comment", comment.reload.body
-    assert_nil comment.note_thread
     assert_empty comment.replies
   end
 
   test "thread aware deletion clears all conversation text and cannot be undone" do
     input = note_input
-    input[:thread]["messages"] << copilot_message(input[:local_id])
+    followup = author_message
+    input[:thread]["messages"] << followup
+    input[:thread]["messages"] << copilot_message(input[:local_id], followup.fetch("id"))
     post_note(input)
     assert_response :success
+    root = @prototype.improvement_notes.sole
+    conversation_ids = [ root.id, *root.replies.pluck(:id) ]
+    assert_equal 3, conversation_ids.length
     deleted = next_revision(input).merge(deleted: true)
     post_note(deleted)
     assert_response :success
@@ -232,6 +261,9 @@ class CanvasImprovementNoteThreadsTest < ActionDispatch::IntegrationTest
     assert_response :conflict
     get @path, headers: @headers
     assert_nil response.parsed_body.fetch("notes").sole.fetch("thread")
+    assert_nil root.reload.body
+    assert_nil root.note_thread
+    assert_empty ImprovementComment.where(id: conversation_ids).where.not(body: nil)
   end
 
   test "all note collections paginate complete captures within the serialized response budget" do
@@ -253,7 +285,7 @@ class CanvasImprovementNoteThreadsTest < ActionDispatch::IntegrationTest
       (notes.length + 1).times do
         batches = []
         subscriber = ->(event) do
-          batches << event.payload.fetch(:record_count) if event.payload[:class_name] == "ReviewComment"
+          batches << event.payload.fetch(:record_count) if event.payload[:class_name] == "ImprovementComment"
         end
         ActiveSupport::Notifications.subscribed(subscriber, "instantiation.active_record") do
           get path, params: filters.merge(cursor:).compact, headers: @headers
@@ -353,7 +385,7 @@ class CanvasImprovementNoteThreadsTest < ActionDispatch::IntegrationTest
     end
     invalid << [ :local_id, [ input[:local_id] ] ]
 
-    assert_no_difference "ReviewComment.count" do
+    assert_no_difference "ImprovementComment.count" do
       invalid.each do |field, value|
         post_note(next_revision(input).merge(field => value))
         assert_response :bad_request, "#{field} must reject #{value.inspect}"
@@ -393,6 +425,7 @@ class CanvasImprovementNoteThreadsTest < ActionDispatch::IntegrationTest
 
   test "first uploads retain historical owner logins after a rename and freeze both author snapshots" do
     input = note_input
+    @viewer.update!(login: "mona_enterprise")
     author = { "id" => @viewer.id, "login" => @viewer.login, "avatarUrl" => nil }
     input[:thread].merge!("version" => 2, "originalAuthor" => author)
     input[:thread]["messages"] << author_message.merge("author" => author.deep_dup)
@@ -466,7 +499,7 @@ class CanvasImprovementNoteThreadsTest < ActionDispatch::IntegrationTest
   def create_note(**attributes)
     input = note_input
     @prototype.improvement_notes.create! \
-      user: @viewer, local_id: input[:local_id], body: input[:body], note_revision: 1,
+      build: @build, user: @viewer, local_id: input[:local_id], body: input[:body], note_revision: 1,
       note_status: "open", anchor: input[:anchor], note_thread: input[:thread], **attributes
   end
 
@@ -482,13 +515,13 @@ class CanvasImprovementNoteThreadsTest < ActionDispatch::IntegrationTest
     { "id" => SecureRandom.uuid, "role" => "author", "body" => "New follow-up", "status" => "open" }
   end
 
-  def copilot_message(request_id)
-    { "id" => SecureRandom.uuid, "role" => "copilot", "body" => "Saved answer", "status" => "ready", "requestIds" => [ request_id ] }
+  def copilot_message(*request_ids)
+    { "id" => SecureRandom.uuid, "role" => "copilot", "body" => "Saved answer", "status" => "ready", "requestIds" => request_ids }
   end
 
   def note_input
     {
-      local_id: SecureRandom.uuid, revision: 1, previous_revision: 0,
+      local_id: SecureRandom.uuid, build_number: @build.number, revision: 1, previous_revision: 0,
       body: "Read-only original", status: "open", deleted: false, capture: "",
       thread: { "version" => 1, "originalStatus" => "open", "messages" => [] },
       anchor: {

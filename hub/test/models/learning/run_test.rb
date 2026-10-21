@@ -56,10 +56,10 @@ class Learning::RunTest < ActiveSupport::TestCase
     comment = learning_comment(@repository, @mona, "prototype/signup", "The field needs a label.")
     Learning::Run.request!(repository: @repository, user: @admin).find_learnings!
     travel 1.minute
-    ReviewComment.create! \
+    ImprovementComment.create! \
       prototype: comment.prototype,
+      build: comment.build,
       user: @mona,
-      kind: "improvement_note",
       local_id: SecureRandom.uuid,
       note_revision: 1,
       note_status: "open",

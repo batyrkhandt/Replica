@@ -2,7 +2,7 @@
 
 Repository readers can discuss specific elements or highlighted regions inside a Prototype preview. Hub keeps those conversations with the Prototype branch so they remain available across Builds.
 
-Author-owned [Pick & polish notes](prototype-canvas.md#pick--polish) use the same comment database but are separate from review conversations. Ordinary interfaces, summaries, unread state, notifications, and learning exclude them. Authorized paired comment list APIs include them only with an explicit `improvement_notes=include` or `only` filter; the default is `exclude`. The dedicated improvement-note collection returns only the authenticated creator's notes.
+Author-owned [Pick & polish notes](prototype-canvas.md#pick--polish) use separate `ImprovementComment` records, not review conversations. Ordinary interfaces, summaries, unread state, notifications, and learning exclude them. Authorized paired comment list APIs include them only with an explicit `improvement_notes=include` or `only` filter; the default is `exclude`. The dedicated improvement-note collection returns only the authenticated creator's notes.
 
 ## Conversations
 

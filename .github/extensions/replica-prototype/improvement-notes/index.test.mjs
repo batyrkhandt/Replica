@@ -9,7 +9,7 @@ import { promisify } from "node:util"
 import { it, mock } from "node:test"
 
 import { createCanvasContext } from "../create-canvas-context/index.mjs"
-import { createHubClient } from "../hub-client/index.mjs"
+import { createHubClient } from "../create-hub-client/index.mjs"
 import * as improvementNotes from "./index.mjs"
 
 const { createImprovementNotes } = improvementNotes
@@ -31,6 +31,19 @@ async function fixture(run) {
   await mkdir(root, { recursive: true })
   const exec = promisify(execFile)
   await exec("git", ["init", "-q", "-b", "prototype/demo", root])
+  await exec("git", [
+    "-C",
+    root,
+    "-c",
+    "user.name=Test",
+    "-c",
+    "user.email=test@example.com",
+    "commit",
+    "-qm",
+    "Initial prototype",
+    "--allow-empty",
+  ])
+  const commitSha = (await exec("git", ["-C", root, "rev-parse", "HEAD"])).stdout.trim()
   await exec("git", [
     "-C",
     root,
@@ -66,9 +79,48 @@ async function fixture(run) {
       ...storeOptions,
     })
   }
+  function createPublished(getHub, storeOptions) {
+    const store = create(async () => {
+      const hub = await getHub()
+      if (!hub) return null
+      return {
+        ...hub,
+        status: async (...args) => {
+          const status = await hub.status(...args)
+          if (status.prototype && status.prototype.build === undefined)
+            status.prototype.build = {
+              number: 1,
+              commitSha,
+              publishedAt: new Date(Date.now() + 1000).toISOString(),
+            }
+          return status
+        },
+        request: async (...args) => {
+          const response = await hub.request(...args)
+          if (args[1]?.method === "POST")
+            return { buildNumber: args[1].body.build_number, ...response }
+          return {
+            ...response,
+            ...(response.notes
+              ? { notes: response.notes.map((note) => ({ buildNumber: 1, ...note })) }
+              : {}),
+          }
+        },
+      }
+    }, storeOptions)
+    return {
+      ...store,
+      save: async (input) =>
+        store.save({
+          ...(input.operation === "create" ? await store.capture() : {}),
+          ...input,
+        }),
+    }
+  }
   try {
     await run({
       create,
+      createPublished,
       context,
       messages,
       session,
@@ -99,9 +151,231 @@ it("keeps notes across provider restarts and sessions without committing them", 
   })
 })
 
+it("publishes only the selected source after its Build imports and retains that Build for later changes", async () => {
+  await fixture(async ({ create, anchor, root, exec }) => {
+    const originalCommit = (await exec("git", ["-C", root, "rev-parse", "HEAD"])).stdout.trim()
+    let build = null
+    const writes = []
+    const hub = {
+      origin: "https://hub.example.com",
+      status: async () => ({
+        state: "connected",
+        repository: "example/prototype",
+        branch: "prototype/demo",
+        prototype: {
+          id: 7,
+          repositoryId: 9,
+          viewerLogin: "octocat",
+          viewerId: 1,
+          build,
+        },
+      }),
+      request: async (_url, options) => {
+        if (options.method !== "POST") return { threadVersion: 2, notes: [] }
+        writes.push(structuredClone(options.body))
+        return {
+          localId: options.body.local_id,
+          revision: options.body.revision,
+          thread: options.body.deleted ? null : options.body.thread,
+          buildNumber: options.body.build_number,
+        }
+      },
+    }
+    const store = create(async () => hub)
+    await writeFile(path.join(root, "screen.txt"), "Selected preview")
+    await exec("git", ["-C", root, "add", "screen.txt"])
+    await writeFile(path.join(root, "screen.txt"), "Selected preview with unstaged changes")
+    const indexBefore = await readFile(path.join(root, ".git/index"))
+    const selection = await store.capture()
+    assert.deepEqual(await readFile(path.join(root, ".git/index")), indexBefore)
+    await writeFile(path.join(root, "screen.txt"), "Edited after selecting the target")
+    let state = await store.save({
+      ...(await store.load()),
+      ...selection,
+      operation: "create",
+      body: "Clarify the selected preview",
+      anchor,
+    })
+    const source = state.notes[0].source
+    assert.equal(source.commitSha, originalCommit)
+    assert.equal(source.clean, false)
+    state = await store.sync(state)
+    assert.equal(writes.length, 0)
+    build = {
+      number: 1,
+      commitSha: originalCommit,
+      publishedAt: new Date(Date.now() + 1000).toISOString(),
+    }
+    state = await store.sync(state)
+    assert.equal(writes.length, 0)
+
+    async function commitPreview() {
+      await exec("git", ["-C", root, "add", "screen.txt"])
+      await exec("git", [
+        "-C",
+        root,
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-qm",
+        "Publish preview",
+      ])
+      return (await exec("git", ["-C", root, "rev-parse", "HEAD"])).stdout.trim()
+    }
+    build = { ...build, number: 2, commitSha: await commitPreview() }
+    const restarted = create(async () => hub)
+    state = await restarted.sync(state)
+    assert.equal(writes.length, 0)
+    assert.deepEqual(state.notes[0].source, source)
+    await writeFile(path.join(root, "screen.txt"), "Selected preview with unstaged changes")
+    build = {
+      number: 3,
+      commitSha: await commitPreview(),
+      publishedAt: "2000-01-01T00:00:00Z",
+    }
+    state = await restarted.sync(state)
+    assert.equal(writes.length, 0)
+    build.publishedAt = new Date(Date.now() + 1000).toISOString()
+    await writeFile(path.join(root, "screen.txt"), "Another local edit")
+    state = await restarted.sync(state)
+    assert.equal(state.notes[0].sync, "synced")
+    assert.equal(state.notes[0].buildNumber, 3)
+    assert.equal(writes.length, 1)
+    assert.equal(writes[0].build_number, 3)
+    assert.deepEqual(writes[0].anchor, anchor)
+
+    build = null
+    state = await restarted.save({
+      ...state,
+      operation: "follow-up",
+      id: 1,
+      expectedNoteRevision: state.notes[0].revision,
+      body: "A later request",
+    })
+    state = await restarted.sync(state)
+    assert.equal(writes[1].build_number, 3)
+    assert.equal(writes[1].previous_revision, 1)
+    assert.deepEqual(state.notes[0].source, source)
+    assert.equal(state.notes[0].body, "Clarify the selected preview")
+    state = await restarted.save({
+      ...state,
+      operation: "delete",
+      id: 1,
+      expectedNoteRevision: state.notes[0].revision,
+    })
+    await restarted.sync(state)
+    assert.equal(writes[2].build_number, 3)
+    assert.equal(writes[2].deleted, true)
+  })
+})
+
+it("keeps legacy notes without captured provenance local instead of assigning the current source", async () => {
+  await fixture(async ({ create, anchor, root, exec }) => {
+    const commitSha = (await exec("git", ["-C", root, "rev-parse", "HEAD"])).stdout.trim()
+    let uploads = 0
+    const hub = {
+      origin: "https://hub.example.com",
+      status: async () => ({
+        state: "connected",
+        repository: "example/prototype",
+        branch: "prototype/demo",
+        prototype: {
+          id: 7,
+          repositoryId: 9,
+          viewerLogin: "octocat",
+          viewerId: 1,
+          build: { number: 1, commitSha, publishedAt: new Date().toISOString() },
+        },
+      }),
+      request: async (_url, options) => {
+        if (options.method !== "POST") return { threadVersion: 2, notes: [] }
+        uploads++
+        return {}
+      },
+    }
+    const store = create(async () => hub)
+    let state = await store.save({
+      ...(await store.load()),
+      operation: "create",
+      body: "Saved by an older client",
+      anchor,
+    })
+    state = await create(async () => hub).sync(state)
+    assert.equal(uploads, 0)
+    assert.equal(state.notes[0].sync, "local")
+    assert.equal(state.notes[0].source, undefined)
+    assert.equal(state.notes[0].buildNumber, undefined)
+    assert.match(state.syncError, /no captured source/)
+    await assert.rejects(
+      store.save({
+        ...state,
+        operation: "create",
+        sourceId: randomUUID(),
+        body: "Expired selection",
+        anchor,
+      }),
+      /selected source expired/,
+    )
+  })
+})
+
+it("persists the selected Build before an uncertain upload and reuses it after a restart", async () => {
+  await fixture(async ({ createPublished, create, anchor }) => {
+    const builds = []
+    let currentBuild
+    const hub = {
+      origin: "https://hub.example.com",
+      status: async () => ({
+        state: "connected",
+        repository: "example/prototype",
+        branch: "prototype/demo",
+        prototype: {
+          id: 7,
+          repositoryId: 9,
+          viewerLogin: "octocat",
+          viewerId: 1,
+          build: currentBuild,
+        },
+      }),
+      request: async (_url, options) => {
+        if (options.method !== "POST") return { threadVersion: 2, notes: [] }
+        builds.push(options.body.build_number)
+        const persisted = await create(async () => hub).load()
+        assert.equal(persisted.notes[0].buildNumber, 1)
+        if (builds.length === 1) throw new Error("Upload result lost")
+        return {
+          localId: options.body.local_id,
+          revision: options.body.revision,
+          thread: options.body.thread,
+        }
+      },
+    }
+    const store = createPublished(async () => hub)
+    let state = await store.save({
+      ...(await store.load()),
+      operation: "create",
+      body: "Retain the original Build",
+      anchor,
+    })
+    state = await store.sync(state)
+    assert.equal(state.notes[0].sync, "failed")
+    assert.match(state.syncError, /Upload result lost/)
+    currentBuild = {
+      number: 2,
+      commitSha: "f".repeat(40),
+      publishedAt: new Date().toISOString(),
+    }
+    state = await createPublished(async () => hub).sync(state)
+    assert.equal(state.notes[0].sync, "synced")
+    assert.deepEqual(builds, [1, 1])
+  })
+})
+
 it("snapshots verified authors without attributing unowned originals and gates older Hub synchronization", async () => {
-  await fixture(async ({ create, anchor, directory }) => {
-    const offline = create()
+  await fixture(async ({ createPublished: create, anchor, directory }) => {
+    const offline = create(async () => null)
     let state = await offline.save({
       ...(await offline.load()),
       operation: "create",
@@ -906,8 +1180,8 @@ it("reports dispatch failure durably without automatically replaying the request
   })
 })
 
-it("syncs a discovered branch before a Build and refuses another author's account", async () => {
-  await fixture(async ({ create, anchor }) => {
+it("syncs a published branch and refuses another author's account", async () => {
+  await fixture(async ({ createPublished: create, anchor }) => {
     let login = "octocat"
     const writes = []
     const hub = {
@@ -924,7 +1198,6 @@ it("syncs a discovered branch before a Build and refuses another author's accoun
             repositoryId: 9,
             viewerLogin: login,
             viewerId: login === "octocat" ? 1 : 2,
-            build: null,
             registered: false,
           },
         }
@@ -1069,7 +1342,7 @@ it("retains local notes when Hub cannot sync and rejects malformed note input", 
 })
 
 it("cancels a pending batch after Hub reopens its captured requests", async () => {
-  await fixture(async ({ create, anchor, messages }) => {
+  await fixture(async ({ createPublished: create, anchor, messages }) => {
     let remote
     const hub = {
       origin: "https://hub.example.com",
@@ -1126,7 +1399,7 @@ it("cancels a pending batch after Hub reopens its captured requests", async () =
 })
 
 it("pulls creator notes while preserving unsynchronized edits and rejecting foreign authors", async () => {
-  await fixture(async ({ create, anchor }) => {
+  await fixture(async ({ createPublished: create, anchor }) => {
     let remote = []
     let rejectUpload = false
     const hub = {
@@ -1295,7 +1568,7 @@ it("rejects an older draft even after polling advances the collection revision",
 })
 
 it("does not upload owner-bound notes after the Hub connection changes during a pull", async () => {
-  await fixture(async ({ create, anchor }) => {
+  await fixture(async ({ createPublished: create, anchor }) => {
     let account = "octocat"
     let writes = 0
     const hub = {
@@ -1565,7 +1838,7 @@ it("reserves escaped answer bytes and preserves saved history when full", async 
 })
 
 it("roundtrips immutable requests and answers through Hub to another isolated local store", async () => {
-  await fixture(async ({ create, anchor, directory }) => {
+  await fixture(async ({ createPublished: create, anchor, directory }) => {
     const remote = []
     let supported = false
     const hub = {
@@ -1646,6 +1919,7 @@ it("roundtrips immutable requests and answers through Hub to another isolated lo
       directory: path.join(directory, "another-local-store"),
     })
     const pulled = await second.sync(await second.load())
+    assert.equal(pulled.notes[0].buildNumber, 1)
     assert.deepEqual(pulled.notes[0].thread, state.notes[0].thread)
     assert.equal(pulled.notes[0].body, "Original")
     assert.equal(pulled.notes[0].thread.messages[0].body, "Saved answer")
@@ -1804,7 +2078,7 @@ for (const status of ["open", "sent"]) {
 }
 
 it("saves and pulls the canonical validator's zero-size elements and narrow areas", async () => {
-  await fixture(async ({ create, anchor, directory }) => {
+  await fixture(async ({ createPublished: create, anchor, directory }) => {
     const remote = []
     const hub = {
       origin: "https://hub.example.com",
@@ -1920,7 +2194,7 @@ it("keeps a freshly pulled original unattributed until explicitly claimed despit
 
 for (const statusCode of [409, 422, undefined, 401, 403, 429, 500]) {
   it(`${[409, 422].includes(statusCode) ? "continues independent uploads after" : "stops uploads after"} ${statusCode ?? "a connection failure"} without clearing its error`, async () => {
-    await fixture(async ({ create, anchor }) => {
+    await fixture(async ({ createPublished: create, anchor }) => {
       const uploaded = []
       const hub = {
         origin: "https://hub.example.com",
@@ -1961,7 +2235,7 @@ for (const statusCode of [409, 422, undefined, 401, 403, 429, 500]) {
 }
 
 it("ignores an old batch's reopened request after a remote resend while another note keeps the batch alive", async () => {
-  await fixture(async ({ create, anchor }) => {
+  await fixture(async ({ createPublished: create, anchor }) => {
     const remote = []
     const hub = {
       origin: "https://hub.example.com",
@@ -2029,7 +2303,7 @@ for (const scenario of [
   "partial legacy page",
 ]) {
   it(`${scenario === "complete" ? "collects every page before applying remote notes or uploading" : `preserves every local note and skips uploads after ${scenario}`}`, async () => {
-    await fixture(async ({ create, anchor }) => {
+    await fixture(async ({ createPublished: create, anchor }) => {
       let paging = false
       let pageReads = 0
       const uploaded = []

@@ -278,7 +278,7 @@ export function ReviewThreadMessage({
         </p>
       )}
 
-      {comment.body ? (
+      {comment.body && !(comment.kind === "root" && comment.buildNumber === null) ? (
         <ReviewCommentReactions
           comment={comment}
           mutation={mutation}
