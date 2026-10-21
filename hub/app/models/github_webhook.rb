@@ -148,12 +148,10 @@ class GithubWebhook
     installation = payload.fetch("installation")
     verify_app!(installation)
     action = payload.fetch("action")
-    if event == "installation" && action == "created" && recovered?
-      configuration.installation.reconcile!(installation.fetch("id"))
-    elsif event == "installation" && %w[created deleted].include?(action)
+    if event == "installation" && action == "deleted"
       configuration.installation.record_status!(installation, action:)
     else
-      configuration.installation.reconcile!(installation.fetch("id"))
+      configuration.synchronize_repositories!
     end
     nil
   end
