@@ -26,6 +26,8 @@ import { withControlQuery } from "@utils/prototype-controls-url/with-control-que
 
 import type { PrototypeWorkspaceHeaderProps } from "./types"
 
+const BUILD_MENU_WIDTH = 213
+
 export function PrototypeWorkspaceHeader({
   data,
   onShowInfo,
@@ -43,7 +45,7 @@ export function PrototypeWorkspaceHeader({
   }
   const [buildMenu, setBuildMenu] = useState({
     align: "end" as "start" | "end",
-    width: 304,
+    width: BUILD_MENU_WIDTH,
     height: 460,
   })
   const dark = resolvedColorMode === "dark"
@@ -193,10 +195,14 @@ export function PrototypeWorkspaceHeader({
                   Math.min(window.innerWidth, scrollport?.right ?? window.innerWidth) - 8
                 const spaceBefore = bounds.right - left
                 const spaceAfter = right - bounds.left
-                const align = spaceBefore >= 304 || spaceBefore >= spaceAfter ? "end" : "start"
+                const align =
+                  spaceBefore >= BUILD_MENU_WIDTH || spaceBefore >= spaceAfter ? "end" : "start"
                 setBuildMenu({
                   align,
-                  width: Math.max(0, Math.min(304, align === "end" ? spaceBefore : spaceAfter)),
+                  width: Math.max(
+                    0,
+                    Math.min(BUILD_MENU_WIDTH, align === "end" ? spaceBefore : spaceAfter),
+                  ),
                   height: Math.max(
                     0,
                     Math.min(window.innerHeight, scrollport?.bottom ?? window.innerHeight) -
