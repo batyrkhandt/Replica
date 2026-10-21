@@ -103,6 +103,7 @@ export type HubPrototype = {
 
 export type HubStatus = {
   repositoryAuthorized?: boolean
+  viewerLogin?: string
   canPublish?: boolean
   localStartPage?: string | null
   localStartPageError?: string
@@ -127,6 +128,20 @@ export type HubStatus = {
   repository?: string
   branch?: string
   commitSha?: string
+  reviewRevision?: {
+    id: number | null
+    treeSha: string
+    commitSha: string
+    clean: boolean
+    prototypeId: number | null
+    repository?: string
+    branch?: string
+    buildNumber: number | null
+    hubOrigin: string
+    connectionId: string
+  }
+  reviewError?: string
+  localCommentsError?: string
   prototype?: HubPrototype
   registrationError?: string
   registrationReason?: string

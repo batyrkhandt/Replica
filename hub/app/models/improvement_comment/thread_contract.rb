@@ -1,5 +1,5 @@
-# Validates author requests and immutable Copilot answers without creating review replies.
-class ReviewComment::NoteThreadContract < ActiveRecord::AssociatedObject
+# Validates the wire conversation before saving its individual messages and response links.
+class ImprovementComment::ThreadContract < ActiveRecord::AssociatedObject
   VERSION = 2
   MAXIMUM_BYTES = 32_768
   MAXIMUM_MESSAGES = 100
@@ -15,7 +15,6 @@ class ReviewComment::NoteThreadContract < ActiveRecord::AssociatedObject
     end
     validate_history(previous, thread) if previous.present?
     return if thread.nil?
-    return invalid("is only allowed on improvement notes") unless record.improvement_note?
     return invalid("must be a JSON object") unless thread.is_a?(Hash)
     return invalid("must be #{MAXIMUM_BYTES} UTF-8 bytes or fewer") if JSON.generate(thread).bytesize > MAXIMUM_BYTES
     return invalid("version must be 1 or #{VERSION}") unless thread["version"].is_a?(Integer) && [ 1, VERSION ].include?(thread["version"])

@@ -8,7 +8,7 @@ import { promisify } from "node:util"
 import { it } from "node:test"
 
 import { createCanvasContext } from "../create-canvas-context/index.mjs"
-import { createHubClient } from "../hub-client/index.mjs"
+import { createHubClient } from "../create-hub-client/index.mjs"
 import { createImprovementNotes } from "./index.mjs"
 
 async function fixture(run) {
