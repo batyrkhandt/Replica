@@ -3,31 +3,32 @@
 # Table name: github_app_configurations
 # Database name: primary
 #
-#  id                         :integer          not null, primary key
-#  app_slug                   :string           not null
-#  client_secret              :text             not null
-#  credential_revision        :bigint           default(1), not null
-#  installation_checked_at    :datetime
-#  installation_state         :string           default("not_installed"), not null
-#  installed_at               :datetime
-#  lock_version               :integer          default(0), not null
-#  owner_login                :string           not null
-#  owner_type                 :string           not null
-#  previous_webhook_secret    :text
-#  private_key                :text             not null
-#  singleton_key              :integer          default(1), not null
-#  suspended_at               :datetime
-#  webhook_request_expires_at :datetime
-#  webhook_request_token      :string
-#  webhook_rotation_state     :string           default("idle"), not null
-#  webhook_secret             :text             not null
-#  webhook_secret_rotated_at  :datetime
-#  created_at                 :datetime         not null
-#  updated_at                 :datetime         not null
-#  client_id                  :string           not null
-#  github_app_id              :bigint           not null
-#  installation_id            :bigint
-#  owner_github_id            :bigint           not null
+#  id                             :integer          not null, primary key
+#  app_slug                       :string           not null
+#  client_secret                  :text             not null
+#  credential_revision            :bigint           default(1), not null
+#  installation_checked_at        :datetime
+#  installation_state             :string           default("not_installed"), not null
+#  installed_at                   :datetime
+#  lock_version                   :integer          default(0), not null
+#  owner_login                    :string           not null
+#  owner_type                     :string           not null
+#  previous_webhook_secret        :text
+#  private_key                    :text             not null
+#  singleton_key                  :integer          default(1), not null
+#  suspended_at                   :datetime
+#  webhook_request_expires_at     :datetime
+#  webhook_request_token          :string
+#  webhook_rotation_state         :string           default("idle"), not null
+#  webhook_secret                 :text             not null
+#  webhook_secret_rotated_at      :datetime
+#  created_at                     :datetime         not null
+#  updated_at                     :datetime         not null
+#  client_id                      :string           not null
+#  github_app_id                  :bigint           not null
+#  installation_account_github_id :bigint
+#  installation_id                :bigint
+#  owner_github_id                :bigint           not null
 #
 # Indexes
 #
@@ -35,6 +36,7 @@
 #
 # Check Constraints
 #
+#  github_app_configurations_installation_account      ((installation_id IS NULL AND installation_account_github_id IS NULL) OR (installation_id IS NOT NULL AND installation_account_github_id IS NOT NULL AND installation_account_github_id > 0))
 #  github_app_configurations_installation_identity     ((installation_state = 'not_installed' AND installation_id IS NULL) OR (installation_state <> 'not_installed' AND installation_id IS NOT NULL))
 #  github_app_configurations_installation_state        (installation_state IN ('not_installed', 'active', 'suspended', 'removed'))
 #  github_app_configurations_owner_type                (owner_type IN ('Organization', 'User'))
@@ -62,6 +64,7 @@ class GithubAppConfiguration < ApplicationRecord
     :webhook_secret, presence: true
   validates :github_app_id, :owner_github_id, numericality: { only_integer: true, greater_than: 0 }
   validates :installation_id, numericality: { only_integer: true, greater_than: 0 }, allow_nil: true
+  validates :installation_account_github_id, numericality: { only_integer: true, greater_than: 0 }, allow_nil: true
   validates :installation_state, inclusion: { in: INSTALLATION_STATES }
   validates :owner_type, inclusion: { in: OWNER_TYPES }
   validates :singleton_key, inclusion: { in: [ 1 ] }, uniqueness: true
@@ -72,6 +75,7 @@ class GithubAppConfiguration < ApplicationRecord
   has_object :diagnostics
   has_object :installation
   has_object :oauth
+  has_object :ownership
   has_object :repositories
   has_object :recovery
   has_object :rotator
@@ -129,9 +133,18 @@ class GithubAppConfiguration < ApplicationRecord
   def synchronize_repositories!
     return if LocalDevelopment.enabled?
 
-    return repositories.remove_all! if installation_id.nil?
+    ownership.refresh!
+    installation.synchronize!
+  end
 
-    installation.reconcile!(installation_id)
+  # Prevents work for a previous owner or installation from restoring repository access.
+  def with_installation!
+    identity = attributes.slice("owner_github_id", "installation_id", "installation_state")
+    self.class.with_credentials!(**credential_snapshot) do
+      raise Superseded if !self.class.uncached { self.class.where(id:, **identity).exists? }
+
+      yield
+    end
   end
 
   # Polls GitHub for current prototype branch heads.
@@ -159,5 +172,7 @@ class GithubAppConfiguration < ApplicationRecord
   def installation_identity_matches_state
     valid = installation_state == "not_installed" ? installation_id.nil? : installation_id.present?
     errors.add(:installation_id, "does not match installation state") if !valid
+    valid_account = installation_id.nil? ? installation_account_github_id.nil? : installation_account_github_id.present?
+    errors.add(:installation_account_github_id, "does not match installation") if !valid_account
   end
 end
