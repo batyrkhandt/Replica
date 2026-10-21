@@ -294,6 +294,22 @@ class GalleryTest < ActionDispatch::IntegrationTest
     assert_not history.key?("reviewCommentsPath")
     assert_equal %w[detailsLabel detailsPath number], history.fetch("selectedBuild").keys.sort
 
+    get repository_prototype_path(repository.github_id, prototype, build: successful.number),
+      headers: { "Accept" => "application/json" }
+    pinned_review = JSON.parse(response.body).fetch("data")
+    pinned_history_path = repository_prototype_builds_path \
+      repository.github_id,
+      prototype,
+      build: successful.number
+    assert_equal pinned_history_path, pinned_review.fetch("historyPath")
+
+    get pinned_history_path, headers: { "Accept" => "application/json" }
+    pinned_history = JSON.parse(response.body).fetch("data")
+    assert_equal successful.number, pinned_history.fetch("selectedBuild").fetch("number")
+    assert_equal \
+      repository_prototype_path(repository.github_id, prototype, build: successful.number),
+      pinned_history.fetch("closePath")
+
     get repository_prototype_build_path(repository.github_id, prototype, successful.number),
       headers: { "Accept" => "application/json" }
 
@@ -744,36 +760,34 @@ class GalleryTest < ActionDispatch::IntegrationTest
 
   test "paginates build history without shifting when a build is discovered" do
     repository, prototype = sign_in_and_create_prototype
-    26.times do |index|
+    selected = build_with_state(prototype, 1, "successful", "a", Time.current)
+    25.times do |index|
       builds.create \
         prototype:,
-        number: index + 1,
-        commit_sha: index.to_s(16).rjust(40, "0")
+        number: index + 2,
+        commit_sha: (index + 1).to_s(16).rjust(40, "0")
     end
 
-    get repository_prototype_builds_path(repository.github_id, prototype),
+    get repository_prototype_builds_path(repository.github_id, prototype, build: selected.number),
       headers: { "Accept" => "application/json" }
 
     assert_response :success
     assert_includes response.body, "build 26"
-    assert_not_includes JSON.parse(response.body).fetch("data").fetch("builds").pluck("number"), 1
+    first_page = JSON.parse(response.body).fetch("data")
+    assert_not_includes first_page.fetch("builds").pluck("number"), 1
     assert_includes response.body, "Older builds"
+    next_page_path = first_page.fetch("nextPagePath")
+    assert_includes next_page_path, "build=#{selected.number}"
 
     builds.create(prototype:, number: 27, commit_sha: "f" * 40)
-    cursor = prototype.builds.find_by!(number: 2)
-    get \
-      repository_prototype_builds_path(
-        repository.github_id,
-        prototype,
-        before: cursor.number,
-        before_at: cursor.chronological_at.iso8601(6)
-      ),
-      headers: { "Accept" => "application/json" }
+    get next_page_path, headers: { "Accept" => "application/json" }
 
     assert_response :success
-    assert_includes JSON.parse(response.body).fetch("data").fetch("builds").pluck("number"), 1
+    next_page = JSON.parse(response.body).fetch("data")
+    assert_includes next_page.fetch("builds").pluck("number"), 1
     assert_includes response.body, "Newest builds"
-    assert_not_includes JSON.parse(response.body).fetch("data").fetch("builds").pluck("number"), 27
+    assert_includes next_page.fetch("newestPagePath"), "build=#{selected.number}"
+    assert_not_includes next_page.fetch("builds").pluck("number"), 27
   end
 
   test "rejects malformed build-history cursors" do

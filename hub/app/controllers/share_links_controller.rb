@@ -6,6 +6,7 @@ class ShareLinksController < SuperglueController
   before_action :load_share_link_context
   before_action :require_public_sharing, only: %i[create destroy]
   before_action :validate_control_parameters, only: [ :create, :destroy ]
+  before_action :validate_management_build, only: %i[create destroy]
 
   rescue_from GithubClient::Error, with: :repository_unavailable
   rescue_from SharingSetting::Disabled, SharingSetting::Changed, with: :public_sharing_disabled
@@ -79,20 +80,19 @@ class ShareLinksController < SuperglueController
 
   # Returns to the same default or explicitly selected management view.
   def management_path
-    build_number = management_build_number
     repository_prototype_share_links_path \
       @repository.route_id,
       @prototype,
       **@control_parameters,
-      **(build_number ? { build: build_number } : {})
+      **(@management_build_number ? { build: @management_build_number } : {})
   end
 
-  def management_build_number
+  def validate_management_build
     value = params[:management_build]
     return if value.nil?
 
     number = positive_build_number(value)
-    @prototype.builds.where(state: "successful").find_by!(number:).number
+    @management_build_number = @prototype.builds.where(state: "successful").find_by!(number:).number
   end
 
   def validate_control_parameters

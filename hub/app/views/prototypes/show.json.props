@@ -61,7 +61,10 @@ json.prototypeName @prototype.name.presence || @prototype.branch_name
 json.prototypeDescription @prototype.description
 json.showPrototypeInfo @show_prototype_info
 json.historyLabel t("prototypes.show.history")
-json.historyPath repository_prototype_builds_path(@repository.route_id, @prototype)
+json.historyPath repository_prototype_builds_path \
+  @repository.route_id,
+  @prototype,
+  **(params.key?(:build) ? { build: @selected_build.number } : {})
 json.moreActionsLabel t("prototypes.show.more_actions")
 json.openInNewTabLabel t("prototypes.show.open_in_new_tab")
 json.minimizeHubLabel t("prototypes.show.minimize_hub")

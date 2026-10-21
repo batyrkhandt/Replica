@@ -318,6 +318,31 @@ class ShareLinksTest < ActionDispatch::IntegrationTest
     assert_response :not_found
   end
 
+  test "rejects invalid management Builds before creating or deleting links" do
+    queued = builds.create \
+      prototype: @prototype,
+      number: 2,
+      commit_sha: "b" * 40
+    link = create_share_link(label: "Retained")
+
+    [ "0", "999", queued.number ].each do |management_build|
+      assert_no_difference "ShareLink.count" do
+        post @path, params: {
+          management_build:,
+          share_link: { build_number: @build.number, label: "Rejected #{management_build}" }
+        }
+      end
+      assert_response :not_found
+
+      assert_no_difference "ShareLink.count" do
+        delete repository_prototype_share_link_path(@repository.github_id, @prototype, link),
+          params: { management_build: }
+      end
+      assert_response :not_found
+      assert ShareLink.exists?(link.id)
+    end
+  end
+
   test "keeps validation failures on the browser management page" do
     [ { expiration: "invalid" }, { label: "" } ].each do |attributes|
       assert_no_difference "ShareLink.count" do
