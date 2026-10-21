@@ -84,7 +84,20 @@ export async function startCanvasServer(initialContext, session, options = {}) {
       connectionId,
     }
     if (!scope.viewerLogin) throw new Error("Hub did not identify the connected reviewer.")
-    const profile = await reviewerProfile.read(scope)
+    const identity = await readCanvasRepository(context)
+    const hubHostname = new URL(hub.origin).hostname
+    const local =
+      identity.local &&
+      identity.repository === scope.repository &&
+      (hubHostname === "localhost" ||
+        hubHostname === "127.0.0.1" ||
+        hubHostname.endsWith(".localhost"))
+    const profile = local
+      ? {
+          author: { login: scope.viewerLogin, name: null, avatarUrl: null },
+          error: null,
+        }
+      : await reviewerProfile.read(scope)
     if ((await hub.connectionKey(status.repository)) !== connectionId)
       throw httpError(409, "The Hub connection changed. Refresh before using local comments.")
     return { ...scope, author: profile.author, profileError: profile.error }

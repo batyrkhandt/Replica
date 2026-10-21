@@ -769,6 +769,123 @@ esac
     }
   })
 
+  it("warns about a mismatched CLI account without blocking login-only local comments", async () => {
+    await withContext(async (context) => {
+      const workspace = context.sessionWorkspacePath
+      execFileSync("git", ["remote", "add", "origin", "https://github.com/github/replica.git"], {
+        cwd: context.repositoryPath,
+      })
+      const bin = path.join(workspace, "bin")
+      await mkdir(bin)
+      await writeFile(
+        path.join(bin, "gh"),
+        `#!/bin/sh
+if [ "$*" = "api --hostname github.com user" ]; then
+  printf '%s\\n' '{"login":"another-reviewer","name":"Another Reviewer","avatar_url":"https://avatars.githubusercontent.com/u/1002"}'
+  exit 0
+fi
+exit 1
+`,
+        { mode: 0o755 },
+      )
+      const hubWrites = []
+      const hub = createServer((request, response) => {
+        request.resume()
+        response.setHeader("X-Replica-Canvas-Version", "1")
+        response.setHeader("Content-Type", "application/json")
+        if (request.method !== "GET") hubWrites.push(request.url)
+        if (request.url === "/api/canvas/pairings") {
+          response.end(
+            JSON.stringify({
+              deviceCode: "device",
+              userCode: "ABCD",
+              verificationUrl: `http://${request.headers.host}/canvas/pair/ABCD`,
+            }),
+          )
+        } else if (request.url === "/api/canvas/pairings/token") {
+          response.end(
+            JSON.stringify({
+              status: "approved",
+              repository: "github/replica",
+              accessToken: "rp_test",
+              expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            }),
+          )
+        } else if (request.url === "/api/canvas/connection") {
+          response.end(JSON.stringify({ repository: "github/replica", viewerLogin: "octocat" }))
+        } else {
+          response.writeHead(404)
+          response.end(JSON.stringify({ error: "Hub has not discovered this branch." }))
+        }
+      })
+      await new Promise((resolve) => hub.listen(0, "127.0.0.1", resolve))
+      const originalPath = process.env.PATH
+      let canvas
+      try {
+        process.env.PATH = `${bin}:${originalPath}`
+        canvas = await startCanvasServer(
+          context,
+          { send() {} },
+          {
+            localCommentsDirectory: path.join(workspace, "local-comments"),
+            hubOptions: {
+              origin: `http://127.0.0.1:${hub.address().port}`,
+              directory: path.join(workspace, "credentials"),
+            },
+          },
+        )
+        const page = await (await fetch(canvas.url)).text()
+        const { token } = JSON.parse(page.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
+        async function send(route, method = "GET", body) {
+          const response = await fetch(new URL(route, canvas.url), {
+            method,
+            headers: { "X-Replica-Canvas-Token": token },
+            ...(body ? { body: JSON.stringify(body) } : {}),
+          })
+          return { status: response.status, body: await response.json() }
+        }
+        await send("/api/hub/pair", "POST", {})
+        assert.equal((await send("/api/hub/poll", "POST", {})).body.status, "approved")
+        const status = await send("/api/hub/status")
+        assert.equal(status.status, 200)
+        assert.equal(status.body.repository, "github/replica")
+        assert.equal(status.body.repositoryAuthorized, true)
+        assert.match(status.body.localCommentsError, /profile.*different reviewer/i)
+        assert.ok(status.body.reviewRevision.id > 0)
+        const beforeSave = hubWrites.length
+        const posted = await send("/api/hub/comments", "POST", {
+          review_revision: status.body.reviewRevision,
+          review_comment: {
+            body: "Keep reviewing without a profile photo",
+            anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
+          },
+        })
+        assert.equal(posted.status, 201, JSON.stringify(posted.body))
+        assert.deepEqual(posted.body.comments[0].author, {
+          login: "octocat",
+          name: null,
+          avatarUrl: null,
+        })
+        const comments = (await send("/api/hub/comments")).body.comments
+        assert.equal(comments.length, 1)
+        assert.equal(comments[0].body, "Keep reviewing without a profile photo")
+        assert.equal(comments[0].draftRevisionId, status.body.reviewRevision.id)
+        assert.deepEqual(comments[0].author, {
+          login: "octocat",
+          name: null,
+          avatarUrl: null,
+        })
+        assert.equal(hubWrites.length, beforeSave)
+      } finally {
+        if (canvas) await canvas.close()
+        process.env.PATH = originalPath
+        await new Promise((resolve, reject) =>
+          hub.close((error) => (error ? reject(error) : resolve())),
+        )
+      }
+    })
+  })
+
   it("proxies only protected review actions for the current checkout", async () => {
     const workspace = path.join(process.cwd(), "storage/replica-extension-tests", randomUUID())
     await mkdir(workspace, { recursive: true })
