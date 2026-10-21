@@ -13,17 +13,17 @@ import {
   PUBLISH_RESULT_OUTCOMES,
   reportPublishResult,
 } from "../report-publish-result/index.mjs"
-import { normalizeHubOrigin } from "../hub-client/index.mjs"
+import { normalizeHubOrigin } from "../normalize-hub-origin/index.mjs"
 import { startCanvasServer } from "../start-canvas-server/index.mjs"
 import { agentCommands, MAX_RELOAD_ADDRESS_LENGTH } from "../agent-commands/index.mjs"
 import { startMissingPrototypeServer } from "../start-missing-prototype-server/index.mjs"
 import { commentActions } from "../comment-actions/index.mjs"
-import { createHubConnection } from "../hub-connection/index.mjs"
+import { createHubConnection } from "../create-hub-connection/index.mjs"
 import { createCommentStore } from "../comment-store/index.mjs"
 import { reviewAction } from "../review-action/index.mjs"
 import { projectValidation, validateControls } from "../validate-controls/index.mjs"
 import { projectControlsStatus } from "../controls-status/index.mjs"
-import { createLearningsHook } from "../recall-learnings/index.mjs"
+import { createLearningsHook } from "../create-learnings-hook/index.mjs"
 
 const HUB_STATES = new Set([
   "connected",
