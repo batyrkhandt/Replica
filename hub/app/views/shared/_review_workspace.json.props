@@ -28,10 +28,11 @@ json.historyLabel t("prototypes.show.history")
 json.historyPath repository_prototype_builds_path(@repository.route_id, @prototype)
 json.moreActionsLabel t("prototypes.show.more_actions")
 json.closeLabel t("prototypes.show.close")
+build_number = @selected_build.number if @selected_build && (@build || params.key?(:build))
 json.closePath repository_prototype_path \
   @repository.route_id,
   @prototype,
-  **(@selected_build ? { build: @selected_build.number } : {})
+  **(build_number ? { build: build_number } : {})
 json.useDarkThemeLabel t("prototypes.show.use_dark_theme")
 json.useLightThemeLabel t("prototypes.show.use_light_theme")
 
@@ -60,7 +61,7 @@ if @can_manage_share_links && @selected_build
   json.shareLinksPath repository_prototype_share_links_path \
     @repository.route_id,
     @prototype,
-    build: @selected_build.number
+    **(build_number ? { build: build_number } : {})
 end
 
 if @latest_build

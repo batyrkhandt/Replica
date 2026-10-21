@@ -55,10 +55,8 @@ json.repositoryPath repository_path(@repository.route_id)
 json.prototypeId @prototype.id
 json.controlsIdentity preview_controls_identity(@prototype, context: [ "authenticated", Current.user.id ])
 json.branchName @prototype.branch_name
-json.branchPath repository_prototype_path \
-  @repository.route_id,
-  @prototype,
-  **(@selected_build ? { build: @selected_build.number } : {})
+json.branchPath repository_prototype_path(@repository.route_id, @prototype)
+json.buildPinned params.key?(:build)
 json.prototypeName @prototype.name.presence || @prototype.branch_name
 json.prototypeDescription @prototype.description
 json.showPrototypeInfo @show_prototype_info
@@ -142,7 +140,7 @@ if @can_manage_share_links && @selected_build
   json.shareLinksPath repository_prototype_share_links_path \
     @repository.route_id,
     @prototype,
-    build: @selected_build.number
+    **(params.key?(:build) ? { build: @selected_build.number } : {})
 end
 
 json.reviewCommentsPath repository_prototype_review_comments_path(@repository.route_id, @prototype)

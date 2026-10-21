@@ -226,6 +226,15 @@ class ShareLinksTest < ActionDispatch::IntegrationTest
       number: 2,
       commit_sha: "b" * 40
 
+    get @path, headers: { "Accept" => "application/json" }
+
+    assert_response :success
+    data = JSON.parse(response.body).fetch("data")
+    assert_equal newer.number, data.fetch("selectedBuild").fetch("number")
+    assert_equal repository_prototype_path(@repository.github_id, @prototype), data.fetch("branchPath")
+    assert_equal data.fetch("branchPath"), data.fetch("closePath")
+    assert_equal @path, data.fetch("shareLinksPath")
+
     get @path, params: { build: older.number }, headers: { "Accept" => "application/json" }
 
     assert_response :success
@@ -236,9 +245,12 @@ class ShareLinksTest < ActionDispatch::IntegrationTest
     assert_equal older.number, data.fetch("selectedBuild").fetch("number")
     assert_equal I18n.t("share_links.index.build", number: older.number), data.fetch("form").fetch("buildLabel")
     assert_equal newer.number, data.fetch("latestBuild").fetch("number")
-    assert_equal repository_prototype_path(@repository.github_id, @prototype, build: older.number),
+    assert_equal \
+      repository_prototype_path(@repository.github_id, @prototype),
       data.fetch("branchPath")
-    assert_equal data.fetch("branchPath"), data.fetch("closePath")
+    assert_equal \
+      repository_prototype_path(@repository.github_id, @prototype, build: older.number),
+      data.fetch("closePath")
     assert_equal @path + "?build=#{older.number}", data.fetch("shareLinksPath")
     assert_equal %w[detailsLabel detailsPath number], data.fetch("selectedBuild").keys.sort
     assert_not data.key?("reviewComments")
