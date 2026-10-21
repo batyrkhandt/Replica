@@ -6,6 +6,7 @@ import { isDeepStrictEqual } from "node:util"
 
 import { createPrivateStore } from "../private-store/index.mjs"
 import { currentCanvasContext } from "../create-canvas-context/index.mjs"
+import { captureReviewRevision } from "../capture-review-revision/index.mjs"
 import { runCommand } from "../run-command/index.mjs"
 import { validateAnchor } from "../assets/review-anchor-validation.mjs"
 import { improvementBatchResult } from "../improvement-batch-result/index.mjs"
@@ -21,6 +22,8 @@ const statuses = new Set(["open", "sent", "ready", "resolved", "blocked"])
 const maximumCapture = 1_500_000
 const maximumNotes = 200
 const maximumStoreBytes = maximumNotes * (maximumCapture + 64_000) * 2
+const missingSourceMessage =
+  "This local improvement has no captured source. It cannot sync. Keep it locally or select its target again as a new improvement."
 
 function fail(message, statusCode = 422) {
   throw Object.assign(new Error(message), { statusCode })
@@ -43,6 +46,13 @@ function checkNote(note, owner) {
     Buffer.byteLength(note.body) > 10_000 ||
     !Number.isSafeInteger(note.revision) ||
     note.revision < 1 ||
+    (note.buildNumber !== undefined &&
+      (!Number.isSafeInteger(note.buildNumber) || note.buildNumber < 1)) ||
+    (note.source !== undefined &&
+      (!/^[0-9a-f]{40}$/.test(note.source?.treeSha) ||
+        !/^[0-9a-f]{40}$/.test(note.source?.commitSha) ||
+        typeof note.source?.clean !== "boolean" ||
+        !Number.isFinite(Date.parse(note.createdAt)))) ||
     (note.syncedRevision !== undefined &&
       (!Number.isSafeInteger(note.syncedRevision) ||
         note.syncedRevision < 1 ||
@@ -95,6 +105,7 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
     options.directory || path.join(os.homedir(), ".config", "replica", "improvement-notes")
   const store = createPrivateStore(directory)
   const profiles = new Map()
+  const captures = new Map()
 
   async function identity() {
     const context = await currentCanvasContext(getContext())
@@ -291,6 +302,16 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
   }
 
   return {
+    async capture() {
+      const { key, context } = await identity()
+      const source = await captureReviewRevision(context)
+      if ((await identity()).key !== key)
+        fail("The prototype branch changed while selecting a target. Try again.", 409)
+      const sourceId = randomUUID()
+      if (captures.size >= maximumNotes) captures.delete(captures.keys().next().value)
+      captures.set(sourceId, { identity: key, source })
+      return { identity: key, sourceId }
+    },
     async load() {
       const { key, context } = await identity()
       const record = await read(key)
@@ -371,6 +392,9 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
           if (record.notes.length >= maximumNotes)
             fail("This prototype has reached its 200-note storage limit.")
           const { anchor, body, capture = "" } = input
+          const selected = input.sourceId === undefined ? null : captures.get(input.sourceId)
+          if (input.sourceId !== undefined && selected?.identity !== input.identity)
+            fail("The selected source expired. Select the target again before saving.", 409)
           const note = checkNote({
             id: record.nextId++,
             localId: randomUUID(),
@@ -382,6 +406,8 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
             revision: 1,
             status: "open",
             sync: "local",
+            createdAt: new Date().toISOString(),
+            ...(selected ? { source: selected.source } : {}),
           })
           if (author) {
             if (profile?.owner) record.owner = profile.owner
@@ -399,6 +425,7 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
             rect: anchor.rect,
           })
           record.notes.push(note)
+          if (!selected) record.syncError = missingSourceMessage
           return
         }
         const note = record.notes.find((item) => item.id === input.id && !item.deleted)
@@ -539,6 +566,13 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
             if (item.kind !== "improvement_note" || item.author?.login !== owner.login)
               fail("Hub returned another author's improvement note.", 502)
             const existing = record.notes.find((note) => note.localId === item.localId)
+            if (existing?.buildNumber !== undefined && item.buildNumber !== existing.buildNumber)
+              fail("Hub returned a changed improvement Build.", 409)
+            if (existing?.syncedRevision && item.buildNumber !== undefined) {
+              if (!Number.isSafeInteger(item.buildNumber) || item.buildNumber < 1)
+                fail("Hub returned an invalid improvement Build.", 502)
+              existing.buildNumber = item.buildNumber
+            }
             if (existing && existing.sync !== "synced") continue
             if (existing && item.revision < existing.revision)
               fail("Hub returned an older improvement-note revision.", 409)
@@ -553,6 +587,7 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
                 author: item.thread?.originalAuthor ? owner.login : "local",
                 revision: item.revision,
                 syncedRevision: item.revision,
+                ...(item.buildNumber !== undefined ? { buildNumber: item.buildNumber } : {}),
                 body: item.body ?? existing?.body ?? "Deleted improvement note",
                 status: item.status,
                 anchor,
@@ -580,8 +615,50 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
           return
         }
         invalidateBatchRequests(record)
+        let publishedTree
         for (const note of record.notes.filter((item) => item.sync !== "synced")) {
           try {
+            if (note.buildNumber === undefined && !note.syncedRevision) {
+              if (note.deleted) continue
+              if (!note.source) {
+                record.syncError = missingSourceMessage
+                continue
+              }
+              const build = status.prototype.build
+              if (!build) {
+                record.syncError =
+                  "Improvements are saved locally until their captured source has a published Build."
+                continue
+              }
+              if (
+                !Number.isSafeInteger(build.number) ||
+                build.number < 1 ||
+                !/^[0-9a-f]{40}$/.test(build.commitSha) ||
+                !Number.isFinite(Date.parse(build.publishedAt))
+              )
+                fail("Hub did not return a valid published Build.", 502)
+              if (publishedTree === undefined) {
+                const tree = await runCommand(
+                  "git",
+                  ["rev-parse", `${build.commitSha}^{tree}`],
+                  context.repositoryPath,
+                )
+                if (!tree.ok)
+                  fail("Fetch the published Build commit to sync local improvements.", 409)
+                publishedTree = tree.stdout.trim()
+              }
+              if (
+                note.source.treeSha !== publishedTree ||
+                Date.parse(build.publishedAt) < Date.parse(note.createdAt)
+              ) {
+                record.syncError =
+                  "Improvements are saved locally until their captured source has a published Build."
+                continue
+              }
+              // Keep the selected Build on retries, even if the upload response is lost.
+              note.buildNumber = build.number
+              await store.write(`${input.identity}.json`, record)
+            }
             const result = await hub.request(base, {
               ...requestOptions,
               method: "POST",
@@ -589,6 +666,7 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
                 local_id: note.localId,
                 revision: note.revision,
                 previous_revision: note.syncedRevision ?? 0,
+                ...(note.buildNumber !== undefined ? { build_number: note.buildNumber } : {}),
                 body: note.body,
                 anchor: note.anchor,
                 status: note.status,
@@ -600,10 +678,14 @@ export function createImprovementNotes(getContext, session, getHub, options = {}
             if (
               result.localId !== note.localId ||
               result.revision !== note.revision ||
+              (note.buildNumber !== undefined && result.buildNumber !== note.buildNumber) ||
+              (result.buildNumber !== undefined &&
+                (!Number.isSafeInteger(result.buildNumber) || result.buildNumber < 1)) ||
               !isDeepStrictEqual(result.thread, note.deleted ? null : note.thread)
             )
               fail("Hub did not confirm the saved note revision.", 502)
             note.sync = "synced"
+            if (result.buildNumber !== undefined) note.buildNumber = result.buildNumber
             note.syncedRevision = note.revision
             if (note.author !== "local" || note.thread.originalAuthor) note.author = owner.login
           } catch (error) {

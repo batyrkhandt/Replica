@@ -431,6 +431,10 @@ async function routeRequest(
   }
 
   requireToken(request, token)
+  if (requestUrl.pathname === "/api/improvement-notes/capture" && request.method === "POST") {
+    sendJson(response, 200, await improvementNotes.capture())
+    return
+  }
   if (requestUrl.pathname === "/api/improvement-notes" && request.method === "GET") {
     sendJson(response, 200, await improvementNotes.load())
     return
