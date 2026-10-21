@@ -9,7 +9,7 @@ import { promisify } from "node:util"
 import { it, mock } from "node:test"
 
 import { createCanvasContext } from "../create-canvas-context/index.mjs"
-import { createHubClient } from "../hub-client/index.mjs"
+import { createHubClient } from "../create-hub-client/index.mjs"
 import * as improvementNotes from "./index.mjs"
 
 const { createImprovementNotes } = improvementNotes

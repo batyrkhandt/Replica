@@ -13,7 +13,7 @@ import { readState } from "../read-state/index.mjs"
 import { requestPublish } from "../request-publish/index.mjs"
 import { writeState } from "../write-state/index.mjs"
 import { createPrivateStore } from "../private-store/index.mjs"
-import { createHubOriginStore } from "../hub-origin-store/index.mjs"
+import { createHubOriginStore } from "../create-hub-origin-store/index.mjs"
 import { rankForRecall, renderRecall } from "../../../../packages/learning/src/recall.mjs"
 import {
   metadataUpdateAcknowledgement,

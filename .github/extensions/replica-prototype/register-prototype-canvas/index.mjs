@@ -13,18 +13,18 @@ import {
   PUBLISH_RESULT_OUTCOMES,
   reportPublishResult,
 } from "../report-publish-result/index.mjs"
-import { normalizeHubOrigin } from "../hub-client/index.mjs"
+import { normalizeHubOrigin } from "../normalize-hub-origin/index.mjs"
 import { startCanvasServer } from "../start-canvas-server/index.mjs"
 import { agentCommands, MAX_RELOAD_ADDRESS_LENGTH } from "../agent-commands/index.mjs"
 import { startMissingPrototypeServer } from "../start-missing-prototype-server/index.mjs"
 import { commentActions } from "../comment-actions/index.mjs"
-import { createHubConnection } from "../hub-connection/index.mjs"
+import { createHubConnection } from "../create-hub-connection/index.mjs"
 import { createCommentStore } from "../comment-store/index.mjs"
 import { reviewAction } from "../review-action/index.mjs"
 import { projectValidation, validateControls } from "../validate-controls/index.mjs"
 import { projectControlsStatus } from "../controls-status/index.mjs"
 import { improvementBatchResult } from "../improvement-batch-result/index.mjs"
-import { createLearningsHook } from "../recall-learnings/index.mjs"
+import { createLearningsHook } from "../create-learnings-hook/index.mjs"
 
 export { improvementBatchResult } from "../improvement-batch-result/index.mjs"
 
@@ -454,7 +454,9 @@ export async function registerPrototypeCanvas(
   const devServers = createDevServerManager({ discover })
 
   const session = await joinSession({
-    hooks: { onUserPromptSubmitted: createLearningsHook(canvasOptions.hubOptions) },
+    hooks: {
+      onUserPromptSubmitted: createLearningsHook(canvasOptions.hubOptions),
+    },
     canvases: [
       createCanvas({
         id: canvasOptions.id ?? "replica-prototype",
@@ -825,7 +827,10 @@ export async function registerPrototypeCanvas(
               required: ["outcome", "target"],
               properties: {
                 outcome: { type: "string", enum: PUBLISH_RESULT_OUTCOMES },
-                reason: { type: "string", maxLength: MAX_PUBLISH_RESULT_REASON_LENGTH },
+                reason: {
+                  type: "string",
+                  maxLength: MAX_PUBLISH_RESULT_REASON_LENGTH,
+                },
                 target: {
                   type: "object",
                   additionalProperties: true,
@@ -845,7 +850,10 @@ export async function registerPrototypeCanvas(
                     originFingerprint: { type: ["string", "null"] },
                     pushFingerprint: { type: ["string", "null"] },
                     canvasInstanceId: { type: "string" },
-                    mode: { type: "string", enum: ["commit-changes", "committed-only"] },
+                    mode: {
+                      type: "string",
+                      enum: ["commit-changes", "committed-only"],
+                    },
                   },
                 },
               },
@@ -928,7 +936,10 @@ export async function registerPrototypeCanvas(
           )
           const input = ctx.input?.prototypeUrl
             ? ctx.input
-            : { ...(existing?.input ?? (await connection.read())), ...ctx.input }
+            : {
+                ...(existing?.input ?? (await connection.read())),
+                ...ctx.input,
+              }
           let entry = existing
           if (!entry) {
             let devServer
