@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import path from "node:path"
 
 import { readRepositoryName } from "../read-repository-name/index.mjs"
+import { gitShaPattern } from "../identity-patterns/index.mjs"
 import { runCommand } from "../run-command/index.mjs"
 
 export async function createCanvasContext({
@@ -11,7 +12,6 @@ export async function createCanvasContext({
   branch,
   commitSha,
   publishedUrl,
-  improvementNotesDemo = false,
   improvementThreadsSample = false,
   sessionId,
   sessionWorkspacePath,
@@ -29,8 +29,6 @@ export async function createCanvasContext({
   }
 
   const normalizedUrl = normalizePrototypeUrl(prototypeUrl)
-  if (typeof improvementNotesDemo !== "boolean")
-    throw new Error("improvementNotesDemo must be a boolean.")
   if (typeof improvementThreadsSample !== "boolean")
     throw new Error("improvementThreadsSample must be a boolean.")
   const stateUrl = new URL(normalizedUrl)
@@ -68,7 +66,6 @@ export async function createCanvasContext({
     stateFile: path.join(stateDirectory, `${stateId}.json`),
     stateId,
     urlHost: new URL(normalizedUrl).host,
-    ...(improvementNotesDemo ? { improvementNotesDemo: true } : {}),
     ...(improvementThreadsSample ? { improvementThreadsSample: true } : {}),
   }
 }
@@ -96,7 +93,6 @@ export async function currentCanvasContext(context) {
     repository: currentRepository,
     branch: currentBranch,
     publishedUrl: context.target.publishedUrl,
-    improvementNotesDemo: context.improvementNotesDemo,
     improvementThreadsSample: context.improvementThreadsSample,
     sessionId: context.sessionId,
     sessionWorkspacePath: context.sessionWorkspacePath,
@@ -250,7 +246,7 @@ function normalizeCommitSha(value) {
   if (value == null) {
     return null
   }
-  if (typeof value !== "string" || !/^[0-9a-f]{40}$/.test(value)) {
+  if (typeof value !== "string" || !gitShaPattern.test(value)) {
     throw new Error("commitSha must be a full lowercase Git commit SHA.")
   }
 

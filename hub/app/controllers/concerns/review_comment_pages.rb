@@ -1,7 +1,6 @@
 # Shares pagination and serialization without selecting an authentication or prototype context.
 module ReviewCommentPages
   extend ActiveSupport::Concern
-  include ImprovementNotePages
 
   included do
     rescue_from ReviewComment::InvalidPagination, with: :invalid_pagination

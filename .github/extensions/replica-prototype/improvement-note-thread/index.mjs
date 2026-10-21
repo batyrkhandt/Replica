@@ -1,8 +1,14 @@
-import { createHash } from "node:crypto"
+import { githubLoginPattern, uuidPattern } from "../identity-patterns/index.mjs"
 
-export const maximumThreadBytes = 32_768
-const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/
-const workStatuses = new Set(["open", "sent", "ready", "blocked"])
+export const workStatuses = new Set(["open", "sent", "ready", "blocked"])
+
+export function validMessageBody(body, role) {
+  return (
+    typeof body === "string" &&
+    Boolean(body.trim()) &&
+    (role === "copilot" ? body.length <= 2000 : Buffer.byteLength(body) <= 10_000)
+  )
+}
 
 export function checkThread(thread, localId) {
   function invalid() {
@@ -12,19 +18,10 @@ export function checkThread(thread, localId) {
   }
   if (
     !thread ||
-    ![1, 2].includes(thread.version) ||
     !workStatuses.has(thread.originalStatus) ||
     !Array.isArray(thread.messages) ||
-    thread.messages.length > 100 ||
-    Buffer.byteLength(JSON.stringify(thread)) > maximumThreadBytes ||
     Object.keys(thread).some(
-      (key) =>
-        ![
-          "version",
-          "originalStatus",
-          "messages",
-          ...(thread.version === 2 ? ["originalAuthor"] : []),
-        ].includes(key),
+      (key) => !["originalStatus", "messages", "originalAuthor"].includes(key),
     )
   )
     invalid()
@@ -34,7 +31,7 @@ export function checkThread(thread, localId) {
       !Number.isSafeInteger(author.id) ||
       author.id < 1 ||
       typeof author.login !== "string" ||
-      !/^[a-z0-9][a-z0-9-]{0,38}$/i.test(author.login) ||
+      !githubLoginPattern.test(author.login) ||
       Object.keys(author).sort().join(",") !== "avatarUrl,id,login" ||
       (author.avatarUrl !== null &&
         (typeof author.avatarUrl !== "string" ||
@@ -55,22 +52,17 @@ export function checkThread(thread, localId) {
     if (
       !message ||
       typeof message.id !== "string" ||
-      !uuid.test(message.id) ||
+      !uuidPattern.test(message.id) ||
       ids.has(message.id) ||
-      typeof message.body !== "string" ||
-      !message.body.trim()
+      !validMessageBody(message.body, message.role)
     )
       invalid()
     ids.add(message.id)
     if (message.role === "author") {
       if (
         !workStatuses.has(message.status) ||
-        Buffer.byteLength(message.body) > 10_000 ||
         Object.keys(message).some(
-          (key) =>
-            !["id", "role", "body", "status", ...(thread.version === 2 ? ["author"] : [])].includes(
-              key,
-            ),
+          (key) => !["id", "role", "body", "status", "author"].includes(key),
         )
       )
         invalid()
@@ -79,7 +71,6 @@ export function checkThread(thread, localId) {
     } else if (message.role === "copilot") {
       if (
         !["ready", "blocked"].includes(message.status) ||
-        message.body.length > 2000 ||
         !Array.isArray(message.requestIds) ||
         !message.requestIds.length ||
         new Set(message.requestIds).size !== message.requestIds.length ||
@@ -92,24 +83,6 @@ export function checkThread(thread, localId) {
     } else invalid()
   }
   return thread
-}
-
-export function normalizeThread(note) {
-  if (note.thread !== undefined && note.thread !== null)
-    return checkThread(note.thread, note.localId)
-  const originalStatus = note.status === "resolved" ? "ready" : note.status
-  const messages = []
-  if (note.result) {
-    const hash = createHash("sha256").update(`${note.localId}:legacy-result`).digest("hex")
-    messages.push({
-      id: `${hash.slice(0, 8)}-${hash.slice(8, 12)}-${hash.slice(12, 16)}-${hash.slice(16, 20)}-${hash.slice(20, 32)}`,
-      role: "copilot",
-      body: note.result,
-      status: note.status === "blocked" ? "blocked" : "ready",
-      requestIds: [note.localId],
-    })
-  }
-  return checkThread({ version: 1, originalStatus, messages }, note.localId)
 }
 
 export function requestIds(note, status) {
@@ -128,29 +101,4 @@ export function updateRequests(note, ids, status) {
   }
   note.status =
     ["open", "sent", "blocked"].find((value) => requestIds(note, value).length) ?? "ready"
-}
-
-export function requireAnswerRoom(note) {
-  const pending = structuredClone(note)
-  const groups = ["sent", "open"]
-    .map((status) => requestIds(pending, status))
-    .filter((ids) => ids.length)
-  for (const ids of groups) {
-    updateRequests(pending, ids, "blocked")
-    pending.thread.messages.push({
-      id: "ffffffff-ffff-ffff-ffff-ffffffffffff",
-      role: "copilot",
-      body: "\u0000".repeat(2000),
-      status: "blocked",
-      requestIds: ids,
-    })
-  }
-  if (
-    pending.thread.messages.length > 100 ||
-    Buffer.byteLength(JSON.stringify(pending.thread)) > maximumThreadBytes
-  )
-    throw Object.assign(
-      new Error("This conversation is full. Add a new improvement to request further changes."),
-      { statusCode: 422 },
-    )
 }

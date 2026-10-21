@@ -332,10 +332,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_19_140000) do
     t.text "body"
     t.json "author_snapshot"
     t.json "anchor"
-    t.text "capture"
     t.integer "note_revision"
     t.string "note_status"
-    t.integer "thread_version"
     t.datetime "deleted_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
@@ -348,13 +346,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_19_140000) do
     t.index ["root_id", "position"], name: "index_improvement_comments_on_root_id_and_position", unique: true
     t.index ["user_id"], name: "index_improvement_comments_on_user_id"
     t.check_constraint "(role = 'author' AND status IN ('open', 'sent', 'ready', 'blocked')) OR (role = 'copilot' AND status IN ('ready', 'blocked') AND author_snapshot IS NULL)", name: "improvement_comments_role_status"
-    t.check_constraint "(root_id IS NULL AND position = 0 AND role = 'author' AND thread_key = local_id AND build_id IS NOT NULL AND anchor IS NOT NULL AND note_revision > 0 AND note_revision IS NOT NULL AND note_status IN ('open', 'sent', 'ready', 'resolved', 'blocked') AND note_status IS NOT NULL) OR (root_id IS NOT NULL AND root_id <> id AND position > 0 AND build_id IS NULL AND anchor IS NULL AND capture IS NULL AND note_revision IS NULL AND note_status IS NULL AND thread_version IS NULL)", name: "improvement_comments_shape"
+    t.check_constraint "(root_id IS NULL AND position = 0 AND role = 'author' AND thread_key = local_id AND build_id IS NOT NULL AND anchor IS NOT NULL AND note_revision > 0 AND note_revision IS NOT NULL AND note_status IN ('open', 'sent', 'ready', 'resolved', 'blocked') AND note_status IS NOT NULL) OR (root_id IS NOT NULL AND root_id <> id AND position > 0 AND build_id IS NULL AND anchor IS NULL AND note_revision IS NULL AND note_status IS NULL)", name: "improvement_comments_shape"
     t.check_constraint "CASE WHEN deleted_at IS NULL THEN body IS NOT NULL AND length(trim(body)) > 0 AND length(CAST(body AS BLOB)) <= 10000 ELSE body IS NULL AND author_snapshot IS NULL END", name: "improvement_comments_body"
     t.check_constraint "anchor IS NULL OR (json_valid(anchor) AND json_type(anchor) = 'object' AND length(CAST(anchor AS BLOB)) <= 16384)", name: "improvement_comments_anchor"
     t.check_constraint "author_snapshot IS NULL OR (json_valid(author_snapshot) AND json_type(author_snapshot) = 'object')", name: "improvement_comments_author"
-    t.check_constraint "capture IS NULL OR length(CAST(capture AS BLOB)) <= 1500000", name: "improvement_comments_capture"
     t.check_constraint "length(local_id) = 36 AND length(thread_key) = 36", name: "improvement_comments_local_id"
-    t.check_constraint "thread_version IS NULL OR thread_version IN (1, 2)", name: "improvement_comments_thread_version"
   end
 
   create_table "learning_runs", force: :cascade do |t|

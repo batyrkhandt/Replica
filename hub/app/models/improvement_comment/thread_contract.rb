@@ -1,36 +1,30 @@
-# Validates the wire conversation before saving its individual messages and response links.
+# Validates the conversation JSON received from the client before saving its messages and response links.
 class ImprovementComment::ThreadContract < ActiveRecord::AssociatedObject
-  VERSION = 2
-  MAXIMUM_BYTES = 32_768
-  MAXIMUM_MESSAGES = 100
-  WORK_STATUSES = %w[open sent ready blocked].freeze
-  UUID = /\A[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\z/
+  # Rejects malformed conversations or changes to saved history before any rows are written.
+  def validate!(thread, previous: record.note_thread)
+    validate_payload(thread)
+    validate_history(previous, thread) if previous && thread.is_a?(Hash)
+    raise ActiveRecord::RecordInvalid, record if record.errors.any?
+  end
 
-  # Checks the wire format, aggregate status and append-only history.
-  def validate_record
-    thread = record.note_thread
-    previous = record.note_thread_in_database
-    if record.persisted? && (previous.present? || !thread.nil?) && record.will_save_change_to_body? && record.deleted_at.nil?
-      record.errors.add(:body, "cannot change when saving a thread")
-    end
-    validate_history(previous, thread) if previous.present?
-    return if thread.nil?
+  private
+
+  # Requires one current shape and consistent request statuses.
+  def validate_payload(thread)
     return invalid("must be a JSON object") unless thread.is_a?(Hash)
-    return invalid("must be #{MAXIMUM_BYTES} UTF-8 bytes or fewer") if JSON.generate(thread).bytesize > MAXIMUM_BYTES
-    return invalid("version must be 1 or #{VERSION}") unless thread["version"].is_a?(Integer) && [ 1, VERSION ].include?(thread["version"])
-    fields = %w[messages originalStatus version]
-    fields << "originalAuthor" if thread["version"] == 2 && thread.key?("originalAuthor")
-    return invalid("thread fields do not match its version") unless thread.keys.sort == fields.sort
-    return unless !thread.key?("originalAuthor") || validate_author(thread["originalAuthor"])
-    return invalid("originalStatus must be a work status") unless WORK_STATUSES.include?(thread["originalStatus"])
+    fields = %w[messages originalStatus]
+    fields << "originalAuthor" if thread.key?("originalAuthor")
+    return invalid("thread fields must match the conversation shape") unless thread.keys.sort == fields.sort
+    return unless !thread.key?("originalAuthor") || record.message_contract.validate_author(thread["originalAuthor"])
+    return invalid("originalStatus must be a work status") unless ImprovementComment::MessageContract::WORK_STATUSES.include?(thread["originalStatus"])
 
     messages = thread["messages"]
-    return invalid("messages must be an array of at most #{MAXIMUM_MESSAGES} messages") unless messages.is_a?(Array) && messages.size <= MAXIMUM_MESSAGES
+    return invalid("messages must be an array") unless messages.is_a?(Array)
 
     ids = [ record.local_id ]
     requests = [ record.local_id ]
     messages.each do |message|
-      return unless validate_message(message, ids, requests, thread["version"])
+      return unless validate_message(message, ids, requests)
 
       ids << message["id"]
       requests << message["id"] if message["role"] == "author"
@@ -39,17 +33,10 @@ class ImprovementComment::ThreadContract < ActiveRecord::AssociatedObject
     aggregate = %w[open sent blocked ready].find { statuses.include?(_1) }
     expected = record.note_status == "resolved" && statuses.all?("ready") ? "resolved" : aggregate
     invalid("status must match its requests") unless record.note_status == expected
-  rescue JSON::GeneratorError, EncodingError
-    invalid("must contain valid UTF-8 text")
   end
 
-  private
-
-  # Keeps saved requests in order and allows only author status changes.
+  # Preserves saved order, text and established author snapshots.
   def validate_history(previous, thread)
-    return if record.deleted_at.present? && thread.nil?
-    return invalid("cannot be removed; upgrade the client to preserve this thread") unless thread.is_a?(Hash)
-    return invalid("author snapshots cannot be removed; upgrade the client") if previous["version"] == 2 && thread["version"] != 2
     if previous.key?("originalAuthor") && previous["originalAuthor"] != thread["originalAuthor"]
       return invalid("the original author snapshot cannot change")
     end
@@ -62,7 +49,7 @@ class ImprovementComment::ThreadContract < ActiveRecord::AssociatedObject
       current = messages[index]
       same = if old["role"] == "author" && current.is_a?(Hash)
         ignored = [ "status" ]
-        ignored << "author" if !old.key?("author") && thread["version"] == 2
+        ignored << "author" unless old.key?("author")
         old.except(*ignored) == current.except(*ignored)
       else
         old == current
@@ -71,8 +58,8 @@ class ImprovementComment::ThreadContract < ActiveRecord::AssociatedObject
     end
   end
 
-  # Checks one message and references only requests that precede it.
-  def validate_message(message, ids, requests, version)
+  # Limits agent answers to requests that already exist in this conversation.
+  def validate_message(message, ids, requests)
     return invalid("messages must be JSON objects") unless message.is_a?(Hash)
 
     role = message["role"]
@@ -80,21 +67,13 @@ class ImprovementComment::ThreadContract < ActiveRecord::AssociatedObject
 
     keys = %w[id role body status]
     keys << "requestIds" if role == "copilot"
-    keys << "author" if role == "author" && version == 2 && message.key?("author")
+    keys << "author" if role == "author" && message.key?("author")
     return invalid("message fields do not match its role") unless message.keys.sort == keys.sort
-    return invalid("message IDs must be unique UUIDs") unless message["id"].is_a?(String) && UUID.match?(message["id"]) && !ids.include?(message["id"])
+    return invalid("author must be a snapshot") if message.key?("author") && message["author"].nil?
+    return invalid("message IDs must be unique UUIDs") unless message["id"].is_a?(String) && ImprovementComment::UUID.match?(message["id"]) && !ids.include?(message["id"])
+    return unless record.message_contract.validate(role:, body: message["body"], status: message["status"], author: message["author"])
 
-    body = message["body"]
-    return invalid("message body must be nonblank text") unless body.is_a?(String) && body.valid_encoding? && body.present?
-
-    if role == "author"
-      return unless !message.key?("author") || validate_author(message["author"])
-      return invalid("author body must be 10000 UTF-8 bytes or fewer") if body.bytesize > ReviewComment::BODY_MAXIMUM_BYTES
-      return invalid("author status must be a work status") unless WORK_STATUSES.include?(message["status"])
-    else
-      return invalid("copilot body must be 2000 UTF-16 code units or fewer") if body.encode(Encoding::UTF_16LE).bytesize > 4_000
-      return invalid("copilot status must be ready or blocked") unless %w[ready blocked].include?(message["status"])
-
+    if role == "copilot"
       references = message["requestIds"]
       unless references.is_a?(Array) && references.any? && references.uniq == references && references.all? { requests.include?(_1) }
         return invalid("requestIds must uniquely reference the original or preceding author messages")
@@ -103,26 +82,7 @@ class ImprovementComment::ThreadContract < ActiveRecord::AssociatedObject
     true
   end
 
-  # Restricts snapshots to the note owner and supported GitHub avatar origin.
-  def validate_author(author)
-    unless author.is_a?(Hash) && author.keys.sort == %w[avatarUrl id login] &&
-        author["id"].is_a?(Integer) && author["id"] == record.user_id &&
-        author["login"].is_a?(String) && /\A[a-z0-9][a-z0-9_-]{0,38}\z/i.match?(author["login"])
-      return invalid("author snapshots must identify this note's owner")
-    end
-    avatar = author["avatarUrl"]
-    return true if avatar.nil?
-    return invalid("author avatar must be a supported GitHub URL") unless avatar.is_a?(String) && avatar.length <= 2048
-
-    url = URI.parse(avatar)
-    return invalid("author avatar must be a supported GitHub URL") unless url.scheme == "https" && url.host == "avatars.githubusercontent.com" && url.userinfo.nil? && url.port == 443
-
-    true
-  rescue URI::InvalidURIError
-    invalid("author avatar must be a supported GitHub URL")
-  end
-
-  # Adds a field-specific error and stops validation of an invalid shape.
+  # Reports malformed conversation data on its input field.
   def invalid(message)
     record.errors.add(:note_thread, message)
     false

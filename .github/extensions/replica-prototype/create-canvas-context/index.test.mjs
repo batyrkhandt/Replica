@@ -35,28 +35,6 @@ describe("createCanvasContext()", () => {
     })
   })
 
-  it("keeps the demo opt-in through checkout refresh without changing the prototype identity", async () => {
-    await withContext(async (fixture) => {
-      const input = { ...base, ...paths(fixture) }
-      const ordinary = await createCanvasContext(input)
-      const demo = await createCanvasContext({
-        ...input,
-        improvementNotesDemo: true,
-      })
-      assert.equal(ordinary.improvementNotesDemo, undefined)
-      assert.equal(demo.improvementNotesDemo, true)
-      assert.equal(demo.stateId, ordinary.stateId)
-      execFileSync("git", ["checkout", "-qb", "another"], {
-        cwd: fixture.repositoryPath,
-      })
-      assert.equal((await currentCanvasContext(demo)).improvementNotesDemo, true)
-      await assert.rejects(
-        createCanvasContext({ ...input, improvementNotesDemo: "true" }),
-        /must be a boolean/,
-      )
-    })
-  })
-
   it("normalizes the URL and retains explicit target metadata", async () => {
     await withContext(async (fixture) => {
       const input = { ...base, ...paths(fixture) }

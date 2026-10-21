@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import path from "node:path"
 
 import { runCommand } from "../run-command/index.mjs"
+import { gitShaPattern } from "../identity-patterns/index.mjs"
 
 export async function captureReviewRevision(context) {
   const gitDirectory = await runCommand(
@@ -31,7 +32,7 @@ export async function captureReviewRevision(context) {
     const head = (await git(["rev-parse", "HEAD"])).stdout.trim()
     const branch = (await git(["branch", "--show-current"])).stdout.trim()
     const headTree = (await git(["rev-parse", "HEAD^{tree}"])).stdout.trim()
-    if (!/^[0-9a-f]{40}$/.test(head) || !branch)
+    if (!gitShaPattern.test(head) || !branch)
       throw new Error("Open a committed, named branch before commenting.")
     await git(["read-tree", head])
     const files = (
@@ -88,7 +89,7 @@ export async function captureReviewRevision(context) {
     const untracked = (await git(["ls-files", "--others", "--exclude-standard"])).stdout
     if (currentHead !== head || currentBranch !== branch || !remaining.ok || untracked)
       throw new Error("The checkout changed while capturing this review revision. Try again.")
-    if (!/^[0-9a-f]{40}$/.test(treeSha))
+    if (!gitShaPattern.test(treeSha))
       throw new Error("Could not verify the local review source tree.")
     return { treeSha, commitSha: head, clean: treeSha === headTree }
   } finally {

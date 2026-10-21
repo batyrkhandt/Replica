@@ -21,20 +21,48 @@ class ImprovementCommentTest < ActiveSupport::TestCase
     assert_equal root.id, link.reload.request_id
   end
 
+  test "Copilot answers allow exactly 2000 UTF-16 units without partial writes on overflow" do
+    root = create_note
+    input = {
+      local_id: root.local_id, revision: 2, previous_revision: 1, build_number: root.build.number,
+      body: root.body, status: "open", deleted: false, anchor: root.anchor, thread: root.note_thread
+    }
+    input[:thread]["messages"] << {
+      "id" => SecureRandom.uuid, "role" => "copilot", "body" => "😀" * 1000,
+      "status" => "ready", "requestIds" => [ root.local_id ]
+    }
+    ImprovementComment.synchronize!(prototype: root.prototype, user: root.user, attributes: input)
+    assert_equal "😀" * 1000, root.reload.note_thread.fetch("messages").last.fetch("body")
+    input.merge!(revision: 3, previous_revision: 2)
+    overflow = input[:thread]["messages"].last.merge \
+      "id" => SecureRandom.uuid, "body" => "😀" * 1000 + "x"
+    input[:thread]["messages"] << overflow
+
+    assert_no_difference [ "ImprovementComment.count", "ImprovementCommentReply.count" ] do
+      assert_raises(ActiveRecord::RecordInvalid) do
+        ImprovementComment.synchronize!(prototype: root.prototype, user: root.user, attributes: input)
+      end
+    end
+    assert_equal 2, root.reload.note_revision
+  end
+
   private
 
   def create_note(prototype: prototypes.create, user: users.create)
     local_id = SecureRandom.uuid
     build = prototype.builds.first || builds.create_successful(prototype:)
-    ImprovementComment.create! \
-      prototype:, build:, user:, local_id:, note_revision: 1, note_status: "open",
-      body: "Original request", anchor: valid_anchor,
-      note_thread: {
-        "version" => 1, "originalStatus" => "open",
-        "messages" => [
-          { "id" => SecureRandom.uuid, "role" => "author", "body" => "Follow-up request", "status" => "open" },
-          { "id" => SecureRandom.uuid, "role" => "copilot", "body" => "Saved answer", "status" => "ready", "requestIds" => [ local_id ] }
-        ]
+    ImprovementComment.synchronize! \
+      prototype:, user:,
+      attributes: {
+        local_id:, build_number: build.number, revision: 1, previous_revision: 0,
+        body: "Original request", status: "open", deleted: false, anchor: valid_anchor,
+        thread: {
+          "originalStatus" => "open",
+          "messages" => [
+            { "id" => SecureRandom.uuid, "role" => "author", "body" => "Follow-up request", "status" => "open" },
+            { "id" => SecureRandom.uuid, "role" => "copilot", "body" => "Saved answer", "status" => "ready", "requestIds" => [ local_id ] }
+          ]
+        }
       }
   end
 
